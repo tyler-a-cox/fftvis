@@ -15,7 +15,6 @@ setup(
     install_requires=[
         "numpy",
         "matvis",
-        "hera_cal",
         "finufft",
     ],
     python_requires=">=3.9",
