@@ -5,6 +5,7 @@ import numpy as np
 from typing import Callable
 
 from hera_cal import redcal
+from matvis import conversions
 
 
 def _validate_inputs(
@@ -22,18 +23,21 @@ def _evaluate_beam(
     beam: Callable,
     tx: np.ndarray,
     ty: np.ndarray,
-    polarized: bool,
     freqs: np.ndarray,
 ):
-    pass
+    # Primary beam pattern using direct interpolation of UVBeam object
+    az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+    beam_vals = beam.interp(az, za, freqs)[0][0, 1]
+    return beam_vals**2
 
 
-def simulate(
+def simulate_cpu(
     antpos: dict,
     freqs: np.ndarray,
     sources: np.ndarray,
     beam: Callable,
     crd_eq: np.ndarray,
+    eq2tops: np.ndarray,
     precision: int = 1,
     polarized: bool = False,
     use_redundancy: bool = True,
