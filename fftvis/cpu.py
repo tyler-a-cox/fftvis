@@ -124,14 +124,14 @@ def _validate_inputs(
 
 
 def _evaluate_beam(
-    beam: Callable,
+    beam,
     tx: np.ndarray,
     ty: np.ndarray,
     freqs: np.ndarray,
 ):
     # Primary beam pattern using direct interpolation of UVBeam object
     az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
-    beam_vals = beam.interp(az, za, freqs)[0][0, 1]
+    beam_vals = beam.interp(az, za, freqs)[0][0, 1].T
     return beam_vals**2
 
 
@@ -139,7 +139,7 @@ def simulate_cpu(
     antpos: dict,
     freqs: np.ndarray,
     sources: np.ndarray,
-    beam: Callable,
+    beam,
     crd_eq: np.ndarray,
     eq2tops: np.ndarray,
     precision: int = 1,
@@ -176,7 +176,7 @@ def simulate_cpu(
 
     if precision == 1:
         real_dtype = np.float32
-        complex_dtype = np.complex128
+        complex_dtype = np.complex64
     else:
         real_dtype = np.float64
         complex_dtype = np.complex128
@@ -192,10 +192,12 @@ def simulate_cpu(
     # Convert to correct precision
     crd_eq = crd_eq.astype(real_dtype)
     eq2tops = eq2tops.astype(real_dtype)
-    Isky = (0.5 * sources).astype(real_dtype)
+    Isky = (0.5 * sources).astype(complex_dtype)
 
     # Compute coordinates
-    blx, bly = np.array([antpos[bl[1]] - antpos[bl[0]] for bl in baselines])[:, :2].T
+    blx, bly = np.array([antpos[bl[1]] - antpos[bl[0]] / 2.998e8 for bl in baselines])[
+        :, :2
+    ].T.astype(real_dtype)
 
     # Zero arrays:
     vis = np.full((nants, nants, ntimes, nfreqs), 0, dtype=complex_dtype)
@@ -210,12 +212,25 @@ def simulate_cpu(
         ty = ty[above_horizon]
 
         # Compute the beam sky product
-        i_sky = Isky[above_horizon] * _evaluate_beam(beam, tx, ty, freqs)
+        i_sky = (Isky[above_horizon] * _evaluate_beam(beam, tx, ty, freqs)).astype(
+            complex_dtype
+        )
 
         _vis = np.full((nbls, nfreqs), 0, dtype=complex_dtype)
-        for ni in enumerate(nfreqs):
+
+        # TODO: finufft2d3 is not vectorized over time
+        # TODO: finufft2d3 gives me warning if I don't use ascontiguousarray
+        for ni in range(nfreqs):
             u, v = blx * freqs[ni] / 2.998e8, bly * freqs[ni] / 2.998e8
-            _vis[:, ni] = finufft.nufft2d3(tx, ty, i_sky[:, ni], u, v)
+            _vis[:, ni] = finufft.nufft2d3(
+                2 * np.pi * ty,
+                2 * np.pi * tx,
+                np.ascontiguousarray(i_sky[:, ni]),
+                u,
+                v,
+                modeord=0,
+                eps=1e-6,
+            )
 
         if use_redundancy:
             for bi, bls in enumerate(baselines):
@@ -238,7 +253,7 @@ def simulate_basis(
     freqs: np.ndarray,
     basis_comps: np.ndarray,
     basis: np.ndarray,
-    beam: Callable,
+    beam,
     ra: np.ndarray,
     dec: np.ndarray,
     precision: int = 1,

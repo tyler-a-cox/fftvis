@@ -12,7 +12,7 @@ def simulate_vis(
     dec: np.ndarray,
     freqs: np.ndarray,
     lsts: np.ndarray,
-    beam: Callable,
+    beam,
     precision: int = 1,
     polarized: bool = False,
     latitude: float = -0.5361913261514378,
