@@ -112,26 +112,20 @@ def get_pos_reds(antpos, bl_error_tol=1.0, include_autos=False):
     ]
 
 
-def _validate_inputs(
-    precision: int,
-    polarized: bool,
-    antpos: dict,
-    eq2tops: np.ndarray,
-    crd_eq: np.ndarray,
-    Isky: np.ndarray,
-):
-    pass
-
-
 def _evaluate_beam(
     beam,
     tx: np.ndarray,
     ty: np.ndarray,
     freqs: np.ndarray,
 ):
+    kw = {
+        "reuse_spline": True,
+        "check_azza_domain": False,
+    }
     # Primary beam pattern using direct interpolation of UVBeam object
     az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
-    beam_vals = beam.interp(az, za, freqs)[0][0, 1].T
+    # beam_vals = beam.interp(az_array=az, za_array=za, freq_array=freqs, **kw)[0][0, 0].T
+    beam_vals = beam.interp(az_array=az, za_array=za, freq_array=freqs, **kw)[0][0, 1].T
     return beam_vals**2
 
 
@@ -147,6 +141,7 @@ def simulate_cpu(
     use_redundancy: bool = True,
     vectorize_times: bool = True,
     check: bool = False,
+    accuracy: float = 1e-6,
 ):
     """
     antpos : dict
@@ -185,6 +180,9 @@ def simulate_cpu(
     reds = get_pos_reds(antpos)
     baselines = [red[0] for red in reds]
     nbls = len(baselines)
+
+    # prepare beam
+    # beam = conversions.prepare_beam(beam)
 
     if use_redundancy:
         bl_to_red_map = {red[0]: np.array(red) for red in reds}
@@ -226,10 +224,10 @@ def simulate_cpu(
                 2 * np.pi * ty,
                 2 * np.pi * tx,
                 np.ascontiguousarray(i_sky[:, ni]),
-                u,
                 v,
+                u,
                 modeord=0,
-                eps=1e-6,
+                eps=accuracy,
             )
 
         if use_redundancy:

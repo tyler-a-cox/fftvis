@@ -17,6 +17,7 @@ def simulate_vis(
     polarized: bool = False,
     latitude: float = -0.5361913261514378,
     use_redundancy: bool = True,
+    accuracy: float = 1e-6,
 ):
     """
     antpos
@@ -37,4 +38,5 @@ def simulate_vis(
         precision=precision,
         polarized=polarized,
         use_redundancy=use_redundancy,
+        accuracy=accuracy,
     )
