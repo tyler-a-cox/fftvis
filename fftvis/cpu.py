@@ -6,6 +6,7 @@ from typing import Callable
 from matvis import conversions
 
 IDEALIZED_BL_TOL = 1e-8  # bl_error_tol for redcal.get_reds when using antenna positions calculated from reds
+speed_of_light = 299792458.0  # m/s
 
 
 def reverse_bl(bl):
@@ -193,7 +194,7 @@ def simulate_cpu(
     Isky = (0.5 * sources).astype(complex_dtype)
 
     # Compute coordinates
-    blx, bly = np.array([antpos[bl[1]] - antpos[bl[0]] / 2.998e8 for bl in baselines])[
+    blx, bly = np.array([antpos[bl[1]] - antpos[bl[0]] for bl in baselines])[
         :, :2
     ].T.astype(real_dtype)
 
@@ -219,7 +220,7 @@ def simulate_cpu(
         # TODO: finufft2d3 is not vectorized over time
         # TODO: finufft2d3 gives me warning if I don't use ascontiguousarray
         for ni in range(nfreqs):
-            u, v = blx * freqs[ni] / 2.998e8, bly * freqs[ni] / 2.998e8
+            u, v = blx * freqs[ni] / speed_of_light, bly * freqs[ni] / speed_of_light
             _vis[:, ni] = finufft.nufft2d3(
                 2 * np.pi * ty,
                 2 * np.pi * tx,
