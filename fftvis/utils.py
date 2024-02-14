@@ -1,5 +1,7 @@
 import numpy as np
 
+IDEALIZED_BL_TOL = 1e-8  # bl_error_tol for redcal.get_reds when using antenna positions calculated from reds
+speed_of_light = 299792458.0  # m/s
 
 def reverse_bl(bl):
     """Reverses a (i,j) or (i,j,pol) baseline key to make (j,i)
