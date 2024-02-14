@@ -9,7 +9,8 @@ def diameter_to_sigma(diameter, freqs):
     Find the sigma that gives a beam width similar to an Airy disk.
 
     Find the stddev of a gaussian with fwhm equal to that of
-    an Airy disk's main lobe for a given diameter.
+    an Airy disk's main lobe for a given diameter. Similar to the
+    `AnalyticBeam` class in pyuvsim, but in jax.
 
     Parameters
     ----------
@@ -32,10 +33,9 @@ def diameter_to_sigma(diameter, freqs):
     return jnp.arcsin(scalar * wavelengths / (jnp.pi * diameter)) * 2 / 2.355
 
 
-@jax.jit
 def gaussian_beam(freqs, diameter, spectral_index, ref_freq):
     """
-    A jax implementation of the AnalyticBeam class from pyuvsim.
+    A jax implementation of a gaussian beam.
 
     Parameters
     ----------
@@ -48,4 +48,57 @@ def gaussian_beam(freqs, diameter, spectral_index, ref_freq):
     ref_freq : float
         The reference frequency in Hz. Defaults to 1 GHz.
     """
-    pass
+    raise NotImplementedError("Gaussian beam not yet implemented.")
+
+
+def airy_beam(
+    az_array,
+    za_array,
+    freqs,
+    diameter,
+    spectral_index,
+    ref_freq,
+):
+    """
+    A jax implementation of the airy beam function.
+
+    Parameters
+    ----------
+    az_array : np.ndarray
+        Azimuth angle in radians.
+    za_array : np.ndarray
+        Zenith angle in radians.
+    freqs : np.ndarray
+        Frequencies in Hz.
+    ref_freq : float
+        The reference frequency in Hz. Defaults to 1 GHz.
+    """
+    raise NotImplementedError("Airy beam not yet implemented.")
+
+
+def interpolate_beam(
+    beam_vals,
+    az_array,
+    za_array,
+    freqs,
+    freq_interp_kind="cubic",
+):
+    """
+    Interpolate the beam values to the given frequencies.
+
+    Parameters
+    ----------
+    beam_vals : np.ndarray
+    az_array : np.ndarray
+        Azimuth angle in radians.
+    za_array : np.ndarray
+        Zenith angle in radians.
+    freqs : np.ndarray
+        Frequencies in Hz.
+
+    Returns
+    -------
+    beam_vals : array
+        The beam values at the given frequencies.
+    """
+    raise NotImplementedError("Interpolation not yet implemented.")
