@@ -1,5 +1,4 @@
 from . import cpu
-from . import gpu
 import numpy as np
 from typing import Callable
 from matvis import conversions
