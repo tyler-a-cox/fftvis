@@ -101,6 +101,7 @@ def simulate(
     beam,
     crd_eq: np.ndarray,
     eq2tops: np.ndarray,
+    baselines: list[tuple] = None,
     precision: int = 1,
     polarized: bool = False,
     use_redundancy: bool = True,
@@ -161,15 +162,20 @@ def simulate(
         complex_dtype = np.complex128
 
     # Get the redundant - TODO handle this better
-    reds = utils.get_pos_reds(antpos)
-    baselines = [red[0] for red in reds]
-    nbls = len(baselines)
+    if not baselines:
+        reds = utils.get_pos_reds(antpos)
+        baselines = [red[0] for red in reds]
+        nbls = len(baselines)
+        expand_vis = True
+    else:
+        nbls = len(baselines)
+        expand_vis = False
 
     # prepare beam
     # TODO: uncomment and test this when simulating multiple polarizations
     # beam = conversions.prepare_beam(beam)
 
-    if use_redundancy:
+    if use_redundancy and expand_vis:
         bl_to_red_map = {red[0]: np.array(red) for red in reds}
 
     # Convert to correct precision
@@ -183,7 +189,10 @@ def simulate(
     ].T.astype(real_dtype)
 
     # Generate visibility array
-    vis = np.full((nants, nants, ntimes, nfreqs), 0, dtype=complex_dtype)
+    if expand_vis:
+        vis = np.full((nants, nants, ntimes, nfreqs), 0, dtype=complex_dtype)
+    else:
+        vis = np.full((nbls, ntimes, nfreqs), 0, dtype=complex_dtype)
 
     # Loop over time samples
     for ti, eq2top in enumerate(eq2tops):
@@ -218,7 +227,7 @@ def simulate(
                 eps=accuracy,
             )
 
-        if use_redundancy:
+        if use_redundancy and expand_vis:
             for bi, bls in enumerate(baselines):
                 np.add.at(
                     vis,
@@ -230,6 +239,8 @@ def simulate(
                     (bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0], ti),
                     _vis[bi].conj(),
                 )
+        else:
+            vis[:, ti, :] = _vis
 
     return vis
 
