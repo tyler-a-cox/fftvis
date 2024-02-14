@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 from . import utils
-import numpy as np
-from typing import Callable
-from matvis import conversions
 
 import finufft
 import numpy as np
@@ -89,7 +86,6 @@ def _evaluate_beam(
     }
     # Primary beam pattern using direct interpolation of UVBeam object
     az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
-    # beam_vals = beam.interp(az_array=az, za_array=za, freq_array=freqs, **kw)[0][0, 0].T
     beam_vals = beam.interp(az_array=az, za_array=za, freq_array=freqs, **kw)[0][0, 1].T
     return beam_vals**2
 
@@ -105,7 +101,6 @@ def simulate(
     precision: int = 1,
     polarized: bool = False,
     use_redundancy: bool = True,
-    check: bool = False,
     accuracy: float = 1e-6,
 ):
     """
@@ -130,8 +125,6 @@ def simulate(
        - 2: float64, complex128
     use_redundancy : bool, default = True
         If True,
-    check : bool, default = False
-        If True, perform checks on the input data array prior to
     accuracy : float, default = 1e-6
         pass
 
@@ -141,18 +134,10 @@ def simulate(
 
     """
     # Check inputs are valid
-    if check:
-        nax, nfeeds, nants, ntimes = _validate_inputs(
-            precision, polarized, antpos, eq2tops, crd_eq, sources
-        )
-    else:
-        nax, nfeeds, nants, ntimes, nfreqs = (
-            1,
-            1,
-            len(antpos),
-            eq2tops.shape[0],
-            freqs.shape[0],
-        )
+    nfreqs = np.size(freqs)
+    nax, nfeeds, nants, ntimes = matvis._validate_inputs(
+        precision, polarized, antpos, eq2tops, crd_eq, sources
+    )
 
     if precision == 1:
         real_dtype = np.float32
