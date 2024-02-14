@@ -208,6 +208,7 @@ def simulate(
             complex_dtype
         )
 
+        # TODO: Can potentially simplify this
         _vis = np.full((nbls, nfreqs), 0, dtype=complex_dtype)
 
         # TODO: finufft2d3 is not vectorized over time
