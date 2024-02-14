@@ -79,16 +79,36 @@ def simulate(
     accuracy: float = 1e-6,
 ):
     """
+    Parameters:
+    ----------
     antpos : dict
         Dictionary of antenna positions
     freqs : np.ndarray
         Frequencies to evaluate visibilities at MHz.
+    sources : np.ndarray
+        asdf
+    beam : UVBeam
+        pass
+    crd_eq : np.ndarray
+        pass
+    eq2tops : np.ndarray
+        pass
     precision : int, optional
        Which precision level to use for floats and complex numbers
        Allowed values:
        - 1: float32, complex64
        - 2: float64, complex128
     use_redundancy : bool, default = True
+        If True,
+    check : bool, default = False
+        If True, perform checks on the input data array prior to
+    accuracy : float, default = 1e-6
+        pass
+        
+    Returns:
+    -------
+    vis : np.ndarray
+        
     """
     # Check inputs are valid
     if check:
@@ -117,6 +137,7 @@ def simulate(
     nbls = len(baselines)
 
     # prepare beam
+    # TODO: uncomment and test this when simulating multiple polarizations
     # beam = conversions.prepare_beam(beam)
 
     if use_redundancy:
@@ -132,7 +153,7 @@ def simulate(
         :, :2
     ].T.astype(real_dtype)
 
-    # Zero arrays:
+    # Generate visibility array
     vis = np.full((nants, nants, ntimes, nfreqs), 0, dtype=complex_dtype)
 
     # Loop over time samples
@@ -233,6 +254,7 @@ def simulate_basis(
     nants = len(antpos)
 
     # prepare beam
+    # TODO: add this when using multiple polarizations
     # beam = conversions.prepare_beam(beam)
 
     if use_redundancy:
@@ -248,7 +270,11 @@ def simulate_basis(
         :, :2
     ].T.astype(real_dtype)
 
-    # Zero arrays:
+    # Baseline coordinates
+    U, tF = np.meshgrid(blx / utils.speed_of_light, freqs)
+    V, _ = np.meshgrid(bly / utils.speed_of_light, freqs)
+
+    # zeroed visibility array
     vis = np.full((nants, nants, ntimes, nfreqs), 0, dtype=complex_dtype)
 
     # Loop over time samples
@@ -262,10 +288,6 @@ def simulate_basis(
         # Sky Coordinates
         tX, _eta = np.meshgrid(tx, eta)
         tY, _ = np.meshgrid(ty, eta)
-
-        # Baseline coordinates
-        U, tF = np.meshgrid(blx / utils.speed_of_light, freqs)
-        V, _ = np.meshgrid(bly / utils.speed_of_light, freqs)
 
         # Simulate
         _vis = finufft.nufft3d3(
