@@ -26,8 +26,37 @@ def simulate_vis(
     accuracy: float = 1e-6,
 ):
     """
-    antpos
-    freqs"""
+    Parameters:
+    ----------
+    antpos : dict
+        Dictionary of antenna positions
+    freqs : np.ndarray
+        Frequencies to evaluate visibilities at MHz.
+    sources : np.ndarray
+        asdf
+    beam : UVBeam
+        pass
+    crd_eq : np.ndarray
+        pass
+    eq2tops : np.ndarray
+        pass
+    precision : int, optional
+       Which precision level to use for floats and complex numbers
+       Allowed values:
+       - 1: float32, complex64
+       - 2: float64, complex128
+    use_redundancy : bool, default = True
+        If True,
+    check : bool, default = False
+        If True, perform checks on the input data array prior to
+    accuracy : float, default = 1e-6
+        pass
+
+    Returns:
+    -------
+    vis : np.ndarray
+
+    """
     # Source coordinate transform, from equatorial to Cartesian
     crd_eq = conversions.point_source_crd_eq(ra, dec)
 
@@ -104,11 +133,11 @@ def simulate(
         If True, perform checks on the input data array prior to
     accuracy : float, default = 1e-6
         pass
-        
+
     Returns:
     -------
     vis : np.ndarray
-        
+
     """
     # Check inputs are valid
     if check:
