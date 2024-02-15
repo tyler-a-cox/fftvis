@@ -318,12 +318,12 @@ def simulate_basis(
 
         # Simulate
         _vis = finufft.nufft3d3(
-            2 * np.pi * np.ravel(tY),
             2 * np.pi * np.ravel(tX),
+            2 * np.pi * np.ravel(tY),
             np.ravel(_eta),
             np.ravel(Isky[above_horizon]),
-            np.ravel(V * tF),
             np.ravel(U * tF),
+            np.ravel(V * tF),
             np.ravel(tF),
             modeord=0,
             eps=accuracy,
