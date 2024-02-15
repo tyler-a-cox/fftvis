@@ -17,10 +17,10 @@ def simulate_vis(
     freqs: np.ndarray,
     lsts: np.ndarray,
     beam,
+    baselines: list[tuple] = None,
     precision: int = 1,
     polarized: bool = False,
     latitude: float = -0.5361913261514378,
-    use_redundancy: bool = True,
     accuracy: float = 1e-6,
 ):
     """
@@ -68,9 +68,9 @@ def simulate_vis(
         beam=beam,
         crd_eq=crd_eq,
         eq2tops=eq2tops,
+        baselines=baselines,
         precision=precision,
         polarized=polarized,
-        use_redundancy=use_redundancy,
         accuracy=accuracy,
     )
 
@@ -101,8 +101,8 @@ def simulate(
     baselines: list[tuple] = None,
     precision: int = 1,
     polarized: bool = False,
-    use_redundancy: bool = True,
     accuracy: float = 1e-6,
+    use_feed: str = "x",
 ):
     """
     Parameters:
@@ -137,9 +137,18 @@ def simulate(
     """
     # Check inputs are valid
     nfreqs = np.size(freqs)
-    nax, nfeeds, nants, ntimes = matvis._validate_inputs(
-        precision, polarized, antpos, eq2tops, crd_eq, sources
-    )
+    # antvec = np.array(list(antpos.values()))
+
+    nants = len(antpos)
+    ntimes = len(eq2tops)
+
+    if polarized:
+        nax = nfeeds = 2
+    else:
+        nax = nfeeds = 1
+    # nax, nfeeds, nants, ntimes = matvis.cpu._validate_inputs(
+    #    precision, polarized, antvec, eq2tops, crd_eq, sources
+    # )
 
     if precision == 1:
         real_dtype = np.float32
@@ -161,7 +170,7 @@ def simulate(
 
     # prepare beam
     # TODO: uncomment and test this when simulating multiple polarizations
-    # beam = conversions.prepare_beam(beam)
+    beam = conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
 
     # Convert to correct precision
     crd_eq = crd_eq.astype(real_dtype)
@@ -177,9 +186,17 @@ def simulate(
 
     # Generate visibility array
     if expand_vis:
-        vis = np.zeros((nants, nants, ntimes, nfreqs), dtype=complex_dtype)
+        if polarized:
+            vis = np.zeros(
+                (ntimes, nfeeds, nfeeds, nants, nants, nfreqs), dtype=complex_dtype
+            )
+        else:
+            vis = np.zeros((ntimes, nants, nants, nfreqs), dtype=complex_dtype)
     else:
-        vis = np.zeros((nbls, ntimes, nfreqs), dtype=complex_dtype)
+        if polarized:
+            vis = np.zeros((ntimes, nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
+        else:
+            vis = np.zeros((ntimes, nbls, nfreqs), dtype=complex_dtype)
 
     # Loop over time samples
     for ti, eq2top in enumerate(eq2tops):
@@ -190,47 +207,67 @@ def simulate(
         tx = tx[above_horizon]
         ty = ty[above_horizon]
 
-        # Compute the beam sky product
-        i_sky = (Isky[above_horizon] * _evaluate_beam(beam, tx, ty, freqs)).astype(
-            complex_dtype
-        )
+        # Number of above horizon points
+        nsim_sources = above_horizon.sum()
 
         # TODO: Can potentially simplify this
-        _vis = np.zeros((nbls, nfreqs), dtype=complex_dtype)
+        if polarized:
+            _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
+        else:
+            _vis = np.zeros((nbls, nfreqs), dtype=complex_dtype)
 
         # TODO: finufft2d3 is not vectorized over time
         # TODO: finufft2d3 gives me warning if I don't use ascontiguousarray
-        for ni in range(nfreqs):
+        for fi in range(nfreqs):
+            # Compute uv coordinates
             u, v = (
-                blx * freqs[ni] / utils.speed_of_light,
-                bly * freqs[ni] / utils.speed_of_light,
+                blx * freqs[fi] / utils.speed_of_light,
+                bly * freqs[fi] / utils.speed_of_light,
             )
-            _vis[:, ni] = finufft.nufft2d3(
+
+            # Compute beams
+            # Compute the beam sky product - only single beam is supported
+            A_s = np.zeros((nax, nfeeds, 1, nsim_sources), dtype=complex_dtype)
+            A_s = matvis.cpu._evaluate_beam_cpu(
+                A_s, [beam], tx, ty, polarized, freqs[fi]
+            )[..., 0, :]
+            A_s.shape = (nax * nfeeds, nsim_sources)
+
+            # Compute sky beam product
+            i_sky = A_s * A_s.conj() * Isky[above_horizon, fi]
+
+            # Compute visibilities
+            v = finufft.nufft2d3(
                 2 * np.pi * tx,
                 2 * np.pi * ty,
-                np.ascontiguousarray(i_sky[:, ni]),
+                i_sky,
                 u,
                 v,
                 modeord=0,
                 eps=accuracy,
             )
 
+            if polarized:
+                _vis[..., fi] = v.reshape(nfeeds, nfeeds, nbls)
+            else:
+                _vis[..., fi] = v.flatten()
+
         if expand_vis:
             for bi, bls in enumerate(baselines):
                 np.add.at(
                     vis,
-                    (bl_to_red_map[bls][:, 0], bl_to_red_map[bls][:, 1], ti),
-                    _vis[bi],
+                    (ti, bl_to_red_map[bls][:, 0], bl_to_red_map[bls][:, 1]),
+                    _vis[..., bi, :],
                 )
                 np.add.at(
                     vis,
-                    (bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0], ti),
-                    _vis[bi].conj(),
+                    (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
+                    _vis[..., bi, :].conj(),
                 )
         else:
-            vis[:, ti, :] = _vis
+            vis[ti] = _vis
 
-    return vis
+    return np.moveaxis(vis, -1, 0)
 
 
 def simulate_basis(
@@ -256,9 +293,11 @@ def simulate_basis(
     """
     # Check inputs are valid
     nfreqs = np.size(freqs)
-    nax, nfeeds, nants, ntimes = matvis._validate_inputs(
-        precision, polarized, antpos, eq2tops, crd_eq, sources
-    )
+    # nax, nfeeds, nants, ntimes = matvis.cpu._validate_inputs(
+    #    precision, polarized, antpos, eq2tops, crd_eq, sources
+    # )
+    nants = len(antpos)
+    ntimes = len(eq2tops)
 
     if precision == 1:
         real_dtype = np.float32
