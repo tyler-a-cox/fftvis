@@ -206,11 +206,11 @@ def simulate(
                 bly * freqs[ni] / utils.speed_of_light,
             )
             _vis[:, ni] = finufft.nufft2d3(
-                2 * np.pi * ty,
                 2 * np.pi * tx,
+                2 * np.pi * ty,
                 np.ascontiguousarray(i_sky[:, ni]),
-                v,
                 u,
+                v,
                 modeord=0,
                 eps=accuracy,
             )
