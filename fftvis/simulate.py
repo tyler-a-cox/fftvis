@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from . import utils
 
+import matvis
 import finufft
 import numpy as np
 from typing import Callable
@@ -118,13 +119,14 @@ def simulate(
         pass
     eq2tops : np.ndarray
         pass
+    baselines : list of tuples, default = None
+        If provided, only the baselines within the list will be simulated and array of shape
+        (nbls, nfreqs, ntimes) will be returned
     precision : int, optional
-       Which precision level to use for floats and complex numbers
-       Allowed values:
-       - 1: float32, complex64
-       - 2: float64, complex128
-    use_redundancy : bool, default = True
-        If True,
+        Which precision level to use for floats and complex numbers
+        Allowed values:
+        - 1: float32, complex64
+        - 2: float64, complex128
     accuracy : float, default = 1e-6
         pass
 
@@ -151,6 +153,7 @@ def simulate(
         reds = utils.get_pos_reds(antpos)
         baselines = [red[0] for red in reds]
         nbls = len(baselines)
+        bl_to_red_map = {red[0]: np.array(red) for red in reds}
         expand_vis = True
     else:
         nbls = len(baselines)
@@ -160,24 +163,23 @@ def simulate(
     # TODO: uncomment and test this when simulating multiple polarizations
     # beam = conversions.prepare_beam(beam)
 
-    if use_redundancy and expand_vis:
-        bl_to_red_map = {red[0]: np.array(red) for red in reds}
-
     # Convert to correct precision
     crd_eq = crd_eq.astype(real_dtype)
     eq2tops = eq2tops.astype(real_dtype)
+
+    # Factor of 0.5 accounts for splitting Stokes between polarization channels
     Isky = (0.5 * sources).astype(complex_dtype)
 
-    # Compute coordinates
+    # Compute baseline vectors
     blx, bly = np.array([antpos[bl[1]] - antpos[bl[0]] for bl in baselines])[
         :, :2
     ].T.astype(real_dtype)
 
     # Generate visibility array
     if expand_vis:
-        vis = np.full((nants, nants, ntimes, nfreqs), 0, dtype=complex_dtype)
+        vis = np.zeros((nants, nants, ntimes, nfreqs), dtype=complex_dtype)
     else:
-        vis = np.full((nbls, ntimes, nfreqs), 0, dtype=complex_dtype)
+        vis = np.zeros((nbls, ntimes, nfreqs), dtype=complex_dtype)
 
     # Loop over time samples
     for ti, eq2top in enumerate(eq2tops):
@@ -194,7 +196,7 @@ def simulate(
         )
 
         # TODO: Can potentially simplify this
-        _vis = np.full((nbls, nfreqs), 0, dtype=complex_dtype)
+        _vis = np.zeros((nbls, nfreqs), dtype=complex_dtype)
 
         # TODO: finufft2d3 is not vectorized over time
         # TODO: finufft2d3 gives me warning if I don't use ascontiguousarray
@@ -213,7 +215,7 @@ def simulate(
                 eps=accuracy,
             )
 
-        if use_redundancy and expand_vis:
+        if expand_vis:
             for bi, bls in enumerate(baselines):
                 np.add.at(
                     vis,
@@ -238,11 +240,10 @@ def simulate_basis(
     sources: np.ndarray,
     crd_eq: np.ndarray,
     eq2tops: np.ndarray,
+    baselines: list[tuple] = None,
     precision: int = 1,
     polarized: bool = False,
-    check: bool = False,
     accuracy: float = 1e-6,
-    use_redundancy=True,
 ):
     """
     Simulate the sky using some basis as simulation
@@ -254,17 +255,10 @@ def simulate_basis(
         - 2: float64, complex128
     """
     # Check inputs are valid
-    if check:
-        nax, nfeeds, nants, ntimes = _validate_inputs(
-            precision, polarized, antpos, eq2tops, crd_eq, sources
-        )
-    else:
-        nax, nfeeds, ntimes, nfreqs = (
-            1,
-            1,
-            eq2tops.shape[0],
-            freqs.shape[-1],
-        )
+    nfreqs = np.size(freqs)
+    nax, nfeeds, nants, ntimes = matvis._validate_inputs(
+        precision, polarized, antpos, eq2tops, crd_eq, sources
+    )
 
     if precision == 1:
         real_dtype = np.float32
@@ -273,22 +267,26 @@ def simulate_basis(
         real_dtype = np.float64
         complex_dtype = np.complex128
 
-    # Get the redundant - TODO handle this better
-    reds = utils.get_pos_reds(antpos)
-    baselines = [red[0] for red in reds]
-    nbls = len(baselines)
-    nants = len(antpos)
-
     # prepare beam
     # TODO: add this when using multiple polarizations
     # beam = conversions.prepare_beam(beam)
 
-    if use_redundancy:
+    # Get the redundant - TODO handle this better
+    if not baselines:
+        reds = utils.get_pos_reds(antpos)
+        baselines = [red[0] for red in reds]
+        nbls = len(baselines)
         bl_to_red_map = {red[0]: np.array(red) for red in reds}
+        expand_vis = True
+    else:
+        nbls = len(baselines)
+        expand_vis = False
 
     # Convert to correct precision
     crd_eq = crd_eq.astype(real_dtype)
     eq2tops = eq2tops.astype(real_dtype)
+
+    # Factor of 0.5 accounts for splitting Stokes between polarization channels
     Isky = (0.5 * sources).astype(complex_dtype)
 
     # Compute coordinates
@@ -300,8 +298,11 @@ def simulate_basis(
     U, tF = np.meshgrid(blx / utils.speed_of_light, freqs)
     V, _ = np.meshgrid(bly / utils.speed_of_light, freqs)
 
-    # zeroed visibility array
-    vis = np.full((nants, nants, ntimes, nfreqs), 0, dtype=complex_dtype)
+    # output visibility array
+    if expand_vis:
+        vis = np.zeros((nants, nants, ntimes, nfreqs), dtype=complex_dtype)
+    else:
+        vis = np.zeros((nbls, ntimes, nfreqs), dtype=complex_dtype)
 
     # Loop over time samples
     for ti, eq2top in enumerate(eq2tops):
@@ -329,7 +330,7 @@ def simulate_basis(
         )
         _vis.shape = (nfreqs, nbls)
 
-        if use_redundancy:
+        if expand_vis:
             for bi, bls in enumerate(baselines):
                 np.add.at(
                     vis,
