@@ -1,1 +1,1 @@
-from . import beam, optimize, utils, simulate
+from . import beams, optimize, utils, simulate

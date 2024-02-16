@@ -16,6 +16,9 @@ setup(
         "numpy",
         "matvis",
         "finufft",
+        "pyuvdata",
+        "jax",
+        "jaxlib",
     ],
     python_requires=">=3.9",
     classifiers=[

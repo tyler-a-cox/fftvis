@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from . import utils
+from . import utils, beams
 
 import matvis
 import finufft
@@ -75,22 +75,6 @@ def simulate_vis(
     )
 
 
-def _evaluate_beam(
-    beam,
-    tx: np.ndarray,
-    ty: np.ndarray,
-    freqs: np.ndarray,
-):
-    kw = {
-        "reuse_spline": True,
-        "check_azza_domain": False,
-    }
-    # Primary beam pattern using direct interpolation of UVBeam object
-    az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
-    beam_vals = beam.interp(az_array=az, za_array=za, freq_array=freqs, **kw)[0][0, 1].T
-    return beam_vals**2
-
-
 def simulate(
     antpos: dict,
     freqs: np.ndarray,
@@ -135,10 +119,8 @@ def simulate(
     vis : np.ndarray
 
     """
-    # Check inputs are valid
+    # Get sizes of inputs
     nfreqs = np.size(freqs)
-    # antvec = np.array(list(antpos.values()))
-
     nants = len(antpos)
     ntimes = len(eq2tops)
 
@@ -146,9 +128,6 @@ def simulate(
         nax = nfeeds = 2
     else:
         nax = nfeeds = 1
-    # nax, nfeeds, nants, ntimes = matvis.cpu._validate_inputs(
-    #    precision, polarized, antvec, eq2tops, crd_eq, sources
-    # )
 
     if precision == 1:
         real_dtype = np.float32
@@ -159,7 +138,7 @@ def simulate(
 
     # Get the redundant - TODO handle this better
     if not baselines:
-        reds = utils.get_pos_reds(antpos)
+        reds = utils.get_pos_reds(antpos, include_autos=True)
         baselines = [red[0] for red in reds]
         nbls = len(baselines)
         bl_to_red_map = {red[0]: np.array(red) for red in reds}
@@ -216,6 +195,8 @@ def simulate(
         else:
             _vis = np.zeros((nbls, nfreqs), dtype=complex_dtype)
 
+        az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+
         # TODO: finufft2d3 is not vectorized over time
         # TODO: finufft2d3 gives me warning if I don't use ascontiguousarray
         for fi in range(nfreqs):
@@ -225,12 +206,11 @@ def simulate(
                 bly * freqs[fi] / utils.speed_of_light,
             )
 
-            # Compute beams
-            # Compute the beam sky product - only single beam is supported
+            # Compute beams - only single beam is supported
             A_s = np.zeros((nax, nfeeds, 1, nsim_sources), dtype=complex_dtype)
-            A_s = matvis.cpu._evaluate_beam_cpu(
-                A_s, [beam], tx, ty, polarized, freqs[fi]
-            )[..., 0, :]
+            A_s = beams._evaluate_beam(A_s, [beam], az, za, polarized, freqs[fi])[
+                ..., 0, :
+            ]
             A_s.shape = (nax * nfeeds, nsim_sources)
 
             # Compute sky beam product
@@ -254,16 +234,45 @@ def simulate(
 
         if expand_vis:
             for bi, bls in enumerate(baselines):
-                np.add.at(
-                    vis,
-                    (ti, bl_to_red_map[bls][:, 0], bl_to_red_map[bls][:, 1]),
-                    _vis[..., bi, :],
-                )
-                np.add.at(
-                    vis,
-                    (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
-                    _vis[..., bi, :].conj(),
-                )
+                if polarized:
+                    np.add.at(
+                        vis,
+                        (
+                            ti,
+                            np.arange(nfeeds),
+                            np.arange(nfeeds),
+                            bl_to_red_map[bls][:, 0],
+                            bl_to_red_map[bls][:, 1],
+                        ),
+                        _vis[..., bi, :],
+                    )
+                else:
+                    np.add.at(
+                        vis,
+                        (ti, bl_to_red_map[bls][:, 0], bl_to_red_map[bls][:, 1]),
+                        _vis[..., bi, :],
+                    )
+
+                # Add the conjugate, avoid auto baselines twice
+                if bls[0] != bls[1]:
+                    if polarized:
+                        np.add.at(
+                            vis,
+                            (
+                                ti,
+                                np.arange(nfeeds),
+                                np.arange(nfeeds),
+                                bl_to_red_map[bls][:, 0],
+                                bl_to_red_map[bls][:, 1],
+                            ),
+                            _vis[..., bi, :],
+                        )
+                    else:
+                        np.add.at(
+                            vis,
+                            (ti, bl_to_red_map[bls][:, 0], bl_to_red_map[bls][:, 1]),
+                            _vis[..., bi, :],
+                        )
         else:
             vis[ti] = _vis
 
