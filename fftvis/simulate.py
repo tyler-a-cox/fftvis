@@ -8,6 +8,11 @@ import numpy as np
 from typing import Callable
 from matvis import conversions
 
+default_accuracy_dict = {
+    1: 6e-8,
+    2: 1e-12,
+}
+
 
 def simulate_vis(
     antpos: dict,
@@ -21,7 +26,7 @@ def simulate_vis(
     precision: int = 1,
     polarized: bool = False,
     latitude: float = -0.5361913261514378,
-    accuracy: float = 1e-6,
+    accuracy: float = None,
 ):
     """
     Parameters:
@@ -47,14 +52,19 @@ def simulate_vis(
         If True,
     check : bool, default = False
         If True, perform checks on the input data array prior to
-    accuracy : float, default = 1e-6
-        pass
+    accuracy : float, default = None
+        Desired accuracy of the non-uniform fast fourier transform. If None, the default accuracy
+        for the given precision will be used. For precision 1, the default accuracy is 6e-8, and for
+        precision 2, the default accuracy is 1e-12.
 
     Returns:
     -------
     vis : np.ndarray
 
     """
+    if accuracy is None:
+        accuracy = default_accuracy_dict[precision]
+
     # Source coordinate transform, from equatorial to Cartesian
     crd_eq = conversions.point_source_crd_eq(ra, dec)
 

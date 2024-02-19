@@ -22,10 +22,11 @@ def get_pos_reds(antpos, decimals=3, include_autos=True):
         reds: list (sorted by baseline legnth) of lists of redundant tuples of antenna indices (no polarizations),
         sorted by index with the first index of the first baseline the lowest in the group.
     """
-
+    # Create a dictionary of redundant baseline groups
     uv_to_red_key = {}
     reds = {}
 
+    # Compute baseline lengths and round to specified precision
     baselines = np.round(
         [
             antpos[aj] - antpos[ai]
