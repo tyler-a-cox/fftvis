@@ -234,45 +234,19 @@ def simulate(
 
         if expand_vis:
             for bi, bls in enumerate(baselines):
-                if polarized:
-                    np.add.at(
-                        vis,
-                        (
-                            ti,
-                            np.arange(nfeeds),
-                            np.arange(nfeeds),
-                            bl_to_red_map[bls][:, 0],
-                            bl_to_red_map[bls][:, 1],
-                        ),
-                        _vis[..., bi, :],
-                    )
-                else:
-                    np.add.at(
-                        vis,
-                        (ti, bl_to_red_map[bls][:, 0], bl_to_red_map[bls][:, 1]),
-                        _vis[..., bi, :],
-                    )
+                np.add.at(
+                    vis,
+                    (ti, bl_to_red_map[bls][:, 0], bl_to_red_map[bls][:, 1]),
+                    _vis[..., bi, :],
+                )
 
                 # Add the conjugate, avoid auto baselines twice
                 if bls[0] != bls[1]:
-                    if polarized:
-                        np.add.at(
-                            vis,
-                            (
-                                ti,
-                                np.arange(nfeeds),
-                                np.arange(nfeeds),
-                                bl_to_red_map[bls][:, 0],
-                                bl_to_red_map[bls][:, 1],
-                            ),
-                            _vis[..., bi, :],
-                        )
-                    else:
-                        np.add.at(
-                            vis,
-                            (ti, bl_to_red_map[bls][:, 0], bl_to_red_map[bls][:, 1]),
-                            _vis[..., bi, :],
-                        )
+                    np.add.at(
+                        vis,
+                        (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
+                        _vis[..., bi, :].conj(),
+                    )
         else:
             vis[ti] = _vis
 
