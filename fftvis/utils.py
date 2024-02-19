@@ -4,7 +4,7 @@ IDEALIZED_BL_TOL = 1e-8  # bl_error_tol for redcal.get_reds when using antenna p
 speed_of_light = 299792458.0  # m/s
 
 
-def get_pos_reds(antpos, decimals=3, include_autos=False):
+def get_pos_reds(antpos, decimals=3, include_autos=True):
     """Figure out and return list of lists of redundant baseline pairs. Ordered by length. All baselines
     in a group have the same orientation with a preference for positive b_y and, when b_y==0, positive
     b_x where b((i,j)) = pos(j) - pos(i).
