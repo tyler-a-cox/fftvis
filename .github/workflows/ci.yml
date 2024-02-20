@@ -34,7 +34,7 @@ jobs:
 
       - name: Run Tests
         run: |
-          pytest -n auto --pyargs fftvis --cov=fftvis --cov-config=./.coveragerc --cov-report xml:./coverage.xml --durations=15
+          python -m pytest --cov=fftvis --cov-config=./.coveragerc --cov-report xml:./coverage.xml --durations=15
 
       - name: Upload coverage report
         if: matrix.os == 'ubuntu-latest' && success()
