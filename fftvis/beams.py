@@ -1,6 +1,8 @@
 import jax
 import numpy as np
+from pyuvdata import UVBeam
 from jax import numpy as jnp
+
 
 c_ms = 299792458.0  # Speed of light in meters per second
 
