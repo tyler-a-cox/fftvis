@@ -62,6 +62,7 @@ def simulate_vis(
     vis : np.ndarray
 
     """
+    # Get the accuracy for the given precision if not provided
     if accuracy is None:
         accuracy = default_accuracy_dict[precision]
 
@@ -175,23 +176,18 @@ def simulate(
 
     # Generate visibility array
     if expand_vis:
-        if polarized:
-            vis = np.zeros(
-                (ntimes, nfeeds, nfeeds, nants, nants, nfreqs), dtype=complex_dtype
-            )
-        else:
-            vis = np.zeros((ntimes, nants, nants, nfreqs), dtype=complex_dtype)
+        vis = np.zeros(
+            (ntimes, nants, nants, nfeeds, nfeeds, nfreqs), dtype=complex_dtype
+        )
     else:
-        if polarized:
-            vis = np.zeros((ntimes, nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
-        else:
-            vis = np.zeros((ntimes, nbls, nfreqs), dtype=complex_dtype)
+        vis = np.zeros((ntimes, nbls, nfeeds, nfeeds, nfreqs), dtype=complex_dtype)
 
     # Loop over time samples
     for ti, eq2top in enumerate(eq2tops):
         # Convert to topocentric coordinates
         tx, ty, tz = np.dot(eq2top, crd_eq)
 
+        # Only simulate above the horizon
         above_horizon = tz > 0
         tx = tx[above_horizon]
         ty = ty[above_horizon]
@@ -199,11 +195,11 @@ def simulate(
         # Number of above horizon points
         nsim_sources = above_horizon.sum()
 
-        # TODO: Can potentially simplify this
+        # Form the visibility array
         if polarized:
             _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
         else:
-            _vis = np.zeros((nbls, nfreqs), dtype=complex_dtype)
+            _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
 
         az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
@@ -221,12 +217,13 @@ def simulate(
             A_s = beams._evaluate_beam(A_s, [beam], az, za, polarized, freqs[fi])[
                 ..., 0, :
             ]
-            A_s.shape = (nax * nfeeds, nsim_sources)
+            A_s = np.flipud(A_s)
+            A_s = np.reshape(A_s, (nax * nfeeds, nsim_sources))
 
             # Compute sky beam product
             i_sky = A_s * A_s.conj() * Isky[above_horizon, fi]
 
-            # Compute visibilities
+            # Compute visibilities w/ non-uniform FFT
             v = finufft.nufft2d3(
                 2 * np.pi * tx,
                 2 * np.pi * ty,
@@ -237,11 +234,10 @@ def simulate(
                 eps=accuracy,
             )
 
-            if polarized:
-                _vis[..., fi] = v.reshape(nfeeds, nfeeds, nbls)
-            else:
-                _vis[..., fi] = v.flatten()
+            # Expand out the visibility array
+            _vis[..., fi] = v.reshape(nfeeds, nfeeds, nbls)
 
+        # Expand out the visibility array in antenna by antenna matrix
         if expand_vis:
             for bi, bls in enumerate(baselines):
                 np.add.at(
@@ -260,7 +256,18 @@ def simulate(
         else:
             vis[ti] = _vis
 
-    return np.moveaxis(vis, -1, 0)
+    if expand_vis:
+        return (
+            np.transpose(vis, (5, 0, 3, 4, 1, 2))
+            if polarized
+            else np.moveaxis(vis[..., 0, 0, :], 3, 0)
+        )
+    else:
+        return (
+            np.transpose(vis, (4, 0, 2, 3, 1))
+            if polarized
+            else np.moveaxis(vis[..., 0, 0, :], 2, 0)
+        )
 
 
 def simulate_basis(
