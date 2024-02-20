@@ -1,4 +1,4 @@
-name: hera_cal_tests
+name: fftvis_tests
 channels:
   - conda-forge
   - defaults
