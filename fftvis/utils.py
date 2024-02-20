@@ -5,21 +5,22 @@ speed_of_light = 299792458.0  # m/s
 
 
 def get_pos_reds(antpos, decimals=3, include_autos=True):
-    """Figure out and return list of lists of redundant baseline pairs. Ordered by length. All baselines
-    in a group have the same orientation with a preference for positive b_y and, when b_y==0, positive
-    b_x where b((i,j)) = pos(j) - pos(i).
+    """
+    Figure out and return list of lists of redundant baseline pairs. This function is a modified version of the
+    get_pos_reds function in redcal. It is used to calculate the redundant baseline groups from antenna positions
+    rather than from a list of baselines. This is useful for simulating visibilities with fftvis.
 
     Parameters:
     ----------
         antpos: dict
-            dictionary of antenna positions in the form {ant_index: np.array([x,y,z])}. 1D and 2D also OK.
+            dictionary of antenna positions in the form {ant_index: np.array([x,y,z])}.
         decimals: int, optional
             Number of decimal places to round to when determining redundant baselines. default is 3.
         include_autos: bool, optional
             if True, include autos in the list of pos_reds. default is False
     Returns:
     -------
-        reds: list (sorted by baseline legnth) of lists of redundant tuples of antenna indices (no polarizations),
+        reds: list of lists of redundant tuples of antenna indices (no polarizations),
         sorted by index with the first index of the first baseline the lowest in the group.
     """
     # Create a dictionary of redundant baseline groups

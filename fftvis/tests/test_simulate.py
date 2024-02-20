@@ -38,7 +38,45 @@ def test_simulate():
 
     # Use fftvis to simulate visibilities
     fvis = simulate.simulate_vis(
-        antpos, sky_model, ra, dec, freqs, lsts, beam, precision=2, accuracy=1e-10
+        antpos, sky_model, ra, dec, freqs, lsts, beam, precision=2, eps=1e-10
     )
 
-    # assert np.allclose(mvis, fvis, atol=1e-5)
+    # Should have shape (nfreqs, ntimes, nants, nants)
+    assert fvis.shape == (nfreqs, ntimes, nants, nants)
+
+    # Check that the results are the same
+    assert np.allclose(mvis, fvis, atol=1e-5)
+
+    # Test polarized visibilities
+    # Use matvis as a reference
+    mvis = matvis.simulate_vis(
+        antpos,
+        sky_model,
+        ra,
+        dec,
+        freqs,
+        lsts,
+        beams=[beam],
+        precision=2,
+        polarized=True,
+    )
+
+    # Use fftvis to simulate visibilities
+    fvis = simulate.simulate_vis(
+        antpos,
+        sky_model,
+        ra,
+        dec,
+        freqs,
+        lsts,
+        beam,
+        precision=2,
+        eps=1e-10,
+        polarized=True,
+    )
+
+    # Should have shape (nfreqs, ntimes, nfeeds, nfeeds, nants, nants)
+    assert fvis.shape == (nfreqs, ntimes, 2, 2, nants, nants)
+
+    # Check that the polarized results are the same
+    assert np.allclose(mvis, fvis, atol=1e-5)

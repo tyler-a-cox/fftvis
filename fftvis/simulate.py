@@ -24,7 +24,8 @@ def simulate_vis(
     precision: int = 1,
     polarized: bool = False,
     latitude: float = -0.5361913261514378,
-    accuracy: float = None,
+    eps: float = None,
+    use_feed: str = "x",
 ):
     """
     Parameters:
@@ -50,7 +51,7 @@ def simulate_vis(
         If True,
     check : bool, default = False
         If True, perform checks on the input data array prior to
-    accuracy : float, default = None
+    eps : float, default = None
         Desired accuracy of the non-uniform fast fourier transform. If None, the default accuracy
         for the given precision will be used. For precision 1, the default accuracy is 6e-8, and for
         precision 2, the default accuracy is 1e-12.
@@ -58,11 +59,12 @@ def simulate_vis(
     Returns:
     -------
     vis : np.ndarray
-
+        Array of shape (nfreqs, ntimes, nants, nants) if polarized is False, and
+        (nfreqs, ntimes, 2, 2, nants, nants) if polarized is True.
     """
     # Get the accuracy for the given precision if not provided
-    if accuracy is None:
-        accuracy = default_accuracy_dict[precision]
+    if eps is None:
+        eps = default_accuracy_dict[precision]
 
     # Source coordinate transform, from equatorial to Cartesian
     crd_eq = conversions.point_source_crd_eq(ra, dec)
@@ -80,7 +82,8 @@ def simulate_vis(
         baselines=baselines,
         precision=precision,
         polarized=polarized,
-        accuracy=accuracy,
+        eps=eps,
+        use_feed=use_feed,
     )
 
 
@@ -94,24 +97,36 @@ def simulate(
     baselines: list[tuple] = None,
     precision: int = 1,
     polarized: bool = False,
-    accuracy: float = 1e-6,
+    eps: float = 6e-8,
     use_feed: str = "x",
 ):
     """
     Parameters:
     ----------
     antpos : dict
-        Dictionary of antenna positions
+        Dictionary of antenna positions in the form {ant_index: np.array([x,y,z])}.
     freqs : np.ndarray
-        Frequencies to evaluate visibilities at MHz.
+        Frequencies to evaluate visibilities at in Hz.
     sources : np.ndarray
-        asdf
+        Intensity distribution of sources/pixels on the sky, assuming intensity
+        (Stokes I) only. The Stokes I intensity will be split equally between
+        the two linear polarization channels, resulting in a factor of 0.5 from
+        the value inputted here. This is done even if only one polarization
+        channel is simulated.
     beam : UVBeam
-        pass
+        Beam object to use for the array. Per-antenna beams are not yet supported.
     crd_eq : np.ndarray
-        pass
+        Cartesian unit vectors of sources in an ECI (Earth Centered
+        Inertial) system, which has the Earth's center of mass at
+        the origin, and is fixed with respect to the distant stars.
+        The components of the ECI vector for each source are:
+        (cos(RA) cos(Dec), sin(RA) cos(Dec), sin(Dec)).
+        Shape=(3, NSRCS).
     eq2tops : np.ndarray
-        pass
+        Set of 3x3 transformation matrices to rotate the RA and Dec
+        cosines in an ECI coordinate system (see `crd_eq`) to
+        topocentric ENU (East-North-Up) unit vectors at each
+        time/LST/hour angle in the dataset. Shape=(NTIMES, 3, 3).
     baselines : list of tuples, default = None
         If provided, only the baselines within the list will be simulated and array of shape
         (nbls, nfreqs, ntimes) will be returned
@@ -120,13 +135,15 @@ def simulate(
         Allowed values:
         - 1: float32, complex64
         - 2: float64, complex128
-    accuracy : float, default = 1e-6
-        pass
+    eps : float, default = 6e-8
+        Desired accuracy of the non-uniform fast fourier transform.
+
 
     Returns:
     -------
     vis : np.ndarray
-
+        Array of shape (nfreqs, ntimes, nants, nants) if polarized is False, and
+        (nfreqs, ntimes, 2, 2, nants, nants) if polarized is True.
     """
     # Get sizes of inputs
     nfreqs = np.size(freqs)
@@ -229,7 +246,7 @@ def simulate(
                 u,
                 v,
                 modeord=0,
-                eps=accuracy,
+                eps=eps,
             )
 
             # Expand out the visibility array
@@ -278,7 +295,7 @@ def simulate_basis(
     baselines: list[tuple] = None,
     precision: int = 1,
     polarized: bool = False,
-    accuracy: float = 1e-6,
+    eps: float = 6e-8,
 ):
     """
     Simulate the sky using some basis as simulation
@@ -363,7 +380,7 @@ def simulate_basis(
             np.ravel(V * tF),
             np.ravel(tF),
             modeord=0,
-            eps=accuracy,
+            eps=eps,
         )
         _vis.shape = (nfreqs, nbls)
 
