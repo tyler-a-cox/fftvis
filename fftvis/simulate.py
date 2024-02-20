@@ -280,8 +280,10 @@ def simulate(
                         (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
                         _vis[..., bi, :].conj(),
                     )
+                # else:
+                #    vis[ti, bi] = _vis[..., bi, :]
         else:
-            vis[ti] = _vis
+            vis[ti] = np.swapaxes(_vis, 2, 0)
 
     if expand_vis:
         return (

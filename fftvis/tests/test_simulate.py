@@ -80,3 +80,43 @@ def test_simulate():
 
     # Check that the polarized results are the same
     assert np.allclose(mvis, fvis, atol=1e-5)
+
+    # Simulate with specified baselines
+    sim_baselines = [(0, 1), (0, 2), (1, 2)]
+    fvis = simulate.simulate_vis(
+        antpos,
+        sky_model,
+        ra,
+        dec,
+        freqs,
+        lsts,
+        beam,
+        baselines=sim_baselines,
+        precision=2,
+        eps=1e-10,
+        polarized=True,
+    )
+
+    # Should have shape (nfreqs, ntimes, 2, 2, len(sim_baselines))
+    assert fvis.shape == (nfreqs, ntimes, 2, 2, len(sim_baselines))
+
+    # Check that the polarized results are the same
+    for bi, bl in enumerate(sim_baselines):
+        assert np.allclose(fvis[:, :, :, :, bi], mvis[:, :, :, :, bl[0], bl[1]])
+
+    # Test with precision 1
+    # Use matvis as a reference
+    mvis = matvis.simulate_vis(
+        antpos, sky_model, ra, dec, freqs, lsts, beams=[beam], precision=1
+    )
+
+    # Use fftvis to simulate visibilities
+    fvis = simulate.simulate_vis(
+        antpos, sky_model, ra, dec, freqs, lsts, beam, precision=1, eps=6e-8
+    )
+
+    # Should have shape (nfreqs, ntimes, nants, nants)
+    assert fvis.shape == (nfreqs, ntimes, nants, nants)
+
+    # Check that the results are the same
+    assert np.allclose(mvis, fvis, atol=1e-5)
