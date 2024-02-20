@@ -115,7 +115,7 @@ def _evaluate_beam(
     polarized: bool,
     freq: float,
     check: bool = False,
-    spline_opts: dict | None = None,
+    spline_opts: dict = None,
 ):
     """Evaluate the beam on the CPU. Simplified version of the `_evaluate_beam_cpu` function
     in matvis.
