@@ -1,4 +1,5 @@
 import jax
+import numpy as np
 from jax import numpy as jnp
 
 c_ms = 299792458.0  # Speed of light in meters per second
@@ -102,6 +103,7 @@ def interpolate_beam(
         The beam values at the given frequencies.
     """
     raise NotImplementedError("Interpolation not yet implemented.")
+
 
 def _evaluate_beam(
     A_s: np.ndarray,

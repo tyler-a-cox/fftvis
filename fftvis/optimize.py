@@ -1,5 +1,7 @@
 from jax import numpy as jnp
 
+import numpy as np
+
 
 def _compute_sky_with_beam():
     """ """

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import matvis
 from . import utils, beams
 import numpy as np
 import finufft
