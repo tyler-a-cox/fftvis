@@ -1,0 +1,6 @@
+[run]
+include = fftvis/*
+branch = True
+
+[report]
+omit = */tests/*

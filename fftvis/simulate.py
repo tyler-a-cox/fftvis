@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from . import utils, beams
-
 import matvis
-import finufft
+from . import utils, beams
 import numpy as np
+import finufft
 from typing import Callable
 from matvis import conversions
 
