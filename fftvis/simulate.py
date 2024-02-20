@@ -2,11 +2,7 @@ from __future__ import annotations
 
 from . import utils
 import numpy as np
-from typing import Callable
-from matvis import conversions
-
 import finufft
-import numpy as np
 from typing import Callable
 from matvis import conversions
 

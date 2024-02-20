@@ -16,7 +16,12 @@ setup(
         "numpy",
         "matvis",
         "finufft",
+        "jax",
+        "jaxlib",
     ],
+    extras_require={
+        "dev": ["pytest", "pre-commit", "pytest-cov", "hera_sim", "pytest-xdist"]
+    },
     python_requires=">=3.9",
     classifiers=[
         "Development Status :: 3 - Alpha",

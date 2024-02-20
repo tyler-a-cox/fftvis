@@ -1,5 +1,3 @@
-import optax
-import jax_finufft
 from jax import numpy as jnp
 
 
