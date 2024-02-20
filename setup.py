@@ -16,6 +16,7 @@ setup(
         "numpy",
         "matvis",
         "finufft",
+        "pyuvdata",
         "jax",
         "jaxlib",
     ],
