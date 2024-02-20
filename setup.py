@@ -16,6 +16,8 @@ setup(
         "numpy",
         "matvis",
         "finufft",
+        "jax",
+        "jaxlib",
     ],
     extras_require={
         "dev": ["pytest", "pre-commit", "pytest-cov", "hera_sim", "pytest-xdist"]
