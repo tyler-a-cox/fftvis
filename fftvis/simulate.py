@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from . import utils, beams
-import numpy as np
 import finufft
-from typing import Callable
+import numpy as np
 from matvis import conversions
 
+from . import utils, beams
+
+# Default accuracy for the non-uniform fast fourier transform based on precision
 default_accuracy_dict = {
     1: 6e-8,
     2: 1e-12,
@@ -32,25 +33,36 @@ def simulate_vis(
     ----------
     antpos : dict
         Dictionary of antenna positions
-    freqs : np.ndarray
-        Frequencies to evaluate visibilities at MHz.
     sources : np.ndarray
-        asdf
+        Intensity distribution of sources/pixels on the sky, assuming intensity
+        (Stokes I) only. The Stokes I intensity will be split equally between
+        the two linear polarization channels, resulting in a factor of 0.5 from
+        the value inputted here. This is done even if only one polarization
+        channel is simulated.
+    ra, dec : array_like
+        Arrays of source RA and Dec positions in radians. RA goes from [0, 2 pi]
+        and Dec from [-pi, +pi].
+    freqs : np.ndarray
+        Frequencies to evaluate visibilities in Hz.
+    lsts : np.ndarray
+        Local sidereal time in radians. Range is [0, 2 pi].
     beam : UVBeam
-        pass
-    crd_eq : np.ndarray
-        pass
-    eq2tops : np.ndarray
-        pass
+        Beam object to use for the array. Per-antenna beams are not yet supported.
+    baselines : list of tuples, default = None
+        If provided, only the baselines within the list will be simulated and array of shape
+        (nbls, nfreqs, ntimes) will be returned if polarized is False, and (nbls, nfreqs, ntimes, 2, 2) if polarized is True.
     precision : int, optional
        Which precision level to use for floats and complex numbers
        Allowed values:
        - 1: float32, complex64
        - 2: float64, complex128
-    use_redundancy : bool, default = True
-        If True,
-    check : bool, default = False
-        If True, perform checks on the input data array prior to
+    polarized : bool, optional
+        Whether to simulate polarized visibilities. If True, the output will have
+        shape (nfreqs, ntimes, 2, 2, nants, nants), and if False, the output will
+        have shape (nfreqs, ntimes, nants, nants).
+    latitude : float, optional
+        Latitude of the array in radians. The default is the
+        HERA latitude = -30.7215 * pi / 180.
     eps : float, default = None
         Desired accuracy of the non-uniform fast fourier transform. If None, the default accuracy
         for the given precision will be used. For precision 1, the default accuracy is 6e-8, and for
