@@ -1,0 +1,18 @@
+name: hera_cal_tests
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - pip
+  - astropy
+  - numpy
+  - pytest
+  - scipy
+  - pyyaml
+  - pycodestyle
+  - psutil
+  - astropy-healpix
+  - future
+  - pytest-cov
+  - finufft
+  - matvis
