@@ -8,7 +8,8 @@
 
 ## Features
 
-- Utilizes the Flatiron Institute NUFFT (finufft) [algorithm](https://arxiv.org/abs/1808.06736) for fast visibility simulations that agree with similar methods ([matvis](https://github.com/HERA-team/matvis)) to nearly machine precision.
+- Utilizes the Flatiron Institute NUFFT (finufft) [algorithm](https://arxiv.org/abs/1808.06736) for fast visibility simulations that agree with similar methods ([`matvis`](https://github.com/HERA-team/matvis)) to nearly machine precision.
+- Designed to be a near drop-in replacement to `matvis` with a ~10x improvement in runtime
 
 ## Limitations
 - Currently no support for per-antenna beams
