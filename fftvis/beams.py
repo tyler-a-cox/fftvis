@@ -1,3 +1,5 @@
+from . import utils
+
 import jax
 import numpy as np
 from pyuvdata import UVBeam
@@ -36,14 +38,26 @@ def diameter_to_sigma(diameter, freqs):
     return jnp.arcsin(scalar * wavelengths / (jnp.pi * diameter)) * 2 / 2.355
 
 
-def gaussian_beam(freqs, diameter, spectral_index, ref_freq):
+@jax.jit
+def gaussian_beam(
+    az_array,
+    za_array,
+    freqs,
+    diameter,
+    spectral_index: float = 0.0,
+    ref_freq: float = 1e9,
+):
     """
     A jax implementation of a gaussian beam.
 
     Parameters
     ----------
-    type : str
-        The type of beam pattern. Currently only 'gaussian' is supported.
+    az_array : jnp.ndarray
+        Azimuth angle in radians.
+    za_array : jnp.ndarray
+        Zenith angle in radians.
+    freqs : jnp.ndarray
+        Frequencies in Hz.
     sigma : float
         The standard deviation of the Gaussian beam in radians.
     spectral_index : float
@@ -51,32 +65,64 @@ def gaussian_beam(freqs, diameter, spectral_index, ref_freq):
     ref_freq : float
         The reference frequency in Hz. Defaults to 1 GHz.
     """
-    raise NotImplementedError("Gaussian beam not yet implemented.")
+    # Calculate the sigma for each frequency
+    sigmas = diameter_to_sigma(diameter, freqs)
+
+    # Calculate the beam pattern
+    return jnp.exp(
+        -jnp.square(za_array[jnp.newaxis]) / (2 * jnp.square(sigmas[:, jnp.newaxis]))
+    )
 
 
+@jax.jit
 def airy_beam(
     az_array,
     za_array,
     freqs,
     diameter,
-    spectral_index,
-    ref_freq,
+    spectral_index: float = 0.0,
+    ref_freq: float = 1e9,
 ):
     """
     A jax implementation of the airy beam function.
 
     Parameters
     ----------
-    az_array : np.ndarray
+    az_array : jnp.ndarray
         Azimuth angle in radians.
-    za_array : np.ndarray
+    za_array : jnp.ndarray
         Zenith angle in radians.
-    freqs : np.ndarray
+    freqs : jnp.ndarray
         Frequencies in Hz.
+    diameter : float
+        The diameter of the antenna in meters.
+    spectral_index : float
+        The spectral index of the beam pattern. Defaults to 0.
     ref_freq : float
         The reference frequency in Hz. Defaults to 1 GHz.
     """
-    raise NotImplementedError("Airy beam not yet implemented.")
+    za_grid, f_grid = np.meshgrid(za_array, freqs)
+    xvals = diameter / 2.0 * np.sin(za_grid) * 2.0 * np.pi * f_grid / c_ms
+    values = np.zeros_like(xvals)
+    nz = xvals != 0.0
+    ze = xvals == 0.0
+    values[nz] = 2.0 * utils.j1(xvals[nz]) / xvals[nz]
+    values[ze] = 1.0
+    return values
+
+
+def beam_decomposition(
+    az_array,
+    za_array,
+    freqs,
+    diameter,
+    spectral_index: float = 0.0,
+    ref_freq: float = 1e9,
+):
+    """
+    Generate a basis of beam patterns.
+    """
+    pass
 
 
 def interpolate_beam(

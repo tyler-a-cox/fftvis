@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import jax
+from jax import numpy as jnp
+
 import finufft
 import numpy as np
 from matvis import conversions
@@ -412,3 +415,79 @@ def simulate_basis(
                 )
 
     return vis
+
+
+@jax.jit
+def _FFT_simulator(
+    beam_values: jnp.ndarray,
+    sky_values: jnp.ndarray,
+    u: jnp.ndarray,
+    v: jnp.ndarray,
+    freqs: jnp.ndarray,
+    precision: int = 2,
+    eps: float = 1e-12,
+):
+    """
+    Simulate visibilities using the non-uniform fast fourier transform.
+
+    Parameters:
+    ----------
+    beam_values : jnp.ndarray
+        The beam values at the given frequency and sky position.
+    sky_values : jnp.ndarray
+        The sky values at the given frequency and sky position.
+    u : jnp.ndarray
+        The u coordinates of the baselines.
+    v : jnp.ndarray
+        The v coordinates of the baselines.
+    freqs : jnp.ndarray
+        The frequencies to evaluate the visibilities at.
+    precision : int, optional
+        Which precision level to use for floats and complex numbers
+        Allowed values:
+        - 1: float32, complex64
+        - 2: float64, complex128
+    eps : float, default = 1e-12
+        Desired accuracy of the non-uniform fast fourier transform.
+
+    Returns:
+    -------
+    vis : jnp.ndarray
+        The visibilities at the given frequency and sky position.
+    """
+    pass
+
+
+@jax.jit
+def _matrix_simulator(
+    beam_values: jnp.ndarray,
+    sky_values: jnp.ndarray,
+    antennas: jnp.ndarray,
+    freqs: jnp.ndarray,
+) -> jnp.ndarray:
+    """
+    Simulate visibilities using the matrix-based formulation.
+
+    Parameters:
+    ----------
+    beam_values : jnp.ndarray
+        The beam values at the given frequency and sky position.
+    sky_values : jnp.ndarray
+        The sky values at the given frequency and sky position.
+    antennas : jnp.ndarray
+        The antenna positions.
+    freqs : jnp.ndarray
+        The frequencies to evaluate the visibilities at.
+
+    Returns:
+    -------
+    vis : jnp.ndarray
+        The visibilities at the given frequency and sky position.
+
+    Psuedo-code:
+    ------------
+    1. Compute phase factors
+    2. Compute the visibility matrix (Nants x Npixels)
+    3. Return the visibility matrix
+    """
+    pass
