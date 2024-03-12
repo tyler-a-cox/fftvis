@@ -316,7 +316,7 @@ def j1(z: ArrayLike) -> Array:
     )
 
 
-def get_pos_reds(antpos, decimals=3, include_autos=True):
+def get_pos_reds(antpos: dict, decimals: int = 3, include_autos: bool = True):
     """
     Figure out and return list of lists of redundant baseline pairs. This function is a modified version of the
     get_pos_reds function in redcal. It is used to calculate the redundant baseline groups from antenna positions

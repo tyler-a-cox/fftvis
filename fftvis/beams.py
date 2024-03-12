@@ -101,14 +101,9 @@ def airy_beam(
     ref_freq : float
         The reference frequency in Hz. Defaults to 1 GHz.
     """
-    za_grid, f_grid = np.meshgrid(za_array, freqs)
-    xvals = diameter / 2.0 * np.sin(za_grid) * 2.0 * np.pi * f_grid / c_ms
-    values = np.zeros_like(xvals)
-    nz = xvals != 0.0
-    ze = xvals == 0.0
-    values[nz] = 2.0 * utils.j1(xvals[nz]) / xvals[nz]
-    values[ze] = 1.0
-    return values
+    za_grid, f_grid = jnp.meshgrid(za_array, freqs)
+    xvals = diameter / 2.0 * jnp.sin(za_grid) * 2.0 * np.pi * f_grid / c_ms
+    return jnp.where(xvals != 0, 2.0 * utils.j1(xvals) / xvals, 1.0)
 
 
 def beam_decomposition(
