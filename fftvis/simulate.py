@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import finufft
 import numpy as np
+from pyuvdata import UVBeam
 from matvis import conversions
 
 from . import utils, beams
@@ -20,7 +21,7 @@ def simulate_vis(
     dec: np.ndarray,
     freqs: np.ndarray,
     lsts: np.ndarray,
-    beam,
+    beam: UVBeam,
     baselines: list[tuple] = None,
     precision: int = 1,
     polarized: bool = False,
@@ -39,7 +40,7 @@ def simulate_vis(
         the two linear polarization channels, resulting in a factor of 0.5 from
         the value inputted here. This is done even if only one polarization
         channel is simulated.
-    ra, dec : array_like
+    ra, dec : np.ndarray
         Arrays of source RA and Dec positions in radians. RA goes from [0, 2 pi]
         and Dec from [-pi, +pi].
     freqs : np.ndarray
@@ -120,11 +121,12 @@ def simulate(
     freqs : np.ndarray
         Frequencies to evaluate visibilities at in Hz.
     sources : np.ndarray
-        Intensity distribution of sources/pixels on the sky, assuming intensity
-        (Stokes I) only. The Stokes I intensity will be split equally between
-        the two linear polarization channels, resulting in a factor of 0.5 from
-        the value inputted here. This is done even if only one polarization
-        channel is simulated.
+        Intensity distribution of sources/pixels on the sky. If the sources array has 
+        ndim == 2, the values will be assumed to be intensity (Stokes I) only. The Stokes I intensity 
+        will then be split equally between the two linear polarization channels, resulting
+        in a factor of 0.5 from the value inputted here. This is done even 
+        if only one polarization channel is simulated. If the sources array has ndim == 4, the values
+        will be assumed to be Stokes I, Q, U, and V, in 
     beam : UVBeam
         Beam object to use for the array. Per-antenna beams are not yet supported.
     crd_eq : np.ndarray
@@ -194,7 +196,12 @@ def simulate(
     eq2tops = eq2tops.astype(real_dtype)
 
     # Factor of 0.5 accounts for splitting Stokes between polarization channels
-    Isky = (0.5 * sources).astype(complex_dtype)
+    if sources.ndim == 2:
+        Isky = (0.5 * sources).astype(complex_dtype)
+        polarized_sky = True
+    else:
+        Isky = (sources).astype(complex_dtype)
+        polarized_sky = False
 
     # Compute baseline vectors
     blx, bly = np.array([antpos[bl[1]] - antpos[bl[0]] for bl in baselines])[
@@ -245,16 +252,20 @@ def simulate(
                 ..., 0, :
             ]
             A_s = np.flipud(A_s)
-            A_s = np.reshape(A_s, (nax * nfeeds, nsim_sources))
 
             # Compute sky beam product
-            i_sky = A_s * A_s.conj() * Isky[above_horizon, fi]
+            if polarized_sky:
+                i_sky = np.einsum(
+                    "abs,bcs,dcs->ads", A_s, Isky[..., above_horizon, fi], A_s.conj()
+                )
+            else:
+                i_sky = A_s * A_s.conj() * Isky[above_horizon, fi]
 
             # Compute visibilities w/ non-uniform FFT
             v = finufft.nufft2d3(
                 2 * np.pi * tx,
                 2 * np.pi * ty,
-                i_sky,
+                i_sky.reshape(-1, nsim_sources),
                 u,
                 v,
                 modeord=0,
@@ -273,15 +284,14 @@ def simulate(
                     _vis[..., bi, :],
                 )
 
-                # Add the conjugate, avoid auto baselines twice
+                # Add the conjugate, avoid adding auto baselines twice
                 if bls[0] != bls[1]:
                     np.add.at(
                         vis,
                         (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
                         _vis[..., bi, :].conj(),
                     )
-                # else:
-                #    vis[ti, bi] = _vis[..., bi, :]
+
         else:
             vis[ti] = np.swapaxes(_vis, 2, 0)
 
