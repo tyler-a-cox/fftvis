@@ -115,3 +115,15 @@ def fit_sky(
         losses.append(loss)
 
     return parameters, jnp.array(losses)
+
+def fit_mutual_coupling():
+    """
+    Fit the mutual coupling between antennas.
+    """
+    pass
+
+def fit_beam():
+    """
+    Fit the beam pattern of the antennas.
+    """
+    pass

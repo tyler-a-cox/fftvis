@@ -316,6 +316,13 @@ def j1(z: ArrayLike) -> Array:
     )
 
 
+def jn_zeros():
+    """
+    Jax implementation of the zeros of the Bessel function of the first kind.
+    """
+    pass
+
+
 def get_pos_reds(antpos: dict, decimals: int = 3, include_autos: bool = True):
     """
     Figure out and return list of lists of redundant baseline pairs. This function is a modified version of the
