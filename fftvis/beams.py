@@ -4,7 +4,8 @@ import jax
 import numpy as np
 from pyuvdata import UVBeam
 from jax import numpy as jnp
-
+from jax import lax
+from jax._src.typing import Array, ArrayLike
 
 c_ms = 299792458.0  # Speed of light in meters per second
 
@@ -40,15 +41,15 @@ def diameter_to_sigma(diameter, freqs):
 
 @jax.jit
 def gaussian_beam(
-    az_array,
-    za_array,
-    freqs,
-    diameter,
+    az_array: ArrayLike,
+    za_array: ArrayLike,
+    freqs: ArrayLike,
+    diameter: float,
     spectral_index: float = 0.0,
     ref_freq: float = 1e9,
-):
+) -> ArrayLike:
     """
-    A jax implementation of a gaussian beam.
+    A jax implementation of a gaussian beam function. The beam pattern is assumed to be azimuthally symmetric.
 
     Parameters
     ----------
@@ -68,7 +69,7 @@ def gaussian_beam(
     # Calculate the sigma for each frequency
     sigmas = diameter_to_sigma(diameter, freqs)
 
-    # Calculate the beam pattern
+    # Calculate the beam pattern from the zenith angle
     return jnp.exp(
         -jnp.square(za_array[jnp.newaxis]) / (2 * jnp.square(sigmas[:, jnp.newaxis]))
     )
@@ -76,13 +77,13 @@ def gaussian_beam(
 
 @jax.jit
 def airy_beam(
-    az_array,
-    za_array,
-    freqs,
-    diameter,
+    az_array: ArrayLike,
+    za_array: ArrayLike,
+    freqs: ArrayLike,
+    diameter: float,
     spectral_index: float = 0.0,
     ref_freq: float = 1e9,
-):
+) -> ArrayLike:
     """
     A jax implementation of the airy beam function.
 
@@ -100,28 +101,47 @@ def airy_beam(
         The spectral index of the beam pattern. Defaults to 0.
     ref_freq : float
         The reference frequency in Hz. Defaults to 1 GHz.
+
+    Returns
+    -------
+    airy_beam : jnp.ndarray
+        The beam pattern for the given antenna diameter and frequencies.
     """
     za_grid, f_grid = jnp.meshgrid(za_array, freqs)
     xvals = diameter / 2.0 * jnp.sin(za_grid) * 2.0 * np.pi * f_grid / c_ms
     return jnp.where(xvals != 0, 2.0 * utils.j1(xvals) / xvals, 1.0)
 
 
-def beam_decomposition(
-    az_array,
-    za_array,
-    freqs,
-    diameter,
-    spectral_index: float = 0.0,
-    ref_freq: float = 1e9,
-):
+def uv_beam_interpolation(
+    beam: ArrayLike,
+    u: ArrayLike,
+    v: ArrayLike,
+    az_array: ArrayLike,
+    za_array: ArrayLike,
+    
+) -> ArrayLike:
     """
-    Generate a basis of beam patterns.
+    Interpolate the beam values to a given set of sky coordinates, az_array and za_array,
+    given a beam pattern in the uv-plane.
     """
     pass
 
 
-def interpolate_beam(
+def bessel_beam_decomposition(
     beam_vals,
+    az_array,
+    za_array,
+    radial_modes: int = 50,
+    azimuthal_modes: int = 4,
+):
+    """
+    Compute the Bessel beam decomposition of the beam pattern according to
+    the method outlined in Wilensky et al. (2024).
+    """
+
+
+def bessel_beam_interpolation(
+    beam_components: ArrayLike,
     az_array,
     za_array,
     freqs,

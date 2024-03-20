@@ -455,19 +455,7 @@ def _FFT_simulator(
     vis : jnp.ndarray
         The visibilities at the given frequency and sky position.
     """
-    # Compute sky beam product
-    sky_model = beam_values * beam_values.conj() * sky_values
-
-    # Compute visibilities w/ non-uniform FFT
-    return finufft.nufft2d3(
-        2 * np.pi * tx,
-        2 * np.pi * ty,
-        sky_model,
-        u,
-        v,
-        modeord=0,
-        eps=eps,
-    )
+    pass
 
 
 @jax.jit
