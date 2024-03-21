@@ -9,7 +9,128 @@ from .simulate import _FFT_simulator
 from jax._src.typing import Array
 
 
-#
+def _validate_input_model_parameters_sky(
+    model_parameters: dict,
+    times: Array,
+    freqs: Array,
+    ra: Array,
+    dec: Array,
+    use_diffuse_component: bool,
+    lmax: int,
+):
+    """
+    Evaluate the input parameters for different fit modes.
+    """
+    # Check if the diffuse component is being used
+    if use_diffuse_component:
+        if "diffuse_component" not in model_parameters:
+            raise ValueError(
+                "Diffuse component is being used, but diffuse component parameters are not provided."
+            )
+        else:
+            pass
+
+    # Check for spectral index
+    if "spectral_index" not in model_parameters:
+        raise ValueError("Spectral index not provided.")
+    else:
+        spectral_index_shape = model_parameters["spectral_index"].shape
+        if spectral_index_shape != ra.shape and spectral_index_shape != 1:
+            raise ValueError(
+                f"Spectral index shape {spectral_index_shape} does not match the number of sources {ra.shape} \
+                  and is not a single value for the entire sky."
+            )
+
+    # Check for sky model amplitude
+    if "sky_model_amplitude" not in model_parameters:
+        raise ValueError("Sky model amplitude not provided.")
+    else:
+        sky_model_shape = model_parameters["sky_model_amplitude"].shape
+
+
+def initialize_model_parameters_sky_fit(
+    use_point_source: bool = False,
+    sky_model_amplitude: Array = None,
+    spectral_index: Array = None,
+    use_diffuse_component: bool = False,
+    diffuse_component: Array = None,
+    diffuse_spectral_index: Array = None,
+    lmax: int = None,
+) -> dict:
+    """
+    Initialize the model parameters for fitting the sky.
+    """
+    model_parameters = {
+        "spectral_index": spectral_index,
+        "sky_model_amplitude": sky_model_amplitude,
+    }
+
+    if use_diffuse_component:
+        model_parameters["diffuse_component"] = diffuse_component
+        model_parameters["lmax"] = lmax
+
+    return model_parameters
+
+
+def initialize_model_parameters_beam_fit(
+    beam_type: str = "airy",
+    init_beam_diameter: float = None,
+    spectral_index: Array = None,
+    beam_vals: Array = None,
+    u_coord: Array = None,
+    v_coord: Array = None,
+    beam_az: Array = None,
+    beam_za: Array = None,
+) -> dict:
+    """
+    Initialize the model parameters for fitting the beam.
+
+    Parameters:
+    ----------
+    beam_type : str
+        The type of beam to use. Options are "airy", "gaussian", "bessel_basis", and "uvbeam".
+    init_beam_diameter : float
+        The initial beam diameter in meters.
+    spectral_index : jnp.ndarray
+        The spectral index of the beam pattern.
+    beam_vals : jnp.ndarray
+        The beam values.
+    u_coord : jnp.ndarray
+        The u coordinates of the beam.
+    v_coord : jnp.ndarray
+        The v coordinates of the beam.
+    beam_az : jnp.ndarray
+        The azimuthal coordinates of the beam.
+    beam_za : jnp.ndarray
+        The zenith angle coordinates of the beam.
+    """
+    assert beam_type in [
+        "airy",
+        "gaussian",
+        "bessel_basis",
+        "uvbeam",
+    ], "Beam type not recognized."
+
+    if beam_type in ["airy", "gaussian"]:
+        assert init_beam_diameter is not None, "Initial beam diameter not provided."
+
+        # Pack the model parameters
+        model_parameters = {
+            "beam_diameter": init_beam_diameter,
+        }
+
+    elif beam_type == "uvbeam":
+        model_parameters = {
+            "beam_vals": beam_vals,
+        }
+
+    else:
+        # Must be a bessel basis
+        pass
+
+    return model_parameters
+
+
 def _evaluate_input_model_parameters(
     model_parameters: dict,
     fit_mode: str,
@@ -20,6 +141,26 @@ def _evaluate_input_model_parameters(
 ):
     """
     Evaluate the input parameters for different fit modes.
+
+    Parameters:
+    ----------
+    model_parameters : dict
+        The model parameters to fit.
+    fit_mode : str
+        The fit mode to use.
+    freqs : jnp.ndarray
+        The frequencies of the data.
+    times : jnp.ndarray
+        The times of the data.
+    ra : jnp.ndarray
+        The right ascension of the source.
+    dec : jnp.ndarray
+        The declination of the source.
+
+    Returns:
+    -------
+    tuple
+        The model parameters, frequencies, times, right ascension, and declination.
     """
     if fit_mode == "sky":
         return model_parameters, freqs, times, ra, dec
@@ -115,7 +256,7 @@ def _fit_sky(
     beam_vals: jnp.ndarray = None,
     beam_az: jnp.ndarray = None,
     beam_za: jnp.ndarray = None,
-    diffuse_component: bool = False,
+    use_diffuse_component: bool = False,
     lmax: int = 50,
     nsteps: int = 100,
 ) -> tuple[dict, jnp.ndarray]:
