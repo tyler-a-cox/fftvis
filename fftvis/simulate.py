@@ -225,10 +225,7 @@ def simulate(
         nsim_sources = above_horizon.sum()
 
         # Form the visibility array
-        if polarized:
-            _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
-        else:
-            _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
+        _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
 
         az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
@@ -279,8 +276,7 @@ def simulate(
                         (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
                         _vis[..., bi, :].conj(),
                     )
-                # else:
-                #    vis[ti, bi] = _vis[..., bi, :]
+
         else:
             vis[ti] = np.swapaxes(_vis, 2, 0)
 

@@ -17,8 +17,8 @@ setup(
         "matvis",
         "finufft",
         "pyuvdata",
-        "jax",
-        "jaxlib",
+        "pyradiosky",
+        "pyuvsim[all]",
     ],
     extras_require={
         "dev": ["pytest", "pre-commit", "pytest-cov", "hera_sim", "pytest-xdist"]
