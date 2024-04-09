@@ -17,6 +17,7 @@ dependencies:
   - finufft
   - matvis
   - mpi4py>=3.0
+  - pyuvdata
   - pip:
     - pyuvsim[sim]>=1.2
     - pyradiosky>=0.1.1
