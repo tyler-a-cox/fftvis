@@ -15,6 +15,7 @@ def _validate_input_model_parameters_sky(
     freqs: Array,
     ra: Array,
     dec: Array,
+    use_point_source: bool,
     use_diffuse_component: bool,
     lmax: int,
 ):
@@ -35,7 +36,7 @@ def _validate_input_model_parameters_sky(
         raise ValueError("Spectral index not provided.")
     else:
         spectral_index_shape = model_parameters["spectral_index"].shape
-        if spectral_index_shape != ra.shape and spectral_index_shape != 1:
+        if spectral_index_shape != ra.shape or spectral_index_shape != 1:
             raise ValueError(
                 f"Spectral index shape {spectral_index_shape} does not match the number of sources {ra.shape} \
                   and is not a single value for the entire sky."
@@ -59,6 +60,28 @@ def initialize_model_parameters_sky_fit(
 ) -> dict:
     """
     Initialize the model parameters for fitting the sky.
+
+    Parameters:
+    ----------
+    use_point_source : bool
+        Whether to use a point source model.
+    sky_model_amplitude : jnp.ndarray
+        The amplitude of the sky model.
+    spectral_index : jnp.ndarray
+        The spectral index of the sky model.
+    use_diffuse_component : bool
+        Whether to use a diffuse component.
+    diffuse_component : jnp.ndarray
+        The diffuse component.
+    diffuse_spectral_index : jnp.ndarray
+        The spectral index of the diffuse component. Only used if use_diffuse_component is True.
+    lmax : int
+        The maximum spherical harmonic degree to use for the diffuse component.
+
+    Returns:
+    -------
+    dict
+        The model parameters.
     """
     model_parameters = {
         "spectral_index": spectral_index,
@@ -74,8 +97,8 @@ def initialize_model_parameters_sky_fit(
 
 def initialize_model_parameters_beam_fit(
     beam_type: str = "airy",
-    init_beam_diameter: float = None,
-    spectral_index: Array = None,
+    init_beam_diameter: float = 14.0,
+    spectral_index: Array = 0.0,
     beam_vals: Array = None,
     u_coord: Array = None,
     v_coord: Array = None,
@@ -103,6 +126,11 @@ def initialize_model_parameters_beam_fit(
         The azimuthal coordinates of the beam.
     beam_za : jnp.ndarray
         The zenith angle coordinates of the beam.
+
+    Returns:
+    -------
+    model_parameters: dict
+        Parameters for the beam model.
     """
     assert beam_type in [
         "airy",
@@ -173,7 +201,9 @@ def _evaluate_input_model_parameters(
 
 
 def _validate_sky_fit_inputs(beam: str, beam_diameter: float, beam_vals: Array):
-    """ """
+    """
+    Validate the inputs for fitting the sky.
+    """
     pass
 
 
@@ -246,18 +276,18 @@ def _evaluate_sky_model(
 def _fit_sky(
     model_parameters: dict,
     optimizer: optax.GradientTransformation,
-    data: jnp.ndarray,
-    times: jnp.ndarray,
-    freqs: jnp.ndarray,
-    ra: jnp.ndarray,
-    dec: jnp.ndarray,
+    data: Array,
+    times: Array,
+    freqs: Array,
+    ra: Array,
+    dec: Array,
     beam: str = "airy",
     beam_diameter: float = 14.6,
-    beam_vals: jnp.ndarray = None,
-    beam_az: jnp.ndarray = None,
-    beam_za: jnp.ndarray = None,
+    beam_vals: Array = None,
+    beam_az: Array = None,
+    beam_za: Array = None,
     use_diffuse_component: bool = False,
-    lmax: int = 50,
+    lmax: int = 20,
     nsteps: int = 100,
 ) -> tuple[dict, jnp.ndarray]:
     """
@@ -324,7 +354,7 @@ def _fit_mutual_coupling(
     data: jnp.ndarray,
     times: jnp.ndarray,
     freqs: jnp.ndarray,
-    sky_model: jnp.ndarray,
+    vis_model: jnp.ndarray,
     ra: jnp.ndarray,
     dec: jnp.ndarray,
     nsteps: int = 100,
@@ -344,8 +374,8 @@ def _fit_mutual_coupling(
         The times of the data. Must match the number of times in data
     freqs : jnp.ndarray
         The frequencies of the data. Must match the number of frequencies in data
-    sky_model : jnp.ndarray
-        The sky model to use for the fitting.
+    vis_model : jnp.ndarray
+        Zeroth order visibility model to fit.
     ra : jnp.ndarray
         Source positions in right ascension.
     dec : jnp.ndarray
