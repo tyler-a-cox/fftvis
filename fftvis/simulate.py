@@ -81,6 +81,9 @@ def simulate_vis(
     # Source coordinate transform, from equatorial to Cartesian
     crd_eq = conversions.point_source_crd_eq(ra, dec)
 
+    # Make sure antpos has the right format
+    antpos = {k: np.array(v) for k, v in antpos.items()}
+
     # Get coordinate transforms as a function of LST
     eq2tops = np.array([conversions.eci_to_enu_matrix(lst, latitude) for lst in lsts])
 
