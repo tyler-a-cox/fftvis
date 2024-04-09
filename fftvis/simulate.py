@@ -9,7 +9,7 @@ from . import utils, beams
 # Default accuracy for the non-uniform fast fourier transform based on precision
 default_accuracy_dict = {
     1: 6e-8,
-    2: 1e-12,
+    2: 1e-13,
 }
 
 
@@ -191,6 +191,14 @@ def simulate(
     # Prepare the beam
     beam = conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
 
+    # Check if the beam is complex
+    beam_values, _ = beam.interp(
+        az_array=np.array([0]),
+        za_array=np.array([0]),
+        freq_array=np.array([freqs[0]]),
+    )
+    is_beam_complex = np.issubdtype(beam_values.dtype, np.complexfloating)
+
     # Convert to correct precision
     crd_eq = crd_eq.astype(real_dtype)
     eq2tops = eq2tops.astype(real_dtype)
@@ -227,6 +235,12 @@ def simulate(
         # Form the visibility array
         _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
 
+        if is_beam_complex:
+            _vis_negatives = np.zeros(
+                (nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype
+            )
+
+        # Compute azimuth and zenith angles
         az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
         for fi in range(nfreqs):
@@ -247,7 +261,7 @@ def simulate(
             i_sky = beam_product * Isky[above_horizon, fi]
 
             # Compute visibilities w/ non-uniform FFT
-            v = finufft.nufft2d3(
+            _vis_here = finufft.nufft2d3(
                 2 * np.pi * tx,
                 2 * np.pi * ty,
                 i_sky,
@@ -258,7 +272,22 @@ def simulate(
             )
 
             # Expand out the visibility array
-            _vis[..., fi] = v.reshape(nfeeds, nfeeds, nbls)
+            _vis[..., fi] = _vis_here.reshape(nfeeds, nfeeds, nbls)
+
+            # If beam is complex, we need to compute the reverse negative frequencies
+            # TODO: no way to store this in the loop
+            if is_beam_complex:
+                # Compute
+                _vis_here_neg = finufft.nufft2d3(
+                    2 * np.pi * tx,
+                    2 * np.pi * ty,
+                    i_sky,
+                    -u,
+                    -v,
+                    modeord=0,
+                    eps=eps,
+                )
+                _vis_negatives[..., fi] = _vis_here_neg.reshape(nfeeds, nfeeds, nbls)
 
         # Expand out the visibility array in antenna by antenna matrix
         if expand_vis:
@@ -271,11 +300,18 @@ def simulate(
 
                 # Add the conjugate, avoid auto baselines twice
                 if bls[0] != bls[1]:
-                    np.add.at(
-                        vis,
-                        (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
-                        _vis[..., bi, :].conj(),
-                    )
+                    if is_beam_complex:
+                        np.add.at(
+                            vis,
+                            (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
+                            _vis_negatives[..., bi, :],
+                        )
+                    else:
+                        np.add.at(
+                            vis,
+                            (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
+                            _vis[..., bi, :].conj(),
+                        )
 
         else:
             vis[ti] = np.swapaxes(_vis, 2, 0)
