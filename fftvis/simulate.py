@@ -188,8 +188,7 @@ def simulate(
         nbls = len(baselines)
         expand_vis = False
 
-    # prepare beam
-    # TODO: uncomment and test this when simulating multiple polarizations
+    # Prepare the beam
     beam = conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
 
     # Convert to correct precision
@@ -243,15 +242,18 @@ def simulate(
             )
 
             # Compute beams - only single beam is supported
+            # TODO: there's some unnecessary reshaping going on here
             A_s = np.zeros((nax, nfeeds, 1, nsim_sources), dtype=complex_dtype)
             A_s = beams._evaluate_beam(A_s, [beam], az, za, polarized, freqs[fi])[
                 ..., 0, :
             ]
-            A_s = np.flipud(A_s)
-            A_s = np.reshape(A_s, (nax * nfeeds, nsim_sources))
+            A_s = A_s.transpose((1, 0, 2))
+            beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
+            beam_product = beam_product.reshape(nax * nfeeds, nsim_sources)
 
+            # TODO: confirm that what is being computed here matches matvis
             # Compute sky beam product
-            i_sky = A_s * A_s.conj() * Isky[above_horizon, fi]
+            i_sky = beam_product * Isky[above_horizon, fi]
 
             # Compute visibilities w/ non-uniform FFT
             v = finufft.nufft2d3(
