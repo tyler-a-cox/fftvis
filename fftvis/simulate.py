@@ -177,7 +177,7 @@ def simulate(
         real_dtype = np.float64
         complex_dtype = np.complex128
 
-    # Get the redundant - TODO handle this better
+    # Get the redundant groups - TODO handle this better
     if not baselines:
         reds = utils.get_pos_reds(antpos, include_autos=True)
         baselines = [red[0] for red in reds]
@@ -232,8 +232,6 @@ def simulate(
 
         az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
-        # TODO: finufft2d3 is not vectorized over time
-        # TODO: finufft2d3 gives me warning if I don't use ascontiguousarray
         for fi in range(nfreqs):
             # Compute uv coordinates
             u, v = (
@@ -242,16 +240,12 @@ def simulate(
             )
 
             # Compute beams - only single beam is supported
-            # TODO: there's some unnecessary reshaping going on here
-            A_s = np.zeros((nax, nfeeds, 1, nsim_sources), dtype=complex_dtype)
-            A_s = beams._evaluate_beam(A_s, [beam], az, za, polarized, freqs[fi])[
-                ..., 0, :
-            ]
+            A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
+            A_s = beams._evaluate_beam(A_s, beam, az, za, polarized, freqs[fi])
             A_s = A_s.transpose((1, 0, 2))
             beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
             beam_product = beam_product.reshape(nax * nfeeds, nsim_sources)
 
-            # TODO: confirm that what is being computed here matches matvis
             # Compute sky beam product
             i_sky = beam_product * Isky[above_horizon, fi]
 
