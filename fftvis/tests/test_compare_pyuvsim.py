@@ -39,7 +39,7 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
     # (1) Run matvis
     # ---------------------------------------------------------------------------
     vis_fftvis = simulate_vis(
-        antpos=ants,
+        ants=ants,
         fluxes=flux,
         ra=ra,
         dec=dec,
