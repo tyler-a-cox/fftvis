@@ -9,20 +9,20 @@ from . import utils, beams
 # Default accuracy for the non-uniform fast fourier transform based on precision
 default_accuracy_dict = {
     1: 6e-8,
-    2: 1e-12,
+    2: 1e-13,
 }
 
 
 def simulate_vis(
-    antpos: dict,
-    sources: np.ndarray,
+    ants: dict,
+    fluxes: np.ndarray,
     ra: np.ndarray,
     dec: np.ndarray,
     freqs: np.ndarray,
     lsts: np.ndarray,
     beam,
     baselines: list[tuple] = None,
-    precision: int = 1,
+    precision: int = 2,
     polarized: bool = False,
     latitude: float = -0.5361913261514378,
     eps: float = None,
@@ -31,9 +31,9 @@ def simulate_vis(
     """
     Parameters:
     ----------
-    antpos : dict
+    ants : dict
         Dictionary of antenna positions
-    sources : np.ndarray
+    fluxes : np.ndarray
         Intensity distribution of sources/pixels on the sky, assuming intensity
         (Stokes I) only. The Stokes I intensity will be split equally between
         the two linear polarization channels, resulting in a factor of 0.5 from
@@ -81,13 +81,16 @@ def simulate_vis(
     # Source coordinate transform, from equatorial to Cartesian
     crd_eq = conversions.point_source_crd_eq(ra, dec)
 
+    # Make sure antpos has the right format
+    ants = {k: np.array(v) for k, v in ants.items()}
+
     # Get coordinate transforms as a function of LST
     eq2tops = np.array([conversions.eci_to_enu_matrix(lst, latitude) for lst in lsts])
 
     return simulate(
-        antpos=antpos,
+        ants=ants,
         freqs=freqs,
-        sources=sources,
+        fluxes=fluxes,
         beam=beam,
         crd_eq=crd_eq,
         eq2tops=eq2tops,
@@ -100,26 +103,26 @@ def simulate_vis(
 
 
 def simulate(
-    antpos: dict,
+    ants: dict,
     freqs: np.ndarray,
-    sources: np.ndarray,
+    fluxes: np.ndarray,
     beam,
     crd_eq: np.ndarray,
     eq2tops: np.ndarray,
     baselines: list[tuple] = None,
-    precision: int = 1,
+    precision: int = 2,
     polarized: bool = False,
-    eps: float = 6e-8,
+    eps: float = 1e-13,
     use_feed: str = "x",
 ):
     """
     Parameters:
     ----------
-    antpos : dict
+    ants : dict
         Dictionary of antenna positions in the form {ant_index: np.array([x,y,z])}.
     freqs : np.ndarray
         Frequencies to evaluate visibilities at in Hz.
-    sources : np.ndarray
+    fluxes : np.ndarray
         Intensity distribution of sources/pixels on the sky, assuming intensity
         (Stokes I) only. The Stokes I intensity will be split equally between
         the two linear polarization channels, resulting in a factor of 0.5 from
@@ -159,7 +162,7 @@ def simulate(
     """
     # Get sizes of inputs
     nfreqs = np.size(freqs)
-    nants = len(antpos)
+    nants = len(ants)
     ntimes = len(eq2tops)
 
     if polarized:
@@ -174,9 +177,9 @@ def simulate(
         real_dtype = np.float64
         complex_dtype = np.complex128
 
-    # Get the redundant - TODO handle this better
+    # Get the redundant groups - TODO handle this better
     if not baselines:
-        reds = utils.get_pos_reds(antpos, include_autos=True)
+        reds = utils.get_pos_reds(ants, include_autos=True)
         baselines = [red[0] for red in reds]
         nbls = len(baselines)
         bl_to_red_map = {red[0]: np.array(red) for red in reds}
@@ -185,19 +188,26 @@ def simulate(
         nbls = len(baselines)
         expand_vis = False
 
-    # prepare beam
-    # TODO: uncomment and test this when simulating multiple polarizations
+    # Prepare the beam
     beam = conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
+
+    # Check if the beam is complex
+    beam_values, _ = beam.interp(
+        az_array=np.array([0]),
+        za_array=np.array([0]),
+        freq_array=np.array([freqs[0]]),
+    )
+    is_beam_complex = np.issubdtype(beam_values.dtype, np.complexfloating)
 
     # Convert to correct precision
     crd_eq = crd_eq.astype(real_dtype)
     eq2tops = eq2tops.astype(real_dtype)
 
     # Factor of 0.5 accounts for splitting Stokes between polarization channels
-    Isky = (0.5 * sources).astype(complex_dtype)
+    Isky = (0.5 * fluxes).astype(complex_dtype)
 
     # Compute baseline vectors
-    blx, bly = np.array([antpos[bl[1]] - antpos[bl[0]] for bl in baselines])[
+    blx, bly = np.array([ants[bl[1]] - ants[bl[0]] for bl in baselines])[
         :, :2
     ].T.astype(real_dtype)
 
@@ -223,15 +233,16 @@ def simulate(
         nsim_sources = above_horizon.sum()
 
         # Form the visibility array
-        if polarized:
-            _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
-        else:
-            _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
+        _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
 
+        if is_beam_complex:
+            _vis_negatives = np.zeros(
+                (nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype
+            )
+
+        # Compute azimuth and zenith angles
         az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
-        # TODO: finufft2d3 is not vectorized over time
-        # TODO: finufft2d3 gives me warning if I don't use ascontiguousarray
         for fi in range(nfreqs):
             # Compute uv coordinates
             u, v = (
@@ -240,18 +251,17 @@ def simulate(
             )
 
             # Compute beams - only single beam is supported
-            A_s = np.zeros((nax, nfeeds, 1, nsim_sources), dtype=complex_dtype)
-            A_s = beams._evaluate_beam(A_s, [beam], az, za, polarized, freqs[fi])[
-                ..., 0, :
-            ]
-            A_s = np.flipud(A_s)
-            A_s = np.reshape(A_s, (nax * nfeeds, nsim_sources))
+            A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
+            A_s = beams._evaluate_beam(A_s, beam, az, za, polarized, freqs[fi])
+            A_s = A_s.transpose((1, 0, 2))
+            beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
+            beam_product = beam_product.reshape(nax * nfeeds, nsim_sources)
 
             # Compute sky beam product
-            i_sky = A_s * A_s.conj() * Isky[above_horizon, fi]
+            i_sky = beam_product * Isky[above_horizon, fi]
 
             # Compute visibilities w/ non-uniform FFT
-            v = finufft.nufft2d3(
+            _vis_here = finufft.nufft2d3(
                 2 * np.pi * tx,
                 2 * np.pi * ty,
                 i_sky,
@@ -262,7 +272,22 @@ def simulate(
             )
 
             # Expand out the visibility array
-            _vis[..., fi] = v.reshape(nfeeds, nfeeds, nbls)
+            _vis[..., fi] = _vis_here.reshape(nfeeds, nfeeds, nbls)
+
+            # If beam is complex, we need to compute the reverse negative frequencies
+            # TODO: no way to store this in the loop
+            if is_beam_complex:
+                # Compute
+                _vis_here_neg = finufft.nufft2d3(
+                    2 * np.pi * tx,
+                    2 * np.pi * ty,
+                    i_sky,
+                    -u,
+                    -v,
+                    modeord=0,
+                    eps=eps,
+                )
+                _vis_negatives[..., fi] = _vis_here_neg.reshape(nfeeds, nfeeds, nbls)
 
         # Expand out the visibility array in antenna by antenna matrix
         if expand_vis:
@@ -275,13 +300,19 @@ def simulate(
 
                 # Add the conjugate, avoid auto baselines twice
                 if bls[0] != bls[1]:
-                    np.add.at(
-                        vis,
-                        (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
-                        _vis[..., bi, :].conj(),
-                    )
-                # else:
-                #    vis[ti, bi] = _vis[..., bi, :]
+                    if is_beam_complex:
+                        np.add.at(
+                            vis,
+                            (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
+                            _vis_negatives[..., bi, :],
+                        )
+                    else:
+                        np.add.at(
+                            vis,
+                            (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
+                            _vis[..., bi, :].conj(),
+                        )
+
         else:
             vis[ti] = np.swapaxes(_vis, 2, 0)
 
@@ -297,118 +328,3 @@ def simulate(
             if polarized
             else np.moveaxis(vis[..., 0, 0, :], 2, 0)
         )
-
-
-def simulate_basis(
-    antpos: dict,
-    eta: np.ndarray,
-    freqs: np.ndarray,
-    sources: np.ndarray,
-    crd_eq: np.ndarray,
-    eq2tops: np.ndarray,
-    baselines: list[tuple] = None,
-    precision: int = 1,
-    polarized: bool = False,
-    eps: float = 6e-8,
-):
-    """
-    Simulate the sky using some basis as simulation
-
-    precision : int, optional
-        Which precision level to use for floats and complex numbers
-        Allowed values:
-        - 1: float32, complex64
-        - 2: float64, complex128
-    """
-    # Check inputs are valid
-    nfreqs = np.size(freqs)
-    # nax, nfeeds, nants, ntimes = matvis.cpu._validate_inputs(
-    #    precision, polarized, antpos, eq2tops, crd_eq, sources
-    # )
-    nants = len(antpos)
-    ntimes = len(eq2tops)
-
-    if precision == 1:
-        real_dtype = np.float32
-        complex_dtype = np.complex64
-    else:
-        real_dtype = np.float64
-        complex_dtype = np.complex128
-
-    # prepare beam
-    # TODO: add this when using multiple polarizations
-    # beam = conversions.prepare_beam(beam)
-
-    # Get the redundant - TODO handle this better
-    if not baselines:
-        reds = utils.get_pos_reds(antpos)
-        baselines = [red[0] for red in reds]
-        nbls = len(baselines)
-        bl_to_red_map = {red[0]: np.array(red) for red in reds}
-        expand_vis = True
-    else:
-        nbls = len(baselines)
-        expand_vis = False
-
-    # Convert to correct precision
-    crd_eq = crd_eq.astype(real_dtype)
-    eq2tops = eq2tops.astype(real_dtype)
-
-    # Factor of 0.5 accounts for splitting Stokes between polarization channels
-    Isky = (0.5 * sources).astype(complex_dtype)
-
-    # Compute coordinates
-    blx, bly = np.array([antpos[bl[1]] - antpos[bl[0]] for bl in baselines])[
-        :, :2
-    ].T.astype(real_dtype)
-
-    # Baseline coordinates
-    U, tF = np.meshgrid(blx / utils.speed_of_light, freqs)
-    V, _ = np.meshgrid(bly / utils.speed_of_light, freqs)
-
-    # output visibility array
-    if expand_vis:
-        vis = np.zeros((nants, nants, ntimes, nfreqs), dtype=complex_dtype)
-    else:
-        vis = np.zeros((nbls, ntimes, nfreqs), dtype=complex_dtype)
-
-    # Loop over time samples
-    for ti, eq2top in enumerate(eq2tops):
-        # Convert to topocentric coordinates
-        tx, ty, tz = np.dot(eq2top, crd_eq)
-        above_horizon = tz > 0
-        tx = tx[above_horizon]
-        ty = ty[above_horizon]
-
-        # Sky Coordinates
-        tX, _eta = np.meshgrid(tx, eta)
-        tY, _ = np.meshgrid(ty, eta)
-
-        # Simulate
-        _vis = finufft.nufft3d3(
-            2 * np.pi * np.ravel(tX),
-            2 * np.pi * np.ravel(tY),
-            np.ravel(_eta),
-            np.ravel(Isky[above_horizon]),
-            np.ravel(U * tF),
-            np.ravel(V * tF),
-            np.ravel(tF),
-            modeord=0,
-            eps=eps,
-        )
-        _vis.shape = (nfreqs, nbls)
-
-        if expand_vis:
-            for bi, bls in enumerate(baselines):
-                np.add.at(
-                    vis,
-                    (bl_to_red_map[bls][:, 0], bl_to_red_map[bls][:, 1], ti),
-                    _vis[:, bi],
-                )
-                np.add.at(
-                    vis,
-                    (bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0], ti),
-                    _vis[:, bi].conj(),
-                )
-
-    return vis

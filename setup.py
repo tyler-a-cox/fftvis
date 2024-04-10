@@ -17,11 +17,18 @@ setup(
         "matvis",
         "finufft",
         "pyuvdata",
-        "jax",
-        "jaxlib",
     ],
     extras_require={
-        "dev": ["pytest", "pre-commit", "pytest-cov", "hera_sim", "pytest-xdist"]
+        "dev": [
+            "mpi4py",
+            "pyuvsim[sim]",
+            "pyradiosky",
+            "pytest",
+            "pre-commit",
+            "pytest-cov",
+            "hera_sim",
+            "pytest-xdist",
+        ]
     },
     python_requires=">=3.9",
     classifiers=[
