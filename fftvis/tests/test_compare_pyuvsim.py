@@ -12,6 +12,7 @@ import numpy as np
 from pyuvsim import simsetup, uvsim
 
 from fftvis.simulate import simulate_vis
+from matvis import simulate_vis as simulate_vis_matvis
 
 from . import get_standard_sim_params, nants
 
@@ -54,11 +55,23 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
     # ---------------------------------------------------------------------------
     # (2) Run pyuvsim
     # ---------------------------------------------------------------------------
-    uvd_uvsim = uvsim.run_uvdata_uvsim(
-        uvdata,
-        uvsim_beams,
-        beam_dict=beam_dict,
-        catalog=simsetup.SkyModelData(sky_model),
+    # uvd_uvsim = uvsim.run_uvdata_uvsim(
+    #    uvdata,
+    #    uvsim_beams,
+    #    beam_dict=beam_dict,
+    #    catalog=simsetup.SkyModelData(sky_model),
+    # )
+    vis_matvis = simulate_vis_matvis(
+        ants=ants,
+        fluxes=flux,
+        ra=ra,
+        dec=dec,
+        freqs=freqs,
+        lsts=lsts,
+        beams=cpu_beams,
+        polarized=polarized,
+        precision=2,
+        latitude=hera_lat * np.pi / 180.0,
     )
 
     # ---------------------------------------------------------------------------
@@ -76,9 +89,14 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
         for j in range(i, nants):
             for if1, feed1 in enumerate(("X", "Y") if polarized else ("X",)):
                 for if2, feed2 in enumerate(("X", "Y") if polarized else ("X",)):
-                    d_uvsim = uvd_uvsim.get_data(
-                        (i, j, feed1 + feed2)
-                    ).T  # pyuvsim visibility
+                    # d_uvsim = uvd_uvsim.get_data(
+                    #    (i, j, feed1 + feed2)
+                    # ).T  # pyuvsim visibility
+                    d_uvsim = (
+                        vis_matvis[:, :, if1, if2, i, j]
+                        if polarized
+                        else vis_fftvis[:, :, i, j]
+                    )
                     d_fftvis = (
                         vis_fftvis[:, :, if1, if2, i, j]
                         if polarized
