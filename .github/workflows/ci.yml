@@ -21,6 +21,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
+      - uses: mpi4py/setup-mpi@v1
 
       - name: Setup Python
         uses: actions/setup-python@v4
