@@ -16,7 +16,7 @@ dependencies:
   - pytest-cov
   - finufft
   - matvis
-  - mpi4py>=3.0
+  - mpi4py
   - pyuvdata
   - pip:
     - pyuvsim[sim]>=1.2
