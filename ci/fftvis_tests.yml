@@ -1,4 +1,4 @@
-name: fftvis_tests
+name: tests
 channels:
   - conda-forge
   - defaults
