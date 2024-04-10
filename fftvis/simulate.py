@@ -22,7 +22,7 @@ def simulate_vis(
     lsts: np.ndarray,
     beam,
     baselines: list[tuple] = None,
-    precision: int = 1,
+    precision: int = 2,
     polarized: bool = False,
     latitude: float = -0.5361913261514378,
     eps: float = None,
@@ -110,9 +110,9 @@ def simulate(
     crd_eq: np.ndarray,
     eq2tops: np.ndarray,
     baselines: list[tuple] = None,
-    precision: int = 1,
+    precision: int = 2,
     polarized: bool = False,
-    eps: float = 6e-8,
+    eps: float = 1e-12,
     use_feed: str = "x",
 ):
     """
