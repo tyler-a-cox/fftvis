@@ -20,6 +20,7 @@ setup(
     ],
     extras_require={
         "dev": [
+            "mpi4py",
             "pyuvsim[sim]",
             "pyradiosky",
             "pytest",
