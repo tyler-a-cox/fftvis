@@ -40,7 +40,7 @@ def test_compare_pyuvsim(polarized, use_analytic_beam):
     # ---------------------------------------------------------------------------
     vis_fftvis = simulate_vis(
         antpos=ants,
-        sources=flux,
+        fluxes=flux,
         ra=ra,
         dec=dec,
         freqs=freqs,

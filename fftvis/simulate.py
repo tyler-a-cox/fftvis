@@ -14,8 +14,8 @@ default_accuracy_dict = {
 
 
 def simulate_vis(
-    antpos: dict,
-    sources: np.ndarray,
+    ants: dict,
+    fluxes: np.ndarray,
     ra: np.ndarray,
     dec: np.ndarray,
     freqs: np.ndarray,
@@ -31,9 +31,9 @@ def simulate_vis(
     """
     Parameters:
     ----------
-    antpos : dict
+    ants : dict
         Dictionary of antenna positions
-    sources : np.ndarray
+    fluxes : np.ndarray
         Intensity distribution of sources/pixels on the sky, assuming intensity
         (Stokes I) only. The Stokes I intensity will be split equally between
         the two linear polarization channels, resulting in a factor of 0.5 from
@@ -82,15 +82,15 @@ def simulate_vis(
     crd_eq = conversions.point_source_crd_eq(ra, dec)
 
     # Make sure antpos has the right format
-    antpos = {k: np.array(v) for k, v in antpos.items()}
+    ants = {k: np.array(v) for k, v in ants.items()}
 
     # Get coordinate transforms as a function of LST
     eq2tops = np.array([conversions.eci_to_enu_matrix(lst, latitude) for lst in lsts])
 
     return simulate(
-        antpos=antpos,
+        ants=ants,
         freqs=freqs,
-        sources=sources,
+        fluxes=fluxes,
         beam=beam,
         crd_eq=crd_eq,
         eq2tops=eq2tops,
@@ -103,9 +103,9 @@ def simulate_vis(
 
 
 def simulate(
-    antpos: dict,
+    ants: dict,
     freqs: np.ndarray,
-    sources: np.ndarray,
+    fluxes: np.ndarray,
     beam,
     crd_eq: np.ndarray,
     eq2tops: np.ndarray,
@@ -118,11 +118,11 @@ def simulate(
     """
     Parameters:
     ----------
-    antpos : dict
+    ants : dict
         Dictionary of antenna positions in the form {ant_index: np.array([x,y,z])}.
     freqs : np.ndarray
         Frequencies to evaluate visibilities at in Hz.
-    sources : np.ndarray
+    fluxes : np.ndarray
         Intensity distribution of sources/pixels on the sky, assuming intensity
         (Stokes I) only. The Stokes I intensity will be split equally between
         the two linear polarization channels, resulting in a factor of 0.5 from
@@ -162,7 +162,7 @@ def simulate(
     """
     # Get sizes of inputs
     nfreqs = np.size(freqs)
-    nants = len(antpos)
+    nants = len(ants)
     ntimes = len(eq2tops)
 
     if polarized:
@@ -179,7 +179,7 @@ def simulate(
 
     # Get the redundant groups - TODO handle this better
     if not baselines:
-        reds = utils.get_pos_reds(antpos, include_autos=True)
+        reds = utils.get_pos_reds(ants, include_autos=True)
         baselines = [red[0] for red in reds]
         nbls = len(baselines)
         bl_to_red_map = {red[0]: np.array(red) for red in reds}
@@ -204,10 +204,10 @@ def simulate(
     eq2tops = eq2tops.astype(real_dtype)
 
     # Factor of 0.5 accounts for splitting Stokes between polarization channels
-    Isky = (0.5 * sources).astype(complex_dtype)
+    Isky = (0.5 * fluxes).astype(complex_dtype)
 
     # Compute baseline vectors
-    blx, bly = np.array([antpos[bl[1]] - antpos[bl[0]] for bl in baselines])[
+    blx, bly = np.array([ants[bl[1]] - ants[bl[0]] for bl in baselines])[
         :, :2
     ].T.astype(real_dtype)
 
