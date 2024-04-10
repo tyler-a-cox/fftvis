@@ -112,7 +112,7 @@ def simulate(
     baselines: list[tuple] = None,
     precision: int = 2,
     polarized: bool = False,
-    eps: float = 1e-12,
+    eps: float = 1e-13,
     use_feed: str = "x",
 ):
     """
