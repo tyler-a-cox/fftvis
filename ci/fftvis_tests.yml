@@ -19,5 +19,5 @@ dependencies:
   - mpi4py
   - pyuvdata
   - pip:
-    - pyuvsim[sim]>=1.2
-    - pyradiosky>=0.1.1
+    - pyuvsim[sim]
+    - pyradiosky
