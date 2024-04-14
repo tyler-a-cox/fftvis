@@ -7,7 +7,7 @@ from setuptools import setup, find_packages
 setup(
     name="fftvis",
     version="0.0.1",
-    description="A package for simulating visibilities using FFTs",
+    description="An FFT-based visibility simulator",
     author="Tyler Cox",
     author_email="tyler.a.cox@berkeley.edu",
     license="MIT",
