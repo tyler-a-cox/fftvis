@@ -72,7 +72,7 @@ def simulate_vis(
     -------
     vis : np.ndarray
         Array of shape (nfreqs, ntimes, nants, nants) if polarized is False, and
-        (nfreqs, ntimes, 2, 2, nants, nants) if polarized is True.
+        (nfreqs, ntimes, nfeed, nfeed, nants, nants) if polarized is True.
     """
     # Get the accuracy for the given precision if not provided
     if eps is None:
@@ -87,6 +87,9 @@ def simulate_vis(
     # Get coordinate transforms as a function of LST
     eq2tops = np.array([conversions.eci_to_enu_matrix(lst, latitude) for lst in lsts])
 
+    # Prepare the beam
+    beam = conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
+
     return simulate(
         ants=ants,
         freqs=freqs,
@@ -98,7 +101,6 @@ def simulate_vis(
         precision=precision,
         polarized=polarized,
         eps=eps,
-        use_feed=use_feed,
     )
 
 
@@ -113,7 +115,7 @@ def simulate(
     precision: int = 2,
     polarized: bool = False,
     eps: float = 1e-13,
-    use_feed: str = "x",
+    beam_spline_opts: dict = None,
 ):
     """
     Parameters:
@@ -152,13 +154,13 @@ def simulate(
         - 2: float64, complex128
     eps : float, default = 6e-8
         Desired accuracy of the non-uniform fast fourier transform.
-
-
+    beam_spline_opts : dict, optional
+        Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
     Returns:
     -------
     vis : np.ndarray
         Array of shape (nfreqs, ntimes, nants, nants) if polarized is False, and
-        (nfreqs, ntimes, 2, 2, nants, nants) if polarized is True.
+        (nfreqs, ntimes, nfeed, nfeedd, nants, nants) if polarized is True.
     """
     # Get sizes of inputs
     nfreqs = np.size(freqs)
@@ -188,14 +190,9 @@ def simulate(
         nbls = len(baselines)
         expand_vis = False
 
-    # Prepare the beam
-    beam = conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
-
     # Check if the beam is complex
     beam_values, _ = beam.interp(
-        az_array=np.array([0]),
-        za_array=np.array([0]),
-        freq_array=np.array([freqs[0]]),
+        az_array=np.array([0]), za_array=np.array([0]), freq_array=np.array([freqs[0]])
     )
     is_beam_complex = np.issubdtype(beam_values.dtype, np.complexfloating)
 
@@ -252,7 +249,9 @@ def simulate(
 
             # Compute beams - only single beam is supported
             A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
-            A_s = beams._evaluate_beam(A_s, beam, az, za, polarized, freqs[fi])
+            A_s = beams._evaluate_beam(
+                A_s, beam, az, za, polarized, freqs[fi], spline_opts=beam_spline_opts
+            )
             A_s = A_s.transpose((1, 0, 2))
             beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
             beam_product = beam_product.reshape(nax * nfeeds, nsim_sources)
@@ -275,7 +274,6 @@ def simulate(
             _vis[..., fi] = _vis_here.reshape(nfeeds, nfeeds, nbls)
 
             # If beam is complex, we need to compute the reverse negative frequencies
-            # TODO: no way to store this in the loop
             if is_beam_complex:
                 # Compute
                 _vis_here_neg = finufft.nufft2d3(
