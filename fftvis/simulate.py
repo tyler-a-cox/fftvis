@@ -114,7 +114,7 @@ def simulate(
     baselines: list[tuple] = None,
     precision: int = 2,
     polarized: bool = False,
-    eps: float = 1e-13,
+    eps: float = None,
     beam_spline_opts: dict = None,
 ):
     """
@@ -179,6 +179,9 @@ def simulate(
         real_dtype = np.float64
         complex_dtype = np.complex128
 
+    if eps is None:
+        eps = default_accuracy_dict[precision]
+
     # Get the redundant groups - TODO handle this better
     if not baselines:
         reds = utils.get_pos_reds(ants, include_autos=True)
@@ -228,6 +231,9 @@ def simulate(
 
         # Number of above horizon points
         nsim_sources = above_horizon.sum()
+
+        if nsim_sources == 0:
+            continue
 
         # Form the visibility array
         _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
