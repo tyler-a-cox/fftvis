@@ -238,7 +238,7 @@ def simulate(
         # Form the visibility array
         _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
 
-        if is_beam_complex:
+        if is_beam_complex and expand_vis:
             _vis_negatives = np.zeros(
                 (nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype
             )
@@ -280,7 +280,7 @@ def simulate(
             _vis[..., fi] = _vis_here.reshape(nfeeds, nfeeds, nbls)
 
             # If beam is complex, we need to compute the reverse negative frequencies
-            if is_beam_complex:
+            if is_beam_complex and expand_vis:
                 # Compute
                 _vis_here_neg = finufft.nufft2d3(
                     2 * np.pi * tx,
@@ -304,6 +304,8 @@ def simulate(
 
                 # Add the conjugate, avoid auto baselines twice
                 if bls[0] != bls[1]:
+                    # If beam is complex, we need to use the negative frequencies
+                    # otherwise, we can just use the conjugate
                     if is_beam_complex:
                         np.add.at(
                             vis,
@@ -318,6 +320,7 @@ def simulate(
                         )
 
         else:
+            # Baselines were provided, so we can just add the visibilities
             vis[ti] = np.swapaxes(_vis, 2, 0)
 
     if expand_vis:
