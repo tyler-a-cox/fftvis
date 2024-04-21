@@ -17,6 +17,7 @@ setup(
         "matvis",
         "finufft",
         "pyuvdata",
+        "jax"
     ],
     extras_require={
         "dev": [
