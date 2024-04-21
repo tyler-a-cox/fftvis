@@ -366,4 +366,14 @@ def get_pos_reds(antpos: dict, decimals: int = 3, include_autos: bool = True):
 
                 ci += 1
 
-    return [reds[k] for k in reds]
+    reds_list = []
+    for k in reds:
+        red = reds[k]
+        ant1, ant2 = red[0]
+        _, bly, _ = antpos[ant2] - antpos[ant1]
+        if bly < 0:
+            reds_list.append([(bl[1], bl[0]) for bl in red])
+        else:
+            reds_list.append(red)
+
+    return reds_list
