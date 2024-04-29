@@ -207,6 +207,54 @@ def _validate_sky_fit_inputs(beam: str, beam_diameter: float, beam_vals: Array):
     pass
 
 
+def _compute_loss_beam_fit(
+    model_parameters: dict,
+    freqs: Array,
+    times: Array,
+    ra: Array,
+    dec: Array,
+    labels: Array,
+) -> jnp.ndarray:
+    """
+    Compute the loss between the labels and the predictions.
+
+    Parameters:
+    ----------
+    model_parameters : dict
+        The model parameters to fit.
+    freqs : jnp.ndarray
+        The frequencies of the data.
+    times : jnp.ndarray
+        The times of the data.
+    ra : jnp.ndarray
+        The right ascension of the source.
+    dec : jnp.ndarray
+        The declination of the source.
+    labels : jnp.ndarray
+        The data to fit.
+
+    Returns:
+    -------
+    jnp.ndarray
+        The loss.
+    """
+    # Evaluate the sky model for a given set of parameters
+    sky_model = _evaluate_sky_model(model_parameters=model_parameters, freqs=freqs)
+
+    # Initialize the model
+    predictions = _FFT_simulator(
+        sky_model=sky_model,
+        times=times,
+        freqs=freqs,
+        ra=ra,
+        dec=dec,
+    )
+
+    return optax.l2_loss(labels.real, predictions.real) + optax.l2_loss(
+        labels.imag, predictions.imag
+    )
+
+
 def _compute_loss_sky_fit(
     model_parameters: dict,
     freqs: Array,
@@ -281,6 +329,7 @@ def _fit_sky(
     freqs: Array,
     ra: Array,
     dec: Array,
+    fit_beam: bool = False,
     beam: str = "airy",
     beam_diameter: float = 14.6,
     beam_vals: Array = None,
@@ -292,6 +341,7 @@ def _fit_sky(
 ) -> tuple[dict, jnp.ndarray]:
     """
     Fit a model to the sky. This function uses the jax library to fit the model to the data.
+    Option available to link times
 
     Parameters:
     ----------
@@ -311,6 +361,8 @@ def _fit_sky(
         Source positions in right ascension.
     dec : jnp.ndarray
         Source positions in declination.
+    fit_beam: bool = True
+        pass
     nsteps : int
         The number of steps to run the optimizer.
 
@@ -406,6 +458,8 @@ def _fit_beam(
 ) -> tuple[dict, jnp.ndarray]:
     """
     Skeleton function for fitting the beam.
+
+    Has option to fit in uv-pixel space or in the Bessel basis
     """
     model_parameters = _evaluate_input_model_parameters(
         model_parameters=model_parameters,
