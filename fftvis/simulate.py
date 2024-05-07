@@ -355,7 +355,7 @@ def simulate(
                 plast, mlast = logutils.log_progress(tstart, plast, ti + 1, ntimes, pr, mlast)
                 highest_peak = logutils.memtrace(highest_peak)
 
-            simtimes_task.update(advance=1)
+            progress.update(simtimes_task, advance=1)
 
     if expand_vis:
         return (
