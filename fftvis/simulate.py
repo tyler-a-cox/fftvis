@@ -6,6 +6,8 @@ from matvis import conversions
 import time
 import psutil
 from rich.progress import Progress
+import logging
+import tracemalloc as tm
 
 from . import utils, beams, logutils
 
@@ -15,6 +17,7 @@ default_accuracy_dict = {
     2: 1e-13,
 }
 
+logger = logging.getLogger(__name__)
 
 def simulate_vis(
     ants: dict,
@@ -167,6 +170,11 @@ def simulate(
         Array of shape (nfreqs, ntimes, nants, nants) if polarized is False, and
         (nfreqs, ntimes, nfeed, nfeedd, nants, nants) if polarized is True.
     """
+    if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
+        tm.start()
+
+    highest_peak = logutils.memtrace(0)
+
     # Get sizes of inputs
     nfreqs = np.size(freqs)
     nants = len(ants)
@@ -348,7 +356,7 @@ def simulate(
                 highest_peak = logutils.memtrace(highest_peak)
 
             simtimes_task.update(advance=1)
-            
+
     if expand_vis:
         return (
             np.transpose(vis, (5, 0, 3, 4, 1, 2))
