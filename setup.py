@@ -17,6 +17,7 @@ setup(
         "matvis",
         "finufft",
         "pyuvdata",
+        "psutil"
     ],
     extras_require={
         "dev": [
