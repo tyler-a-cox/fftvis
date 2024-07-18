@@ -114,7 +114,7 @@ def simulate(
     baselines: list[tuple] = None,
     precision: int = 2,
     polarized: bool = False,
-    eps: float = None,
+    eps: float | None = None,
     beam_spline_opts: dict = None,
 ):
     """
@@ -182,6 +182,9 @@ def simulate(
     if eps is None:
         eps = default_accuracy_dict[precision]
 
+    freqs = freqs.astype(real_dtype)
+    fluxes = fluxes.astype(real_dtype)
+
     # Get the redundant groups - TODO handle this better
     if not baselines:
         reds = utils.get_pos_reds(ants, include_autos=True)
@@ -219,6 +222,12 @@ def simulate(
     else:
         vis = np.zeros((ntimes, nbls, nfeeds, nfeeds, nfreqs), dtype=complex_dtype)
 
+    blx /= utils.speed_of_light
+    bly /= utils.speed_of_light
+
+    u = np.zeros_like(blx)
+    v = np.zeros_like(blx)
+
     # Loop over time samples
     for ti, eq2top in enumerate(eq2tops):
         # Convert to topocentric coordinates
@@ -248,11 +257,8 @@ def simulate(
 
         for fi in range(nfreqs):
             # Compute uv coordinates
-            u, v = (
-                blx * freqs[fi] / utils.speed_of_light,
-                bly * freqs[fi] / utils.speed_of_light,
-            )
-
+            u[:], v[:] = blx * freqs[fi], bly * freqs[fi],
+            
             # Compute beams - only single beam is supported
             A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
             A_s = beams._evaluate_beam(
