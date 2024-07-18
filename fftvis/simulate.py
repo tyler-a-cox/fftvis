@@ -195,6 +195,9 @@ def simulate(
     if eps is None:
         eps = default_accuracy_dict[precision]
 
+    freqs = freqs.astype(real_dtype)
+    fluxes = fluxes.astype(real_dtype)
+
     # Get the redundant groups - TODO handle this better
     if not baselines:
         reds = utils.get_pos_reds(ants, include_autos=True)
@@ -231,7 +234,6 @@ def simulate(
         )
     else:
         vis = np.zeros((ntimes, nbls, nfeeds, nfeeds, nfreqs), dtype=complex_dtype)
-
     
     # Have up to 100 reports as it iterates through time.
     report_chunk = ntimes // max_progress_reports + 1
