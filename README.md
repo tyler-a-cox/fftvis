@@ -22,9 +22,7 @@
 You can install `fftvis` via pip:
 
 ```bash
-git clone https://github.com/tyler-a-cox/fftvis
-cd fftvis
-pip install .
+pip install fftvis
 ```
 
 ## Contributing
