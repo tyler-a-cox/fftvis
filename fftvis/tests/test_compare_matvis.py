@@ -14,7 +14,7 @@ def test_simulate():
     nsrcs = 20
 
     # Set random set
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
 
     # Define frequency and time range
     freqs = np.linspace(100e6, 200e6, nfreqs)
@@ -29,7 +29,7 @@ def test_simulate():
     # Set sky model
     ra = np.linspace(0.0, 2.0 * np.pi, nsrcs)
     dec = np.linspace(-0.5 * np.pi, 0.5 * np.pi, nsrcs)
-    sky_model = np.random.uniform(0, 1, size=(nsrcs, 1)) * (freqs[None] / 150e6) ** -2.5
+    sky_model = rng.uniform(0, 1, size=(nsrcs, 1)) * (freqs[None] / 150e6) ** -2.5
 
     # Use matvis as a reference
     mvis = matvis.simulate_vis(
@@ -130,7 +130,7 @@ def test_simulate_non_coplanar():
     nsrcs = 20
 
     # Set random set
-    np.random.seed(42)
+    rng = np.random.default_rng(42)
 
     # Define frequency and time range
     freqs = np.linspace(100e6, 200e6, nfreqs)
@@ -145,7 +145,7 @@ def test_simulate_non_coplanar():
     # Set sky model
     ra = np.linspace(0.0, 2.0 * np.pi, nsrcs)
     dec = np.linspace(-0.5 * np.pi, 0.5 * np.pi, nsrcs)
-    sky_model = np.random.uniform(0, 1, size=(nsrcs, 1)) * (freqs[None] / 150e6) ** -2.5
+    sky_model = rng.uniform(0, 1, size=(nsrcs, 1)) * (freqs[None] / 150e6) ** -2.5
 
     # Use matvis as a reference
     mvis = matvis.simulate_vis(
