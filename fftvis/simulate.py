@@ -239,6 +239,14 @@ def simulate(
     else:
         vis = np.zeros((ntimes, nbls, nfeeds, nfeeds, nfreqs), dtype=complex_dtype)
 
+    blx /= utils.speed_of_light
+    bly /= utils.speed_of_light
+    blz /= utils.speed_of_light
+
+    u = np.zeros_like(blx)
+    v = np.zeros_like(bly)
+    w = np.zeros_like(blz)
+
     # Have up to 100 reports as it iterates through time.
     report_chunk = ntimes // max_progress_reports + 1
     pr = psutil.Process()
@@ -284,11 +292,7 @@ def simulate(
 
             for fi in range(nfreqs):
                 # Compute uv coordinates
-                u, v, w = (
-                    blx * freqs[fi] / utils.speed_of_light,
-                    bly * freqs[fi] / utils.speed_of_light,
-                    blz * freqs[fi] / utils.speed_of_light,
-                )
+                u[:], v[:], w[:] = blx * freqs[fi], bly * freqs[fi], blz * freqs[fi]
 
                 # Compute beams - only single beam is supported
                 A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
