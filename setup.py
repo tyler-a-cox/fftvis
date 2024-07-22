@@ -6,19 +6,13 @@ from setuptools import setup, find_packages
 
 setup(
     name="fftvis",
-    version="0.0.6",
+    version="0.0.7",
     description="An FFT-based visibility simulator",
     author="Tyler Cox",
     author_email="tyler.a.cox@berkeley.edu",
     license="MIT",
     packages=find_packages(),
-    install_requires=[
-        "numpy",
-        "matvis",
-        "finufft",
-        "pyuvdata",
-        "psutil"
-    ],
+    install_requires=["numpy", "matvis", "finufft", "pyuvdata", "psutil"],
     extras_require={
         "dev": [
             "mpi4py",
