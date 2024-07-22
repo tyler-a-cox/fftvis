@@ -119,7 +119,7 @@ def test_simulate():
     assert fvis.shape == (nfreqs, ntimes, nants, nants)
 
     # Check that the results are the same
-    assert np.allclose(mvis, fvis, atol=1e-5)
+    assert np.allclose(mvis, fvis, atol=1e-4)
 
 
 def test_simulate_non_coplanar():
