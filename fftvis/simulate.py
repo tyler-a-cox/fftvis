@@ -8,6 +8,7 @@ import psutil
 from rich.progress import Progress
 import logging
 import tracemalloc as tm
+from pyuvdata import UVBeam
 
 from . import utils, beams, logutils
 
@@ -217,6 +218,11 @@ def simulate(
     )
     is_beam_complex = np.issubdtype(beam_values.dtype, np.complexfloating)
 
+    if isinstance(beam, UVBeam):
+        beam_here = beam.interp(freq_array=freqs, new_object=True, run_check=False)
+    else:
+        beam_here = beam
+
     # Convert to correct precision
     crd_eq = crd_eq.astype(real_dtype)
     eq2tops = eq2tops.astype(real_dtype)
@@ -298,7 +304,7 @@ def simulate(
                 A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
                 A_s = beams._evaluate_beam(
                     A_s,
-                    beam,
+                    beam_here,
                     az,
                     za,
                     polarized,
