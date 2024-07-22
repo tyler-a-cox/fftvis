@@ -8,6 +8,7 @@ import psutil
 from rich.progress import Progress
 import logging
 import tracemalloc as tm
+from pyuvdata import UVBeam
 
 from . import utils, beams, logutils
 
@@ -262,43 +263,53 @@ def simulate(
             "Simulating Times", total=ntimes, visible=live_progress
         )
 
-        # Loop over time samples
-        for ti, eq2top in enumerate(eq2tops):
-            # Convert to topocentric coordinates
-            tx, ty, tz = np.dot(eq2top, crd_eq)
+        # Loop over frequency samples
+        for fi in range(nfreqs):
+            # Compute uv coordinates
+            u[:], v[:], w[:] = blx * freqs[fi], bly * freqs[fi], blz * freqs[fi]
 
-            # Only simulate above the horizon
-            above_horizon = tz > 0
-            tx = tx[above_horizon]
-            ty = ty[above_horizon]
-            tz = tz[above_horizon]
-
-            # Number of above horizon points
-            nsim_sources = above_horizon.sum()
-
-            if nsim_sources == 0:
-                continue
-
-            # Form the visibility array
-            _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
-
-            if is_beam_complex and expand_vis:
-                _vis_negatives = np.zeros(
-                    (nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype
+            if isinstance(beam, UVBeam):
+                beam_here = beam.interp(
+                    freq_array=np.array([freqs[fi]]), new_object=True, run_check=False
                 )
+            else:
+                beam_here = beam
 
-            # Compute azimuth and zenith angles
-            az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+            # Loop over time samples
+            for ti, eq2top in enumerate(eq2tops):
+                # Convert to topocentric coordinates
+                tx, ty, tz = np.dot(eq2top, crd_eq)
 
-            for fi in range(nfreqs):
-                # Compute uv coordinates
-                u[:], v[:], w[:] = blx * freqs[fi], bly * freqs[fi], blz * freqs[fi]
+                # Only simulate above the horizon
+                above_horizon = tz > 0
+                tx = tx[above_horizon]
+                ty = ty[above_horizon]
+                tz = tz[above_horizon]
+
+                # Number of above horizon points
+                nsim_sources = above_horizon.sum()
+
+                if nsim_sources == 0:
+                    continue
+
+                # Form the visibility array
+                _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
+
+                if is_beam_complex and expand_vis:
+                    _vis_negatives = np.zeros(
+                        (nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype
+                    )
+
+                # Compute azimuth and zenith angles
+                az, za = conversions.enu_to_az_za(
+                    enu_e=tx, enu_n=ty, orientation="uvbeam"
+                )
 
                 # Compute beams - only single beam is supported
                 A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
                 A_s = beams._evaluate_beam(
                     A_s,
-                    beam,
+                    beam_here,
                     az,
                     za,
                     polarized,
