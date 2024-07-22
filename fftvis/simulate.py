@@ -19,6 +19,7 @@ default_accuracy_dict = {
 
 logger = logging.getLogger(__name__)
 
+
 def simulate_vis(
     ants: dict,
     fluxes: np.ndarray,
@@ -164,6 +165,7 @@ def simulate(
         Desired accuracy of the non-uniform fast fourier transform.
     beam_spline_opts : dict, optional
         Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
+
     Returns:
     -------
     vis : np.ndarray
@@ -223,9 +225,11 @@ def simulate(
     Isky = (0.5 * fluxes).astype(complex_dtype)
 
     # Compute baseline vectors
-    blx, bly = np.array([ants[bl[1]] - ants[bl[0]] for bl in baselines])[
-        :, :2
+    blx, bly, blz = np.array([ants[bl[1]] - ants[bl[0]] for bl in baselines])[
+        :, :
     ].T.astype(real_dtype)
+
+    is_coplanar = np.allclose(blz, 0)
 
     # Generate visibility array
     if expand_vis:
@@ -234,7 +238,15 @@ def simulate(
         )
     else:
         vis = np.zeros((ntimes, nbls, nfeeds, nfeeds, nfreqs), dtype=complex_dtype)
-    
+
+    blx /= utils.speed_of_light
+    bly /= utils.speed_of_light
+    blz /= utils.speed_of_light
+
+    u = np.zeros_like(blx)
+    v = np.zeros_like(bly)
+    w = np.zeros_like(blz)
+
     # Have up to 100 reports as it iterates through time.
     report_chunk = ntimes // max_progress_reports + 1
     pr = psutil.Process()
@@ -245,8 +257,10 @@ def simulate(
     highest_peak = logutils.memtrace(highest_peak)
 
     with Progress() as progress:
-        
-        simtimes_task = progress.add_task("Simulating Times", total=ntimes, visible=live_progress)
+
+        simtimes_task = progress.add_task(
+            "Simulating Times", total=ntimes, visible=live_progress
+        )
 
         # Loop over time samples
         for ti, eq2top in enumerate(eq2tops):
@@ -257,6 +271,7 @@ def simulate(
             above_horizon = tz > 0
             tx = tx[above_horizon]
             ty = ty[above_horizon]
+            tz = tz[above_horizon]
 
             # Number of above horizon points
             nsim_sources = above_horizon.sum()
@@ -277,15 +292,18 @@ def simulate(
 
             for fi in range(nfreqs):
                 # Compute uv coordinates
-                u, v = (
-                    blx * freqs[fi] / utils.speed_of_light,
-                    bly * freqs[fi] / utils.speed_of_light,
-                )
+                u[:], v[:], w[:] = blx * freqs[fi], bly * freqs[fi], blz * freqs[fi]
 
                 # Compute beams - only single beam is supported
                 A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
                 A_s = beams._evaluate_beam(
-                    A_s, beam, az, za, polarized, freqs[fi], spline_opts=beam_spline_opts
+                    A_s,
+                    beam,
+                    az,
+                    za,
+                    polarized,
+                    freqs[fi],
+                    spline_opts=beam_spline_opts,
                 )
                 A_s = A_s.transpose((1, 0, 2))
                 beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
@@ -295,15 +313,28 @@ def simulate(
                 i_sky = beam_product * Isky[above_horizon, fi]
 
                 # Compute visibilities w/ non-uniform FFT
-                _vis_here = finufft.nufft2d3(
-                    2 * np.pi * tx,
-                    2 * np.pi * ty,
-                    i_sky,
-                    u,
-                    v,
-                    modeord=0,
-                    eps=eps,
-                )
+                if is_coplanar:
+                    _vis_here = finufft.nufft2d3(
+                        2 * np.pi * tx,
+                        2 * np.pi * ty,
+                        i_sky,
+                        u,
+                        v,
+                        modeord=0,
+                        eps=eps,
+                    )
+                else:
+                    _vis_here = finufft.nufft3d3(
+                        2 * np.pi * tx,
+                        2 * np.pi * ty,
+                        2 * np.pi * tz,
+                        i_sky,
+                        u,
+                        v,
+                        w,
+                        modeord=0,
+                        eps=eps,
+                    )
 
                 # Expand out the visibility array
                 _vis[..., fi] = _vis_here.reshape(nfeeds, nfeeds, nbls)
@@ -311,16 +342,31 @@ def simulate(
                 # If beam is complex, we need to compute the reverse negative frequencies
                 if is_beam_complex and expand_vis:
                     # Compute
-                    _vis_here_neg = finufft.nufft2d3(
-                        2 * np.pi * tx,
-                        2 * np.pi * ty,
-                        i_sky,
-                        -u,
-                        -v,
-                        modeord=0,
-                        eps=eps,
+                    if is_coplanar:
+                        _vis_here_neg = finufft.nufft2d3(
+                            2 * np.pi * tx,
+                            2 * np.pi * ty,
+                            i_sky,
+                            -u,
+                            -v,
+                            modeord=0,
+                            eps=eps,
+                        )
+                    else:
+                        _vis_here_neg = finufft.nufft3d3(
+                            2 * np.pi * tx,
+                            2 * np.pi * ty,
+                            2 * np.pi * tz,
+                            i_sky,
+                            -u,
+                            -v,
+                            -w,
+                            modeord=0,
+                            eps=eps,
+                        )
+                    _vis_negatives[..., fi] = _vis_here_neg.reshape(
+                        nfeeds, nfeeds, nbls
                     )
-                    _vis_negatives[..., fi] = _vis_here_neg.reshape(nfeeds, nfeeds, nbls)
 
             # Expand out the visibility array in antenna by antenna matrix
             if expand_vis:
@@ -338,13 +384,21 @@ def simulate(
                         if is_beam_complex:
                             np.add.at(
                                 vis,
-                                (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
+                                (
+                                    ti,
+                                    bl_to_red_map[bls][:, 1],
+                                    bl_to_red_map[bls][:, 0],
+                                ),
                                 _vis_negatives[..., bi, :],
                             )
                         else:
                             np.add.at(
                                 vis,
-                                (ti, bl_to_red_map[bls][:, 1], bl_to_red_map[bls][:, 0]),
+                                (
+                                    ti,
+                                    bl_to_red_map[bls][:, 1],
+                                    bl_to_red_map[bls][:, 0],
+                                ),
                                 _vis[..., bi, :].conj(),
                             )
 
@@ -352,9 +406,10 @@ def simulate(
                 # Baselines were provided, so we can just add the visibilities
                 vis[ti] = np.swapaxes(_vis, 2, 0)
 
-            
             if not (ti % report_chunk or ti == ntimes - 1):
-                plast, mlast = logutils.log_progress(tstart, plast, ti + 1, ntimes, pr, mlast)
+                plast, mlast = logutils.log_progress(
+                    tstart, plast, ti + 1, ntimes, pr, mlast
+                )
                 highest_peak = logutils.memtrace(highest_peak)
 
             progress.update(simtimes_task, advance=1)
