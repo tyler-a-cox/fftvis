@@ -218,6 +218,11 @@ def simulate(
     )
     is_beam_complex = np.issubdtype(beam_values.dtype, np.complexfloating)
 
+    if isinstance(beam, UVBeam):
+        beam_here = beam.interp(freq_array=freqs, new_object=True, run_check=False)
+    else:
+        beam_here = beam
+
     # Convert to correct precision
     crd_eq = crd_eq.astype(real_dtype)
     eq2tops = eq2tops.astype(real_dtype)
@@ -263,47 +268,37 @@ def simulate(
             "Simulating Times", total=ntimes, visible=live_progress
         )
 
-        # Loop over frequency samples
-        for fi in range(nfreqs):
-            # Compute uv coordinates
-            u[:], v[:], w[:] = blx * freqs[fi], bly * freqs[fi], blz * freqs[fi]
+        # Loop over time samples
+        for ti, eq2top in enumerate(eq2tops):
+            # Convert to topocentric coordinates
+            tx, ty, tz = np.dot(eq2top, crd_eq)
 
-            if isinstance(beam, UVBeam):
-                beam_here = beam.interp(
-                    freq_array=np.array([freqs[fi]]), new_object=True, run_check=False
+            # Only simulate above the horizon
+            above_horizon = tz > 0
+            tx = tx[above_horizon]
+            ty = ty[above_horizon]
+            tz = tz[above_horizon]
+
+            # Number of above horizon points
+            nsim_sources = above_horizon.sum()
+
+            if nsim_sources == 0:
+                continue
+
+            # Form the visibility array
+            _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
+
+            if is_beam_complex and expand_vis:
+                _vis_negatives = np.zeros(
+                    (nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype
                 )
-            else:
-                beam_here = beam
 
-            # Loop over time samples
-            for ti, eq2top in enumerate(eq2tops):
-                # Convert to topocentric coordinates
-                tx, ty, tz = np.dot(eq2top, crd_eq)
+            # Compute azimuth and zenith angles
+            az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
-                # Only simulate above the horizon
-                above_horizon = tz > 0
-                tx = tx[above_horizon]
-                ty = ty[above_horizon]
-                tz = tz[above_horizon]
-
-                # Number of above horizon points
-                nsim_sources = above_horizon.sum()
-
-                if nsim_sources == 0:
-                    continue
-
-                # Form the visibility array
-                _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
-
-                if is_beam_complex and expand_vis:
-                    _vis_negatives = np.zeros(
-                        (nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype
-                    )
-
-                # Compute azimuth and zenith angles
-                az, za = conversions.enu_to_az_za(
-                    enu_e=tx, enu_n=ty, orientation="uvbeam"
-                )
+            for fi in range(nfreqs):
+                # Compute uv coordinates
+                u[:], v[:], w[:] = blx * freqs[fi], bly * freqs[fi], blz * freqs[fi]
 
                 # Compute beams - only single beam is supported
                 A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
