@@ -123,6 +123,7 @@ def simulate(
     precision: int = 2,
     polarized: bool = False,
     eps: float | None = None,
+    beam_interpolator: str = "RectBivariateSpline",
     beam_spline_opts: dict = None,
     max_progress_reports: int = 100,
     live_progress: bool = True,
@@ -164,6 +165,12 @@ def simulate(
         - 2: float64, complex128
     eps : float, default = 6e-8
         Desired accuracy of the non-uniform fast fourier transform.
+    beam_interpolator : str, optional
+        Interpolation function to use when interpolating the beam. Options are
+        "RectBivariateSpline" and "map_coordinates". Default is "RectBivariateSpline".
+        "RectBivariateSpline" tends to be slower but more accurate, especially at the
+        edges of the beam. Both methods produce the same results when linear interpolation
+        is used.
     beam_spline_opts : dict, optional
         Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
 
@@ -309,6 +316,7 @@ def simulate(
                     za,
                     polarized,
                     freqs[fi],
+                    interpolator=beam_interpolator,
                     spline_opts=beam_spline_opts,
                 )
                 A_s = A_s.transpose((1, 0, 2))
