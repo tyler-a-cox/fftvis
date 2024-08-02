@@ -9,6 +9,7 @@ from rich.progress import Progress
 import logging
 import tracemalloc as tm
 from pyuvdata import UVBeam
+from pyuvsim import AnalyticBeam
 
 from . import utils, beams, logutils
 
@@ -28,13 +29,16 @@ def simulate_vis(
     dec: np.ndarray,
     freqs: np.ndarray,
     lsts: np.ndarray,
-    beam,
+    beam: UVBeam | AnalyticBeam,
     baselines: list[tuple] = None,
     precision: int = 2,
     polarized: bool = False,
     latitude: float = -0.5361913261514378,
     eps: float = None,
     use_feed: str = "x",
+    beam_interpolator: str = "RectBivariateSpline",
+    live_progress: bool = True,
+    max_progress_reports: int = 100,
 ):
     """
     Parameters:
@@ -75,6 +79,18 @@ def simulate_vis(
         Desired accuracy of the non-uniform fast fourier transform. If None, the default accuracy
         for the given precision will be used. For precision 1, the default accuracy is 6e-8, and for
         precision 2, the default accuracy is 1e-12.
+    use_feed : str, optional
+        Which feed to use for the beam. Options are "x" and "y". Default is "x".
+    beam_interpolator : str, optional
+        Interpolation function to use when interpolating the beam. Options are
+        "RectBivariateSpline" and "map_coordinates". Default is "RectBivariateSpline".
+        "RectBivariateSpline" tends to be slower but more accurate, especially at the
+        edges of the beam. Both methods produce the same results when linear interpolation
+        is used.
+    live_progress : bool, optional
+        Whether to show a live progress bar. Default is True.
+    max_progress_reports : int, optional
+        Maximum number of progress reports to show. Default is 100.
 
     Returns:
     -------
@@ -109,6 +125,9 @@ def simulate_vis(
         precision=precision,
         polarized=polarized,
         eps=eps,
+        beam_interpolator=beam_interpolator,
+        live_progress=live_progress,
+        max_progress_reports=max_progress_reports,
     )
 
 
