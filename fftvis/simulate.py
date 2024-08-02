@@ -37,6 +37,7 @@ def simulate_vis(
     eps: float = None,
     use_feed: str = "x",
     beam_interpolator: str = "RectBivariateSpline",
+    beam_spline_opts: dict = None,
     live_progress: bool = True,
     max_progress_reports: int = 100,
 ):
@@ -87,6 +88,8 @@ def simulate_vis(
         "RectBivariateSpline" tends to be slower but more accurate, especially at the
         edges of the beam. Both methods produce the same results when linear interpolation
         is used.
+    beam_spline_opts : dict, optional
+        Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
     live_progress : bool, optional
         Whether to show a live progress bar. Default is True.
     max_progress_reports : int, optional
