@@ -35,7 +35,7 @@ def _evaluate_beam(
     check: bool
         Whether to check that the beam has no inf/nan values. Set to False if you are
         sure that the beam is valid, as it will be faster.
-    interpolator: str
+    spatial_interp_func: str
         Interpolation function to use when interpolating the angular axes of the beam. Options are
         "RectBivariateSpline" and "map_coordinates".
     spline_opts
