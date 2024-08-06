@@ -159,3 +159,11 @@ def test_simulate_non_coplanar():
 
     # Check that the results are the same
     assert np.allclose(mvis, fvis, atol=1e-5)
+
+    # Use fftvis to simulate visibilities with flat array
+    fvis_flat = simulate.simulate_vis(
+        antpos, sky_model, ra, dec, freqs, lsts, beam, precision=2, eps=1e-10, flat_array_tol=np.inf
+    )
+
+    # Check that the results are different
+    assert not np.allclose(fvis, fvis_flat, atol=1e-5)
