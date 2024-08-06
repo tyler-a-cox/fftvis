@@ -40,6 +40,7 @@ def simulate_vis(
     beam_spline_opts: dict = None,
     live_progress: bool = True,
     max_progress_reports: int = 100,
+    flat_array_tol: float = 0.0,
 ):
     """
     Parameters:
@@ -94,6 +95,10 @@ def simulate_vis(
         Whether to show a live progress bar. Default is True.
     max_progress_reports : int, optional
         Maximum number of progress reports to show. Default is 100.
+    flat_array_tol : float, default = 0.0
+        Tolerance for checking if the array is flat in units of meters. If the
+        z-coordinate of all baseline vectors is within this tolerance, the array
+        is considered flat and the z-coordinate is set to zero. Default is 0.0.
 
     Returns:
     -------
@@ -132,6 +137,7 @@ def simulate_vis(
         live_progress=live_progress,
         max_progress_reports=max_progress_reports,
         beam_spline_opts=beam_spline_opts,
+        flat_array_tol=flat_array_tol,
     )
 
 
@@ -150,6 +156,7 @@ def simulate(
     beam_spline_opts: dict = None,
     max_progress_reports: int = 100,
     live_progress: bool = True,
+    flat_array_tol: float = 0.0,
 ):
     """
     Parameters:
@@ -196,6 +203,10 @@ def simulate(
         is used.
     beam_spline_opts : dict, optional
         Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
+    flat_array_tol : float, default = 0.0
+        Tolerance for checking if the array is flat in units of meters. If the
+        z-coordinate of all baseline vectors is within this tolerance, the array
+        is considered flat and the z-coordinate is set to zero. Default is 0.0.
 
     Returns:
     -------
@@ -265,7 +276,8 @@ def simulate(
         :, :
     ].T.astype(real_dtype)
 
-    is_coplanar = np.allclose(blz, 0)
+    # Check if the array is flat within tolerance
+    is_coplanar = np.all(np.less_equal(np.abs(blz), flat_array_tol))
 
     # Generate visibility array
     if expand_vis:
