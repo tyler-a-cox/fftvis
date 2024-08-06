@@ -83,7 +83,7 @@ def simulate_vis(
     use_feed : str, optional
         Which feed to use for the beam. Options are "x" and "y". Default is "x".
     beam_interpolator : str, optional
-        Interpolation function to use when interpolating the beam. Options are
+        Interpolation function to use when interpolating the angular axes of the beam. Options are
         "RectBivariateSpline" and "map_coordinates". Default is "RectBivariateSpline".
         "RectBivariateSpline" tends to be slower but more accurate, especially at the
         edges of the beam. Both methods produce the same results when linear interpolation
@@ -131,6 +131,7 @@ def simulate_vis(
         beam_interpolator=beam_interpolator,
         live_progress=live_progress,
         max_progress_reports=max_progress_reports,
+        beam_spline_opts=beam_spline_opts,
     )
 
 
@@ -188,7 +189,7 @@ def simulate(
     eps : float, default = 6e-8
         Desired accuracy of the non-uniform fast fourier transform.
     beam_interpolator : str, optional
-        Interpolation function to use when interpolating the beam. Options are
+        Interpolation function to use when interpolating the angular axes of the beam. Options are
         "RectBivariateSpline" and "map_coordinates". Default is "RectBivariateSpline".
         "RectBivariateSpline" tends to be slower but more accurate, especially at the
         edges of the beam. Both methods produce the same results when linear interpolation
@@ -338,7 +339,7 @@ def simulate(
                     za,
                     polarized,
                     freqs[fi],
-                    interpolator=beam_interpolator,
+                    spatial_interp_func=beam_interpolator,
                     spline_opts=beam_spline_opts,
                 )
                 A_s = A_s.transpose((1, 0, 2))

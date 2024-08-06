@@ -10,7 +10,7 @@ def _evaluate_beam(
     polarized: bool,
     freq: float,
     check: bool = False,
-    interpolator: str="RectBivariateSpline",
+    spatial_interp_func: str="RectBivariateSpline",
     spline_opts: dict = None,
 ):
     """Evaluate the beam on the CPU. Simplified version of the `_evaluate_beam_cpu` function
@@ -36,7 +36,7 @@ def _evaluate_beam(
         Whether to check that the beam has no inf/nan values. Set to False if you are
         sure that the beam is valid, as it will be faster.
     interpolator: str
-        Interpolation function to use when interpolating the beam. Options are
+        Interpolation function to use when interpolating the angular axes of the beam. Options are
         "RectBivariateSpline" and "map_coordinates".
     spline_opts
         Extra keyword arguments to pass to the chosen interpolation function when interpolating.
@@ -44,7 +44,7 @@ def _evaluate_beam(
     # Primary beam pattern using direct interpolation of UVBeam object
     kw = (
         {
-            "spatial_interp_func": interpolator,
+            "spatial_interp_func": spatial_interp_func,
             "reuse_spline": True,
             "check_azza_domain": False,
             "spline_opts": spline_opts,
