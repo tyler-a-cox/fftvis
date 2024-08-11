@@ -1,10 +1,11 @@
 import numpy as np
+from pyuvsim import AnalyticBeam
 from pyuvdata import UVBeam
 
 
 def _evaluate_beam(
     A_s: np.ndarray,
-    beam: UVBeam,
+    beam: UVBeam | AnalyticBeam,
     az: np.ndarray,
     za: np.ndarray,
     polarized: bool,
