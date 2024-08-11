@@ -4,7 +4,7 @@ from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam
 
 from matvis import conversions, _uvbeam_to_raw
-
+from . import beams
 try:
     import cufinufft
     import cupy as cp
@@ -17,38 +17,6 @@ except ImportError:
 except Exception as e:
     print(e)
     HAVE_CUDA = False
-
-def simulate_gpu(
-    ants: dict,
-    freqs: np.ndarray,
-    fluxes: np.ndarray,
-    beam: UVBeam | AnalyticBeam,
-    crd_eq: np.ndarray,
-    eq2tops: np.ndarray,
-    baselines: list[tuple[int, int]] | None = None,
-    precision: int = 2,
-    polarized: bool = False,
-    eps: float | None = None,
-    beam_spline_opts: dict = None,
-    flat_array_tol: float = 0.0,
-):
-    """
-    GPU accelerated version of simulate_vis
-    """
-    if not HAVE_CUDA:
-        raise ImportError("You need to install cufinufft and cupy to use this function")
-
-    if precision == 1:
-        real_dtype, complex_dtype = np.float32, np.complex64
-    elif precision == 2:
-        real_dtype, complex_dtype = np.float64, np.complex128
-    else:
-        raise ValueError("Precision must be 1 or 2")
-    
-    for eq2top in range(len(eq2tops)):
-        # Convert sky coordinates to topocentric
-        
-        _uvbeam_to_raw.uvbeam_to_azza_grid(beam)
 
 def do_beam_interpolation(
     *,
@@ -82,7 +50,7 @@ def do_beam_interpolation(
         nax, nfeed, nsrcs = 1, 1, 1
         A = np.zeros((nax, nfeed, nsrcs))
 
-        _evaluate_beam_cpu(
+        beams._evaluate_beam(
             A,
             beam, 
             tx, 
@@ -94,6 +62,8 @@ def do_beam_interpolation(
         
         # Beam to GPU
         out_beam = cp.asarray(A)
+
+    # _uvbeam_to_raw.uvbeam_to_azza_grid(beam)
 
     return out_beam
 
