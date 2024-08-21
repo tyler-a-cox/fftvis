@@ -12,16 +12,7 @@ from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam
 
 from . import utils, beams, logutils
-
-try:
-    import cufinufft
-    import cupy as cp
-    from cupyx.scipy import interpolate, ndimage
-    
-    HAVE_CUDA = True
-except ImportError:
-    # if not installed, don't warn
-    HAVE_CUDA = False
+from . import HAVE_GPU, cpu, gpu
 
 # Default accuracy for the non-uniform fast fourier transform based on precision
 default_accuracy_dict = {
@@ -47,6 +38,7 @@ def simulate_vis(
     eps: float = None,
     use_feed: str = "x",
     flat_array_tol: float = 0.0,
+    use_gpu: bool = False,
 ):
     """
     Parameters:
@@ -102,6 +94,26 @@ def simulate_vis(
     if eps is None:
         eps = default_accuracy_dict[precision]
 
+    if use_gpu:
+        if not HAVE_GPU:
+            raise ImportError("CUDA is not available on this system.")
+        
+        import cupy as cp
+
+        device = cp.cuda.Device()
+        attrs = device.attributes
+        attrs = {str(k): v for k, v in attrs.items()}
+        string = "\n\t".join(f"{k}: {v}" for k, v in attrs.items())
+        logger.debug(
+            f"""
+            Your GPU has the following attributes:
+            \t{string}
+            """
+        )
+
+    # Get the correct simulation function
+    _simulate_ = gpu.simulate if use_gpu else cpu.simulate
+
     # Source coordinate transform, from equatorial to Cartesian
     crd_eq = conversions.point_source_crd_eq(ra, dec)
 
@@ -114,7 +126,7 @@ def simulate_vis(
     # Prepare the beam
     beam = conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
 
-    return simulate(
+    return _simulate_(
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
