@@ -1,5 +1,5 @@
 import numpy as np
-
+from scipy import linalg
 IDEALIZED_BL_TOL = 1e-8  # bl_error_tol for redcal.get_reds when using antenna positions calculated from reds
 speed_of_light = 299792458.0  # m/s
 
@@ -65,3 +65,51 @@ def get_pos_reds(antpos, decimals=3, include_autos=True):
             reds_list.append(red)
 
     return reds_list
+
+
+def get_plane_to_xy_rotation_matrix(antvecs):
+    """
+    Compute the rotation matrix that projects the antenna positions onto the xy-plane. 
+    This function is used to rotate the antenna positions so that they lie in the xy-plane.
+
+    Parameters:
+    ----------
+        antvecs: np.array
+            Array of antenna positions in the form (Nants, 3).
+
+    Returns:
+    -------
+        rotation_matrix: np.array
+            Rotation matrix that projects the antenna positions onto the xy-plane of shape (3, 3).
+    """
+    # Fit a plane to the antenna positions
+    antx, anty, antz = antvecs.T
+    basis = np.array([antx, anty, np.ones_like(antz)]).T
+    plane, res, rank, s = linalg.lstsq(basis, antz)
+    
+    # Project the antenna positions onto the plane
+    slope_x, slope_y, z_offset = plane
+
+    # Plane is already approximately aligned with the xy-axes, 
+    # return identity rotation matrix
+    if np.isclose(slope_x, 0) and np.isclose(slope_y, 0.0):
+        return np.eye(3)
+
+    # Normalize the normal vector
+    normal = np.array([slope_x, slope_y, -1])
+    normal = normal / np.linalg.norm(normal)
+    
+    # Compute the rotation axis
+    axis = np.array([slope_y, -slope_x, 0])
+    axis = axis / np.linalg.norm(axis)
+    
+    # Compute the rotation angle
+    theta = np.arccos(-normal[2])
+    
+    # Compute the rotation matrix using Rodrigues' formula
+    K = np.array([[0, -axis[2], axis[1]],
+                  [axis[2], 0, -axis[0]],
+                  [-axis[1], axis[0], 0]])
+    rotation_matrix = np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * np.dot(K, K)
+    
+    return rotation_matrix

@@ -241,14 +241,23 @@ def simulate(
     # Factor of 0.5 accounts for splitting Stokes between polarization channels
     Isky = (0.5 * fluxes).astype(complex_dtype)
 
+    # Flatten antenna positions
+    antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
+    antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
+
+    # Rotate the array to the xy-plane
+    rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
+    rotated_antvecs = np.dot(rotation_matrix.T, antvecs.T)
+    rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
+
     # Compute baseline vectors
-    blx, bly, blz = np.array([ants[bl[1]] - ants[bl[0]] for bl in baselines])[
+    blx, bly, blz = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
         :, :
     ].T.astype(real_dtype)
 
     # Check if the array is flat within tolerance
     is_coplanar = np.all(np.less_equal(np.abs(blz), flat_array_tol))
-
+    print ("is_coplanar", is_coplanar)
     # Generate visibility array
     if expand_vis:
         vis = np.zeros(
@@ -290,6 +299,9 @@ def simulate(
             tx = tx[above_horizon]
             ty = ty[above_horizon]
             tz = tz[above_horizon]
+
+            # Rotate source coordinates with rotation matrix
+            tx, ty, tz = np.dot(rotation_matrix.T, [tx, ty, tz])
 
             # Number of above horizon points
             nsim_sources = above_horizon.sum()
