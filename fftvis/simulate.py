@@ -36,6 +36,7 @@ def simulate_vis(
     eps: float = None,
     use_feed: str = "x",
     flat_array_tol: float = 0.0,
+    live_progress: bool = True,
 ):
     """
     Parameters:
@@ -80,6 +81,8 @@ def simulate_vis(
         Tolerance for checking if the array is flat in units of meters. If the
         z-coordinate of all baseline vectors is within this tolerance, the array
         is considered flat and the z-coordinate is set to zero. Default is 0.0.
+    live_progress : bool, default = True
+        Whether to show progress bar during simulation.
 
     Returns:
     -------
@@ -115,6 +118,7 @@ def simulate_vis(
         polarized=polarized,
         eps=eps,
         flat_array_tol=flat_array_tol,
+        live_progress=live_progress,
     )
 
 
