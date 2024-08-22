@@ -251,6 +251,7 @@ def simulate(
 
     # Rotate the array to the xy-plane
     rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
+    rotation_matrix = rotation_matrix.astype(real_dtype)
     rotated_antvecs = np.dot(rotation_matrix.T, antvecs.T)
     rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
 
@@ -304,9 +305,6 @@ def simulate(
             ty = ty[above_horizon]
             tz = tz[above_horizon]
 
-            # Rotate source coordinates with rotation matrix
-            tx, ty, tz = np.dot(rotation_matrix.T, [tx, ty, tz])
-
             # Number of above horizon points
             nsim_sources = above_horizon.sum()
 
@@ -323,6 +321,9 @@ def simulate(
 
             # Compute azimuth and zenith angles
             az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+
+            # Rotate source coordinates with rotation matrix.
+            tx, ty, tz = np.dot(rotation_matrix.T, [tx, ty, tz])
 
             for fi in range(nfreqs):
                 # Compute uv coordinates
