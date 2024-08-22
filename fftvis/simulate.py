@@ -261,7 +261,7 @@ def simulate(
 
     # Check if the array is flat within tolerance
     is_coplanar = np.all(np.less_equal(np.abs(blz), flat_array_tol))
-    print ("is_coplanar", is_coplanar)
+    
     # Generate visibility array
     if expand_vis:
         vis = np.zeros(
