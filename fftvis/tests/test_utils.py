@@ -23,3 +23,17 @@ def test_get_plane_to_xy_rotation_matrix():
         np.linalg.norm(rm_antvecs, axis=0), 
         atol=1e-12
     )
+
+    # Check that method is robust to errors
+    rng = np.random.default_rng(42)
+    random_antvecs = antvecs.copy()
+    random_antvecs[:, -1] += rng.standard_normal(100)
+
+    # Rotate the array to the xy-plane
+    rotation_matrix = utils.get_plane_to_xy_rotation_matrix(
+        random_antvecs
+    )
+    rm_antvecs = np.dot(rotation_matrix.T, antvecs.T)
+
+    # Check that all elements of the z-axis within 5-sigma of zero
+    np.testing.assert_array_less(np.abs(rm_antvecs[-1]), 5)
