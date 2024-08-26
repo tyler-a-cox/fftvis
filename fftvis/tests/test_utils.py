@@ -24,6 +24,15 @@ def test_get_plane_to_xy_rotation_matrix():
         atol=1e-12
     )
 
+def test_get_plane_to_xy_rotation_matrix_errors():
+    """
+    """
+    # Rotate the array to the xy-plane
+    x = np.linspace(0, 100, 100)
+    y = np.linspace(0, 100, 100)
+    z = 0.125 * x + 0.5 * y
+    antvecs = np.array([x, y, z]).T
+    
     # Check that method is robust to errors
     rng = np.random.default_rng(42)
     random_antvecs = antvecs.copy()
