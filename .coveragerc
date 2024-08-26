@@ -1,5 +1,6 @@
 [run]
 include = fftvis/*
+omit = fftvis/logutils.py
 branch = True
 
 [report]

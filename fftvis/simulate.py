@@ -36,6 +36,7 @@ def simulate_vis(
     eps: float = None,
     use_feed: str = "x",
     flat_array_tol: float = 0.0,
+    live_progress: bool = True,
 ):
     """
     Parameters:
@@ -80,6 +81,8 @@ def simulate_vis(
         Tolerance for checking if the array is flat in units of meters. If the
         z-coordinate of all baseline vectors is within this tolerance, the array
         is considered flat and the z-coordinate is set to zero. Default is 0.0.
+    live_progress : bool, default = True
+        Whether to show progress bar during simulation.
 
     Returns:
     -------
@@ -115,6 +118,7 @@ def simulate_vis(
         polarized=polarized,
         eps=eps,
         flat_array_tol=flat_array_tol,
+        live_progress=live_progress,
     )
 
 
@@ -241,14 +245,24 @@ def simulate(
     # Factor of 0.5 accounts for splitting Stokes between polarization channels
     Isky = (0.5 * fluxes).astype(complex_dtype)
 
+    # Flatten antenna positions
+    antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
+    antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
+
+    # Rotate the array to the xy-plane
+    rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
+    rotation_matrix = rotation_matrix.astype(real_dtype)
+    rotated_antvecs = np.dot(rotation_matrix.T, antvecs.T)
+    rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
+
     # Compute baseline vectors
-    blx, bly, blz = np.array([ants[bl[1]] - ants[bl[0]] for bl in baselines])[
+    blx, bly, blz = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
         :, :
     ].T.astype(real_dtype)
 
     # Check if the array is flat within tolerance
     is_coplanar = np.all(np.less_equal(np.abs(blz), flat_array_tol))
-
+    
     # Generate visibility array
     if expand_vis:
         vis = np.zeros(
@@ -307,6 +321,9 @@ def simulate(
 
             # Compute azimuth and zenith angles
             az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+
+            # Rotate source coordinates with rotation matrix.
+            tx, ty, tz = np.dot(rotation_matrix.T, [tx, ty, tz])
 
             for fi in range(nfreqs):
                 # Compute uv coordinates
