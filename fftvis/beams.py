@@ -11,6 +11,7 @@ def _evaluate_beam(
     freq: float,
     check: bool = False,
     spline_opts: dict = None,
+    interpolation_function: str = "az_za_simple",
 ):
     """Evaluate the beam on the CPU. Simplified version of the `_evaluate_beam_cpu` function
     in matvis.
@@ -36,6 +37,11 @@ def _evaluate_beam(
         sure that the beam is valid, as it will be faster.
     spline_opts
         Extra options to pass to the RectBivariateSpline class when interpolating.
+    interpolation_function
+        The interpolation function to use when interpolating the beam. Can be either be
+        'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
+        at the edges of the beam, while the latter is faster but less accurate
+        for interpolation orders greater than linear. 
     """
     # Primary beam pattern using direct interpolation of UVBeam object
     kw = (
@@ -43,6 +49,7 @@ def _evaluate_beam(
             "reuse_spline": True,
             "check_azza_domain": False,
             "spline_opts": spline_opts,
+            "interpolation_function": interpolation_function,
         }
         if isinstance(beam, UVBeam)
         else {}
