@@ -37,6 +37,7 @@ def simulate_vis(
     use_feed: str = "x",
     flat_array_tol: float = 0.0,
     live_progress: bool = True,
+    interpolation_function: str = "az_za_simple",
 ):
     """
     Parameters:
@@ -83,6 +84,11 @@ def simulate_vis(
         is considered flat and the z-coordinate is set to zero. Default is 0.0.
     live_progress : bool, default = True
         Whether to show progress bar during simulation.
+    interpolation_function : str, default = "az_za_simple"
+        The interpolation function to use when interpolating the beam. Can be either be
+        'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
+        at the edges of the beam, while the latter is faster but less accurate
+        for interpolation orders greater than linear.
 
     Returns:
     -------
@@ -137,6 +143,7 @@ def simulate(
     max_progress_reports: int = 100,
     live_progress: bool = True,
     flat_array_tol: float = 0.0,
+    interpolation_function: str = "az_za_simple",
 ):
     """
     Parameters:
@@ -181,6 +188,11 @@ def simulate(
         Tolerance for checking if the array is flat in units of meters. If the
         z-coordinate of all baseline vectors is within this tolerance, the array
         is considered flat and the z-coordinate is set to zero. Default is 0.0.
+    interpolation_function : str, default = "az_za_simple"
+        The interpolation function to use when interpolating the beam. Can be either be
+        'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
+        at the edges of the beam, while the latter is faster but less accurate
+        for interpolation orders greater than linear.
 
     Returns:
     -------
@@ -339,6 +351,7 @@ def simulate(
                     polarized,
                     freqs[fi],
                     spline_opts=beam_spline_opts,
+                    interpolation_function=interpolation_function,
                 )
                 A_s = A_s.transpose((1, 0, 2))
                 beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
