@@ -12,7 +12,13 @@ setup(
     author_email="tyler.a.cox@berkeley.edu",
     license="MIT",
     packages=find_packages(),
-    install_requires=["numpy", "matvis", "finufft", "pyuvdata", "psutil"],
+    install_requires=[
+        "numpy", 
+        "matvis", 
+        "finufft", 
+        "pyuvdata@git+https://github.com/RadioAstronomySoftwareGroup/pyuvdata", 
+        "psutil"
+    ],
     extras_require={
         "dev": [
             "mpi4py",
