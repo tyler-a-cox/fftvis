@@ -37,7 +37,7 @@ def simulate_vis(
     use_feed: str = "x",
     flat_array_tol: float = 0.0,
     live_progress: bool = True,
-    interpolation_function: str = "az_za_simple",
+    interpolation_function: str = "az_za_map_coordinates",
 ):
     """
     Parameters:
@@ -125,6 +125,7 @@ def simulate_vis(
         eps=eps,
         flat_array_tol=flat_array_tol,
         live_progress=live_progress,
+        interpolation_function=interpolation_function,
     )
 
 
@@ -143,7 +144,7 @@ def simulate(
     max_progress_reports: int = 100,
     live_progress: bool = True,
     flat_array_tol: float = 0.0,
-    interpolation_function: str = "az_za_simple",
+    interpolation_function: str = "az_za_map_coordinates",
 ):
     """
     Parameters:

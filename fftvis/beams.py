@@ -11,7 +11,7 @@ def _evaluate_beam(
     freq: float,
     check: bool = False,
     spline_opts: dict = None,
-    interpolation_function: str = "az_za_simple",
+    interpolation_function: str = "az_za_map_coordinates",
 ):
     """Evaluate the beam on the CPU. Simplified version of the `_evaluate_beam_cpu` function
     in matvis.
