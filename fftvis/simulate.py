@@ -36,9 +36,12 @@ def simulate_vis(
     polarized: bool = False,
     latitude: float = -0.5361913261514378,
     eps: float = None,
+    beam_spline_opts: dict = None,
     use_feed: str = "x",
     flat_array_tol: float = 0.0,
     use_gpu: bool = False,
+    live_progress: bool = True,
+    interpolation_function: str = "az_za_map_coordinates",
 ):
     """
     Parameters:
@@ -79,10 +82,19 @@ def simulate_vis(
         Desired accuracy of the non-uniform fast fourier transform. If None, the default accuracy
         for the given precision will be used. For precision 1, the default accuracy is 6e-8, and for
         precision 2, the default accuracy is 1e-12.
+    beam_spline_opts : dict, optional
+        Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
     flat_array_tol : float, default = 0.0
         Tolerance for checking if the array is flat in units of meters. If the
         z-coordinate of all baseline vectors is within this tolerance, the array
         is considered flat and the z-coordinate is set to zero. Default is 0.0.
+    live_progress : bool, default = True
+        Whether to show progress bar during simulation.
+    interpolation_function : str, default = "az_za_simple"
+        The interpolation function to use when interpolating the beam. Can be either be
+        'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
+        at the edges of the beam, while the latter is faster but less accurate
+        for interpolation orders greater than linear.
 
     Returns:
     -------
@@ -137,7 +149,10 @@ def simulate_vis(
         precision=precision,
         polarized=polarized,
         eps=eps,
+        beam_spline_opts=beam_spline_opts,
         flat_array_tol=flat_array_tol,
+        live_progress=live_progress,
+        interpolation_function=interpolation_function,
     )
 
 
@@ -156,6 +171,7 @@ def simulate(
     max_progress_reports: int = 100,
     live_progress: bool = True,
     flat_array_tol: float = 0.0,
+    interpolation_function: str = "az_za_map_coordinates",
 ):
     """
     Parameters:
@@ -202,6 +218,11 @@ def simulate(
         is considered flat and the z-coordinate is set to zero. Default is 0.0.
     use_gpu : bool, default = False
         Whether to use the GPU for the simulation. Default is False.
+    interpolation_function : str, default = "az_za_simple"
+        The interpolation function to use when interpolating the beam. Can be either be
+        'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
+        at the edges of the beam, while the latter is faster but less accurate
+        for interpolation orders greater than linear.
 
     Returns:
     -------
@@ -266,14 +287,24 @@ def simulate(
     # Factor of 0.5 accounts for splitting Stokes between polarization channels
     Isky = (0.5 * fluxes).astype(complex_dtype)
 
+    # Flatten antenna positions
+    antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
+    antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
+
+    # Rotate the array to the xy-plane
+    rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
+    rotation_matrix = rotation_matrix.astype(real_dtype)
+    rotated_antvecs = np.dot(rotation_matrix.T, antvecs.T)
+    rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
+
     # Compute baseline vectors
-    blx, bly, blz = np.array([ants[bl[1]] - ants[bl[0]] for bl in baselines])[
+    blx, bly, blz = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
         :, :
     ].T.astype(real_dtype)
 
     # Check if the array is flat within tolerance
     is_coplanar = np.all(np.less_equal(np.abs(blz), flat_array_tol))
-
+    
     # Generate visibility array
     if expand_vis:
         vis = np.zeros(
@@ -333,6 +364,9 @@ def simulate(
             # Compute azimuth and zenith angles
             az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
+            # Rotate source coordinates with rotation matrix.
+            tx, ty, tz = np.dot(rotation_matrix.T, [tx, ty, tz])
+
             for fi in range(nfreqs):
                 # Compute uv coordinates
                 u[:], v[:], w[:] = blx * freqs[fi], bly * freqs[fi], blz * freqs[fi]
@@ -348,6 +382,7 @@ def simulate(
                     is_coplanar,
                     spline_opts=beam_spline_opts,
                     use_gpu=use_gpu
+                    interpolation_function=interpolation_function,
                 )
 
             # Expand out the visibility array in antenna by antenna matrix

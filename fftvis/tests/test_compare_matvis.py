@@ -138,6 +138,7 @@ def test_simulate_non_coplanar():
 
     # Set up the antenna positions
     antpos = {k: np.array([k * 10, 0, k]) for k in range(nants)}
+    antpos_flat = {k: np.array([k * 10, 0, 0]) for k in range(nants)}
 
     # Define a Gaussian beam
     beam = AnalyticBeam("gaussian", diameter=14.0)
@@ -151,6 +152,9 @@ def test_simulate_non_coplanar():
     mvis = matvis.simulate_vis(
         antpos, sky_model, ra, dec, freqs, lsts, beams=[beam], precision=2
     )
+    mvis_flat = matvis.simulate_vis(
+        antpos_flat, sky_model, ra, dec, freqs, lsts, beams=[beam], precision=2
+    )
 
     # Use fftvis to simulate visibilities
     fvis = simulate.simulate_vis(
@@ -160,10 +164,5 @@ def test_simulate_non_coplanar():
     # Check that the results are the same
     assert np.allclose(mvis, fvis, atol=1e-5)
 
-    # Use fftvis to simulate visibilities with flat array
-    fvis_flat = simulate.simulate_vis(
-        antpos, sky_model, ra, dec, freqs, lsts, beam, precision=2, eps=1e-10, flat_array_tol=np.inf
-    )
-
     # Check that the results are different
-    assert not np.allclose(fvis, fvis_flat, atol=1e-5)
+    assert not np.allclose(mvis_flat, fvis, atol=1e-5)
