@@ -34,6 +34,7 @@ def simulate_vis(
     polarized: bool = False,
     latitude: float = -0.5361913261514378,
     eps: float = None,
+    beam_spline_opts: dict = None,
     use_feed: str = "x",
     flat_array_tol: float = 0.0,
     live_progress: bool = True,
@@ -78,6 +79,8 @@ def simulate_vis(
         Desired accuracy of the non-uniform fast fourier transform. If None, the default accuracy
         for the given precision will be used. For precision 1, the default accuracy is 6e-8, and for
         precision 2, the default accuracy is 1e-12.
+    beam_spline_opts : dict, optional
+        Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
     flat_array_tol : float, default = 0.0
         Tolerance for checking if the array is flat in units of meters. If the
         z-coordinate of all baseline vectors is within this tolerance, the array
@@ -123,6 +126,7 @@ def simulate_vis(
         precision=precision,
         polarized=polarized,
         eps=eps,
+        beam_spline_opts=beam_spline_opts,
         flat_array_tol=flat_array_tol,
         live_progress=live_progress,
         interpolation_function=interpolation_function,
