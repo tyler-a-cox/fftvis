@@ -124,7 +124,7 @@ def simulate_vis(
         )
 
     # Get the correct simulation function
-    _simulate_ = gpu.simulate if use_gpu else cpu.simulate
+    func = gpu.simulate if use_gpu else cpu.simulate
 
     # Source coordinate transform, from equatorial to Cartesian
     crd_eq = conversions.point_source_crd_eq(ra, dec)
@@ -138,7 +138,7 @@ def simulate_vis(
     # Prepare the beam
     beam = conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
 
-    return _simulate_(
+    return func(
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
