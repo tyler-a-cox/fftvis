@@ -299,10 +299,7 @@ def simulate(
     # Have up to 100 reports as it iterates through time.
     report_chunk = ntimes // max_progress_reports + 1
     pr = psutil.Process()
-    tstart = time.time()
     mlast = pr.memory_info().rss
-    plast = tstart
-
     highest_peak = logutils.memtrace(highest_peak)
 
     with Progress() as progress:
@@ -310,6 +307,9 @@ def simulate(
         simtimes_task = progress.add_task(
             "Simulating Times", total=ntimes, visible=live_progress
         )
+
+        tstart = time.time()
+        plast = tstart
 
         # Loop over time samples
         for ti, eq2top in enumerate(eq2tops):
@@ -459,7 +459,7 @@ def simulate(
                 # Baselines were provided, so we can just add the visibilities
                 vis[ti] = np.swapaxes(_vis, 2, 0)
 
-            if not (ti % report_chunk or ti == ntimes - 1):
+            if not (ti % report_chunk) or ti == ntimes - 1:
                 plast, mlast = logutils.log_progress(
                     tstart, plast, ti + 1, ntimes, pr, mlast
                 )
