@@ -9,10 +9,8 @@ from rich.progress import Progress
 import logging
 import tracemalloc as tm
 from pyuvdata import UVBeam
-from pyuvsim import AnalyticBeam
 
 from . import utils, beams, logutils
-from . import HAVE_GPU, cpu, gpu
 
 # Default accuracy for the non-uniform fast fourier transform based on precision
 default_accuracy_dict = {
@@ -39,7 +37,6 @@ def simulate_vis(
     beam_spline_opts: dict = None,
     use_feed: str = "x",
     flat_array_tol: float = 0.0,
-    use_gpu: bool = False,
     live_progress: bool = True,
     interpolation_function: str = "az_za_map_coordinates",
 ):
@@ -95,7 +92,6 @@ def simulate_vis(
         'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
         at the edges of the beam, while the latter is faster but less accurate
         for interpolation orders greater than linear.
-
     Returns:
     -------
     vis : np.ndarray
@@ -105,26 +101,6 @@ def simulate_vis(
     # Get the accuracy for the given precision if not provided
     if eps is None:
         eps = default_accuracy_dict[precision]
-
-    if use_gpu:
-        if not HAVE_GPU:
-            raise ImportError("CUDA is not available on this system.")
-        
-        import cupy as cp
-
-        device = cp.cuda.Device()
-        attrs = device.attributes
-        attrs = {str(k): v for k, v in attrs.items()}
-        string = "\n\t".join(f"{k}: {v}" for k, v in attrs.items())
-        logger.debug(
-            f"""
-            Your GPU has the following attributes:
-            \t{string}
-            """
-        )
-
-    # Get the correct simulation function
-    func = gpu.simulate if use_gpu else cpu.simulate
 
     # Source coordinate transform, from equatorial to Cartesian
     crd_eq = conversions.point_source_crd_eq(ra, dec)
@@ -138,7 +114,7 @@ def simulate_vis(
     # Prepare the beam
     beam = conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
 
-    return func(
+    return simulate(
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
@@ -216,14 +192,11 @@ def simulate(
         Tolerance for checking if the array is flat in units of meters. If the
         z-coordinate of all baseline vectors is within this tolerance, the array
         is considered flat and the z-coordinate is set to zero. Default is 0.0.
-    use_gpu : bool, default = False
-        Whether to use the GPU for the simulation. Default is False.
     interpolation_function : str, default = "az_za_simple"
         The interpolation function to use when interpolating the beam. Can be either be
         'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
         at the edges of the beam, while the latter is faster but less accurate
         for interpolation orders greater than linear.
-
     Returns:
     -------
     vis : np.ndarray
@@ -324,10 +297,7 @@ def simulate(
     # Have up to 100 reports as it iterates through time.
     report_chunk = ntimes // max_progress_reports + 1
     pr = psutil.Process()
-    tstart = time.time()
     mlast = pr.memory_info().rss
-    plast = tstart
-
     highest_peak = logutils.memtrace(highest_peak)
 
     with Progress() as progress:
@@ -335,6 +305,9 @@ def simulate(
         simtimes_task = progress.add_task(
             "Simulating Times", total=ntimes, visible=live_progress
         )
+
+        tstart = time.time()
+        plast = tstart
 
         # Loop over time samples
         for ti, eq2top in enumerate(eq2tops):
@@ -371,19 +344,80 @@ def simulate(
                 # Compute uv coordinates
                 u[:], v[:], w[:] = blx * freqs[fi], bly * freqs[fi], blz * freqs[fi]
 
-                # Evaluate the RIME
-                _evaluate_rime(
-                    beam,
+                # Compute beams - only single beam is supported
+                A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
+                A_s = beams._evaluate_beam(
+                    A_s,
+                    beam_here,
                     az,
                     za,
                     polarized,
                     freqs[fi],
-                    is_beam_complex,
-                    is_coplanar,
                     spline_opts=beam_spline_opts,
-                    use_gpu=use_gpu
                     interpolation_function=interpolation_function,
                 )
+                A_s = A_s.transpose((1, 0, 2))
+                beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
+                beam_product = beam_product.reshape(nax * nfeeds, nsim_sources)
+
+                # Compute sky beam product
+                i_sky = beam_product * Isky[above_horizon, fi]
+
+                # Compute visibilities w/ non-uniform FFT
+                if is_coplanar:
+                    _vis_here = finufft.nufft2d3(
+                        2 * np.pi * tx,
+                        2 * np.pi * ty,
+                        i_sky,
+                        u,
+                        v,
+                        modeord=0,
+                        eps=eps,
+                    )
+                else:
+                    _vis_here = finufft.nufft3d3(
+                        2 * np.pi * tx,
+                        2 * np.pi * ty,
+                        2 * np.pi * tz,
+                        i_sky,
+                        u,
+                        v,
+                        w,
+                        modeord=0,
+                        eps=eps,
+                    )
+
+                # Expand out the visibility array
+                _vis[..., fi] = _vis_here.reshape(nfeeds, nfeeds, nbls)
+
+                # If beam is complex, we need to compute the reverse negative frequencies
+                if is_beam_complex and expand_vis:
+                    # Compute
+                    if is_coplanar:
+                        _vis_here_neg = finufft.nufft2d3(
+                            2 * np.pi * tx,
+                            2 * np.pi * ty,
+                            i_sky,
+                            -u,
+                            -v,
+                            modeord=0,
+                            eps=eps,
+                        )
+                    else:
+                        _vis_here_neg = finufft.nufft3d3(
+                            2 * np.pi * tx,
+                            2 * np.pi * ty,
+                            2 * np.pi * tz,
+                            i_sky,
+                            -u,
+                            -v,
+                            -w,
+                            modeord=0,
+                            eps=eps,
+                        )
+                    _vis_negatives[..., fi] = _vis_here_neg.reshape(
+                        nfeeds, nfeeds, nbls
+                    )
 
             # Expand out the visibility array in antenna by antenna matrix
             if expand_vis:
@@ -423,7 +457,7 @@ def simulate(
                 # Baselines were provided, so we can just add the visibilities
                 vis[ti] = np.swapaxes(_vis, 2, 0)
 
-            if not (ti % report_chunk or ti == ntimes - 1):
+            if not (ti % report_chunk) or ti == ntimes - 1:
                 plast, mlast = logutils.log_progress(
                     tstart, plast, ti + 1, ntimes, pr, mlast
                 )
@@ -442,97 +476,4 @@ def simulate(
             np.transpose(vis, (4, 0, 2, 3, 1))
             if polarized
             else np.moveaxis(vis[..., 0, 0, :], 2, 0)
-        )
-
-def _evaluate_rime(
-    beam: UVBeam | AnalyticBeam,
-    az: np.ndarray,
-    za: np.ndarray,
-    polarized: bool,
-    freq: float,
-    is_beam_complex: bool,
-    is_coplanar: bool,
-    check: bool = False,
-    spline_opts: dict = None,
-    use_gpu: bool = False,
-):
-    """
-    """
-    if use_gpu:
-        finufft_2D, finufft_3D = cufinufft.nufft2d3, cufinufft.nufft3d3
-    else:
-        finufft_2D, finufft_3D = finufft.nufft2d3, finufft.nufft3d3
-
-    # Compute beams - only single beam is supported
-    A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
-    A_s = beams._evaluate_beam(
-        A_s,
-        beam_here,
-        az,
-        za,
-        polarized,
-        freqs[fi],
-        spline_opts=spline_opts,
-    )
-    A_s = A_s.transpose((1, 0, 2))
-    beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
-    beam_product = beam_product.reshape(nax * nfeeds, nsim_sources)
-
-    # Compute sky beam product
-    i_sky = beam_product * Isky[above_horizon, fi]
-
-    # Compute visibilities w/ non-uniform FFT
-    if is_coplanar:
-        _vis_here = finufft.nufft2d3(
-            2 * np.pi * tx,
-            2 * np.pi * ty,
-            i_sky,
-            u,
-            v,
-            modeord=0,
-            eps=eps,
-        )
-    else:
-        _vis_here = finufft.nufft3d3(
-            2 * np.pi * tx,
-            2 * np.pi * ty,
-            2 * np.pi * tz,
-            i_sky,
-            u,
-            v,
-            w,
-            modeord=0,
-            eps=eps,
-        )
-
-    # Expand out the visibility array
-    _vis[..., fi] = _vis_here.reshape(nfeeds, nfeeds, nbls)
-
-    # If beam is complex, we need to compute the reverse negative frequencies
-    if is_beam_complex and expand_vis:
-        # Compute
-        if is_coplanar:
-            _vis_here_neg = finufft.nufft2d3(
-                2 * np.pi * tx,
-                2 * np.pi * ty,
-                i_sky,
-                -u,
-                -v,
-                modeord=0,
-                eps=eps,
-            )
-        else:
-            _vis_here_neg = finufft.nufft3d3(
-                2 * np.pi * tx,
-                2 * np.pi * ty,
-                2 * np.pi * tz,
-                i_sky,
-                -u,
-                -v,
-                -w,
-                modeord=0,
-                eps=eps,
-            )
-        _vis_negatives[..., fi] = _vis_here_neg.reshape(
-            nfeeds, nfeeds, nbls
         )
