@@ -1,5 +1,9 @@
 import numpy as np
 from scipy import linalg
+import logging
+
+logger = logging.getLogger(__name__)
+
 IDEALIZED_BL_TOL = 1e-8  # bl_error_tol for redcal.get_reds when using antenna positions calculated from reds
 speed_of_light = 299792458.0  # m/s
 
@@ -113,3 +117,146 @@ def get_plane_to_xy_rotation_matrix(antvecs):
     rotation_matrix = np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * np.dot(K, K)
     
     return rotation_matrix
+
+def get_required_chunks(
+    freemem: int,
+    nax: int,
+    nfeed: int,
+    nant: int,
+    nsrc: int,
+    nbeampix: int,
+    precision: int,
+    source_buffer: float = 0.55,
+) -> int:
+    """
+    Compute number of chunks (over sources) required to fit data into available memory.
+
+    TODO: Finish memory calculation w/ antenna positions
+
+    Parameters
+    ----------
+    freemem : int
+        The amount of free memory in bytes.
+    nax : int
+        The number of axes.
+    nfeed : int
+        The number of feeds.
+    nant : int
+        The number of antennas.
+    nsrc : int
+        The number of sources.
+    nbeampix : int
+        The number of beam pixels.
+    precision : int
+        The precision of the data.
+
+    Returns
+    -------
+    int
+        The number of chunks required.
+
+    Examples
+    --------
+    >>> get_required_chunks(1024, 2, 4, 8, 16, 32, 64, 32)
+    1
+    """
+    rsize = 4 * precision
+    csize = 2 * rsize
+
+    gpusize = {"a": freemem}
+    ch = 0
+    while sum(gpusize.values()) >= freemem and ch < 100:
+        ch += 1
+        nchunk = int(nsrc // ch * source_buffer)
+
+        # TODO: Include antenna positions in the calculation
+        gpusize = {
+            "antpos": nant * 3 * rsize,
+            "flux": nsrc * rsize,
+            "beam": nbeampix * nfeed * nax * csize,
+            "crd_eq": 3 * nsrc * rsize,
+            "eq2top": 3 * 3 * rsize,
+            "crd_top": 3 * nsrc * rsize,
+            "crd_chunk": 3 * nchunk * rsize,
+            "flux_chunk": nchunk * rsize,
+            "beam_interp": nfeed * nax * nchunk * csize,
+            "vis": ch * nfeed * nant * nfeed * nant * csize,
+        }
+        logger.debug(
+            f"nchunks={ch}. Array Sizes (bytes)={gpusize}. Total={sum(gpusize.values())}"
+        )
+
+    logger.info(
+        f"Total free mem: {freemem / (1024**3):.2f} GB. Requires {ch} chunks "
+        f"(estimate {sum(gpusize.values()) / 1024**3:.2f} GB)"
+    )
+    return ch
+
+
+def get_desired_chunks(
+    freemem: int,
+    min_chunks: int,
+    beam: int,
+    nax: int,
+    nfeed: int,
+    nant: int,
+    nsrc: int,
+    precision: int,
+    source_buffer: float = 0.55,
+) -> tuple[int, int]:
+    """Get the desired number of chunks.
+
+    TODO: Add more details
+
+
+    Parameters
+    ----------
+    freemem : int
+        The amount of free memory in bytes.
+    min_chunks : int
+        The minimum number of chunks desired.
+    beam_list : UVBeam or AnalyticBeam
+        UVBeam or similar
+    nax : int
+        The number of axes.
+    nfeed : int
+        The number of feeds.
+    nant : int
+        The number of antennas.
+    nsrc : int
+        The number of sources.
+    precision : int
+        The precision of the data.
+
+    Returns
+    -------
+    nchunk
+        Number of chunks
+    nsrcs_per_chunk
+        Number of sources per chunk
+
+    Examples
+    --------
+    >>> get_desired_chunks(1024, 2, [beam1, beam2], 3, 4, 8, 16, 32)
+    (2, 8)
+    """
+    nbeampix = beam.data_array.shape[-2] * beam.data_array.shape[-1] if hasattr(beam, "data_array") else 0
+
+    nchunks = min(
+        max(
+            min_chunks,
+            get_required_chunks(
+                freemem,
+                nax,
+                nfeed,
+                nant,
+                nsrc,
+                nbeampix,
+                precision,
+                source_buffer,
+            ),
+        ),
+        nsrc,
+    )
+
+    return nchunks, int(np.ceil(nsrc / nchunks))
