@@ -8,8 +8,11 @@ from astropy.time import Time
 from collections.abc import Sequence
 from pyuvdata import UVBeam
 from typing import Callable, Literal
-from matvis._utils import get_dtypes, memtrace, get_desired_chunks, logdebug
+
 from matvis.core import _validate_inputs
+from matvis.core.coords import CoordinateRotation
+from matvis.cpu.beams import UVBeamInterpolator
+from matvis._utils import get_dtypes, memtrace, logdebug
 
 from .. import utils
 
@@ -22,9 +25,10 @@ def simulate(
     freqs: np.ndarray,
     times: np.ndarray,
     skycoords: np.ndarray,
-    I_sky: np.ndarray,
+    fluxes: np.ndarray,
     beam: UVBeam | Callable | None,
-    antpairs: np.ndarray | None = None,
+    baselines: np.ndarray | None = None,
+    telescope_loc: EarthLocation | None = None,
     precision: int = 1,
     polarized: bool = False,
     beam_spline_opts: dict | None = None,
@@ -132,8 +136,35 @@ def simulate(
         nax,
         nfeed,
         nant,
-        len(I_sky),
+        len(fluxes),
         precision,
         source_buffer=source_buffer,
     )
+    nsrc_alloc = int(npixc * source_buffer)
 
+    for fi, freq in enumerate(freqs):
+        # Get the beam interpolation function
+        bmfunc = UVBeamInterpolator(
+            beam=beam,
+            beam_spline_opts=beam_spline_opts,
+            polarized=polarized,
+            precision=precision,
+            nsrc=nsrc_alloc,
+        )
+
+        # Set coordinate method
+        coord_method = CoordinateRotation._methods[coord_method]
+        coord_method_params = coord_method_params or {}
+        coords = coord_method(
+            flux=np.sqrt(0.5 * fluxes),
+            times=times,
+            telescope_loc=telescope_loc,
+            skycoords=skycoords,
+            chunk_size=npixc,
+            precision=precision,
+            source_buffer=source_buffer,
+            **coord_method_params,
+        )
+        
+        for ti, time in enumerate(times):
+            pass
