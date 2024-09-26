@@ -25,6 +25,11 @@ def simulate_vis(
     interpolation_function: str = "az_za_map_coordinates",
     use_gpu: bool = False,
     max_progress_reports: int = 100,
+    coord_method: str = "CoordinateTransformERFA",
+    max_memory: int = np.inf,
+    min_chunks: int = 1,
+    source_buffer: float = 1.0,
+    coord_method_params: dict = {"update_bcrs_every": 1.0},
 ):
     """
     TODO: Add description
@@ -97,25 +102,29 @@ def simulate_vis(
 
     skycoords = SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs")
 
-    return function(
-        antpos=ants,
-        freqs=freqs,
-        times=times,
-        skycoords=skycoords,
-        fluxes=fluxes,
-        beam=beam,
-        baselines=baselines,
-        precision=precision,
-        polarized=polarized,
-        eps=eps,
-        beam_spline_opts=beam_spline_opts,
-        flat_array_tol=flat_array_tol,
-        live_progress=live_progress,
-        interpolation_function=interpolation_function,
-        max_progress_reports=max_progress_reports,
-        max_memory=np.inf, # TODO: Add this as a parameter
-        coord_method="CoordinateTransformERFA", # TODO: Add this as a parameter
-        min_chunks=1, # TODO: Add this as a parameter
-        source_buffer=0.55, # TODO: Add this as a parameter
-        coord_method_params={"update_bcrs_every": 1.0}, # TODO: Add this as a parameter
-    )
+    
+
+    for fi, freq in enumerate(freqs):
+        vis[..., fi] = function(
+            antpos=ants,
+            freqs=freqs,
+            times=times,
+            skycoords=skycoords,
+            fluxes=fluxes,
+            beam=beam,
+            baselines=baselines,
+            precision=precision,
+            polarized=polarized,
+            eps=eps,
+            beam_spline_opts=beam_spline_opts,
+            flat_array_tol=flat_array_tol,
+            live_progress=live_progress,
+            interpolation_function=interpolation_function,
+            max_progress_reports=max_progress_reports,
+            max_memory=max_memory,
+            coord_method=coord_method,
+            min_chunks=min_chunks, 
+            source_buffer=source_buffer, 
+            coord_method_params=coord_method_params, 
+        )
+    return vis
