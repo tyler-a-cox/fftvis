@@ -14,7 +14,6 @@
 ## Limitations
 - Currently no support for per-antenna beams
 - Currently no support for polarized sky emission 
-- Currently no GPU support
 - Diffuse sky models must be pixelized
 
 ## Installation
@@ -23,6 +22,27 @@ You can install `fftvis` via pip:
 
 ```bash
 pip install fftvis
+```
+
+### Installation for GPU
+
+Clone `finufft` repository
+```
+git clone https://github.com/flatironinstitute/finufft
+cd finufft
+```
+
+Build `finufft` for `CUDA`
+```bash
+mkdir build
+cd build
+cmake -D FINUFFT_USE_CUDA=ON ..
+cmake --build .
+```
+
+Install `Python` installation 
+```bash
+pip install python/cufinufft
 ```
 
 ## Contributing
