@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 def simulate(
     *
     antpos: np.ndarray,
-    freqs: np.ndarray,
+    freq: float,
     times: np.ndarray,
     skycoords: np.ndarray,
     fluxes: np.ndarray,
@@ -142,29 +142,60 @@ def simulate(
     )
     nsrc_alloc = int(npixc * source_buffer)
 
-    for fi, freq in enumerate(freqs):
-        # Get the beam interpolation function
-        bmfunc = UVBeamInterpolator(
-            beam=beam,
-            beam_spline_opts=beam_spline_opts,
-            polarized=polarized,
-            precision=precision,
-            nsrc=nsrc_alloc,
-        )
+    # Set coordinate method
+    coord_method = CoordinateRotation._methods[coord_method]
+    coord_method_params = coord_method_params or {}
 
-        # Set coordinate method
-        coord_method = CoordinateRotation._methods[coord_method]
-        coord_method_params = coord_method_params or {}
-        coords = coord_method(
-            flux=np.sqrt(0.5 * fluxes),
-            times=times,
-            telescope_loc=telescope_loc,
-            skycoords=skycoords,
-            chunk_size=npixc,
-            precision=precision,
-            source_buffer=source_buffer,
-            **coord_method_params,
-        )
+    coords = coord_method(
+        flux=np.zeros_like(fluxes[0]),
+        times=times,
+        telescope_loc=telescope_loc,
+        skycoords=skycoords,
+        chunk_size=npixc,
+        precision=precision,
+        source_buffer=source_buffer,
+        **coord_method_params,
+    )
+
+    # Get the beam interpolation function
+    bmfunc = UVBeamInterpolator(
+        beam_list=[beam],
+        beam_idx=np.array([0]),
+        nant=1,
+        freq=freq,
+        spline_opts=beam_spline_opts,
+        polarized=polarized,
+        precision=precision,
+        nsrc=nsrc_alloc,
+    )
+
+    # Setup the coordinate rotation and beam interpolation functions
+    bmfunc.setup()
+    coords.setup()
+    
+    for ti, time in enumerate(times):
+        # Rotate the coordinates to the current time
+        coords.rotate(ti)
         
-        for ti, time in enumerate(times):
-            pass
+        for c in range(nchunks):
+            # Get the sky coordinates for this chunk
+            crd_top, flux_up, nsrcs_up = coords.get_chunk(c)
+
+            beam_values = bmfunc(crd_top[0], crd_top[1], check=ti == 0)
+
+            # Calculate the visibilities for this chunk
+            # TODO: Need a function for calculating visibilities
+            vis_chunk = _simulate_chunk(
+                coords=coords,
+                bmfunc=bmfunc,
+                fluxes=fluxes,
+                baselines=baselines,
+                nfeed=nfeed,
+                nant=nant,
+                ntimes=ntimes,
+                nfeed_alloc=nsrc_alloc,
+                polarized=polarized,
+                precision=precision,
+            )
+            # Update the visibilities array
+            vis[ti, c * npixc : (c + 1) * npixc] = vis_chunk
