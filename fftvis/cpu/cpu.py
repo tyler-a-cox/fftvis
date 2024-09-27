@@ -208,13 +208,14 @@ def simulate(
 
             # Compute the beam/sky product
             # TODO: Add comment
+            sky_beam_product = ...
 
             # Calculate the visibilities for this chunk
             nufft.compute(
                 tx=crdtop[0, :nsrcs_up],
                 ty=crdtop[1, :nsrcs_up],
                 tz=crdtop[2, :nsrcs_up],  # Will only be used is the array is not flat
-                source_strength=flux_up[:nsrcs_up],
+                source_strength=sky_beam_product[:nsrcs_up],
                 chunk=ci,
             )
 

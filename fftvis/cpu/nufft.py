@@ -14,3 +14,8 @@ class CPU_NUFFT(BaseTransform):
         """
         """
         pass
+
+    def rotate_coordinates(self):
+        """
+        """
+        self.rot_matrix = np.zeros((3, 3), dtype=self.ctype)

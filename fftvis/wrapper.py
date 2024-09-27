@@ -131,7 +131,6 @@ def simulate_vis(
             telescope_loc=telescope_loc,
             beam_spline_opts=beam_spline_opts,
             flat_array_tol=flat_array_tol,
-            # interpolation_function=interpolation_function,
             max_progress_reports=max_progress_reports,
             max_memory=max_memory,
             coord_method=coord_method,
