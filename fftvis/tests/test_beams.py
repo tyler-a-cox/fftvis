@@ -5,13 +5,13 @@ from fftvis import beams
 from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvdata.data import DATA_PATH
+
 cst_file = Path(DATA_PATH) / "NicCSTbeams" / "HERA_NicCST_150MHz.txt"
 
 
 @pytest.mark.parametrize("polarized", [True, False])
 def test_beam_interpolators(polarized):
-    """
-    """
+    """ """
     extra_keywords = {
         "software": "CST 2016",
         "sim_type": "E-farfield",
@@ -48,11 +48,25 @@ def test_beam_interpolators(polarized):
 
     # Evaluate the beam
     beams._evaluate_beam(
-        beam1, az=az, za=za, beam=beam, polarized=polarized, freq=freq, spline_opts={'kx': 1, 'ky': 1}, interpolation_function="az_za_simple"
+        beam1,
+        az=az,
+        za=za,
+        beam=beam,
+        polarized=polarized,
+        freq=freq,
+        spline_opts={"kx": 1, "ky": 1},
+        interpolation_function="az_za_simple",
     )
 
     beams._evaluate_beam(
-        beam2, az=az, za=za, beam=beam, polarized=polarized, freq=freq, spline_opts={'order': 1}, interpolation_function="az_za_map_coordinates"
+        beam2,
+        az=az,
+        za=za,
+        beam=beam,
+        polarized=polarized,
+        freq=freq,
+        spline_opts={"order": 1},
+        interpolation_function="az_za_map_coordinates",
     )
 
     # Check that the beams are equal

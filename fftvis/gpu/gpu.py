@@ -19,10 +19,11 @@ from matvis._utils import get_desired_chunks, get_dtypes, log_progress, logdebug
 from matvis.core import _validate_inputs
 from matvis.core.coords import CoordinateRotation
 from matvis.gpu import beams
-from . import beams
+
 
 from ..cpu import simulate as simcpu
 from .. import utils
+from .nufft import GPU_NUFFT
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ except Exception as e:  # pragma: no cover
     # warn, but default back to non-gpu functionality
     warnings.warn(str(e), stacklevel=2)
     HAVE_CUDA = False
+
 
 @combine_docstrings(simcpu)
 def simulate(
@@ -63,6 +65,8 @@ def simulate(
     ] = "CoordinateRotationAstropy",
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
+    eps: float = None,
+    flat_array_tol: float = 0.0,
 ) -> np.ndarray:
     init_time = time.time()
 
@@ -71,7 +75,7 @@ def simulate(
 
     # Validate inputs
     nax, nfeed, nant, ntimes = _validate_inputs(
-        precision, polarized, antpos, times, I_sky
+        precision, polarized, antpos, times, fluxes
     )
 
     # TODO: Add comment
@@ -97,7 +101,7 @@ def simulate(
     coord_method = CoordinateRotation._methods[coord_method]
     coord_method_params = coord_method_params or {}
     coords = coord_method(
-        flux=np.zeros_like(fluxes[0]), # Dummy flux for coordinate rotation
+        flux=np.zeros_like(fluxes[0]),  # Dummy flux for coordinate rotation
         times=times,
         telescope_loc=telescope_loc,
         skycoords=skycoords,
@@ -107,7 +111,7 @@ def simulate(
         gpu=True,
         **coord_method_params,
     )
-    
+
     # Get the beam interpolation function
     bmfunc = beams.GPUBeamInterpolator(
         beam_list=[beam],
@@ -120,18 +124,39 @@ def simulate(
         precision=precision,
     )
 
+    # Get the NUFFT transform
+    nufft = GPU_NUFFT(
+        eps=eps,
+        nfeed=nfeed,
+        antpos=antpos,
+        antpairs=baselines,
+        precision=precision,
+        flat_array_tol=flat_array_tol,
+    )
+
     logger.debug("Starting GPU allocations...")
 
     init_mem = cp.cuda.Device().mem_info[0]
     logger.debug(f"Before GPU allocations, GPU mem avail is: {init_mem / 1024**3} GB")
 
+    # Setup the beam interpolation and check memory
+    bmfunc.setup()
     memnow = cp.cuda.Device().mem_info[0]
     if bmfunc.use_interp:
         logger.debug(f"After bmfunc, GPU mem avail is: {memnow / 1024**3} GB.")
-    
+
+    # Setup the coordinate rotation and check memory
     coords.setup()
     memnow = cp.cuda.Device().mem_info[0]
     logger.debug(f"After coords, GPU mem avail is: {memnow / 1024**3} GB.")
+
+    # Setup the NUFFT transform
+    nufft.setup()
+    memnow = cp.cuda.Device().mem_info[0]
+    logger.debug(f"After nufft, GPU mem avail is: {memnow / 1024**3} GB.")
+
+    # Allocate memory for the visibility array
+    vis = cp.full((ntimes, nufft.npairs, nfeed, nfeed), 0.0, dtype=ctype)
 
     for ti, time in enumerate(times):
         for c, (stream, event) in enumerate(zip(streams, events)):
@@ -140,3 +165,18 @@ def simulate(
 
             # Get the source coordinates for this time
             crdtop, flux_up, nsrcs_up = coords.select_chunk(c)
+
+            # Interpolate the beam
+            beam_values = bmfunc(crdtop[0], crdtop[1])
+
+            # Compute the sky/beam product
+            # TODO: Add comment
+            sky_beam_product = ...
+
+            # Compute the NUFFT
+            nufft.compute(
+                tx=crdtop[0],
+                ty=crdtop[1],
+                source_strength=sky_beam_product,
+                out=vis[ti],
+            )

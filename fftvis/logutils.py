@@ -1,6 +1,5 @@
 """Utilities for logging / output during the simulation."""
 
-
 import datetime
 import logging
 import time

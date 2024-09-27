@@ -2,9 +2,16 @@ import numpy as np
 from pyuvdata import UVBeam
 from astropy import units as un
 from astropy.coordinates import SkyCoord
+from matvis.core.beams import prepare_beam_unpolarized
+from .cpu.cpu import simulate as cpu_simulate_vis
+# from .gpu.gpu import simulate as gpu_simulate_vis
 
-from cpu import simulate_vis as cpu_simulate_vis
-from gpu import simulate_vis as gpu_simulate_vis
+# Default accuracy for the non-uniform fast fourier transform based on precision
+default_accuracy_dict = {
+    1: 6e-8,
+    2: 1e-13,
+}
+
 
 def simulate_vis(
     ants: dict,
@@ -19,20 +26,17 @@ def simulate_vis(
     polarized: bool = False,
     eps: float = None,
     beam_spline_opts: dict = None,
-    use_feed: str = "x",
     flat_array_tol: float = 0.0,
-    live_progress: bool = True,
-    interpolation_function: str = "az_za_map_coordinates",
     use_gpu: bool = False,
     max_progress_reports: int = 100,
-    coord_method: str = "CoordinateTransformERFA",
+    coord_method: str = "CoordinateRotationERFA",
     max_memory: int = np.inf,
     min_chunks: int = 1,
     source_buffer: float = 1.0,
     coord_method_params: dict = {"update_bcrs_every": 1.0},
 ):
     """
-    TODO: Add description
+    TODO: Add description and update docstring.
 
     Parameters:
     ----------
@@ -100,17 +104,24 @@ def simulate_vis(
     # Make sure antpos has the right format
     ants = {k: np.array(v) for k, v in ants.items()}
 
+    # Get the baselines
     skycoords = SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs")
 
-    
+    # Get the baselines
+    vis = np.zeros(
+        (len(times), len(freqs), len(ants), len(ants), 2, 2), dtype=np.complex128
+    )
+
+    # Prepare the beam
+    beam = prepare_beam_unpolarized(beam)
 
     for fi, freq in enumerate(freqs):
         vis[..., fi] = function(
             antpos=ants,
-            freqs=freqs,
+            freq=freq,
             times=times,
             skycoords=skycoords,
-            fluxes=fluxes,
+            fluxes=fluxes[:, fi],
             beam=beam,
             baselines=baselines,
             precision=precision,
@@ -118,13 +129,12 @@ def simulate_vis(
             eps=eps,
             beam_spline_opts=beam_spline_opts,
             flat_array_tol=flat_array_tol,
-            live_progress=live_progress,
-            interpolation_function=interpolation_function,
+            # interpolation_function=interpolation_function,
             max_progress_reports=max_progress_reports,
             max_memory=max_memory,
             coord_method=coord_method,
-            min_chunks=min_chunks, 
-            source_buffer=source_buffer, 
-            coord_method_params=coord_method_params, 
+            min_chunks=min_chunks,
+            source_buffer=source_buffer,
+            coord_method_params=coord_method_params,
         )
     return vis

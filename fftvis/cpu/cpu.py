@@ -15,12 +15,13 @@ from matvis.cpu.beams import UVBeamInterpolator
 from matvis._utils import get_dtypes, memtrace, logdebug
 
 from .. import utils
+from .nufft import CPU_NUFFT
 
 logger = logging.getLogger(__name__)
 
 
 def simulate(
-    *
+    *,
     antpos: np.ndarray,
     freq: float,
     times: np.ndarray,
@@ -40,6 +41,9 @@ def simulate(
     min_chunks: int = 1,
     source_buffer: float = 1.0,
     coord_method_params: dict | None = None,
+    eps: float = None,
+    flat_array_tol: float = 0.0,
+    finufft_options: dict | None = None,
 ):
     """
     Calculate visibility from an input intensity map and beam model.
@@ -112,15 +116,19 @@ def simulate(
         shape (NTIMES, NBLS).
 
     """
-    init_time = time.time()
-
-    if not tm.is_tracing() and logger.isENABLED_FOR(logging.INFO):
+    if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
         tm.start()
+
+    antvecs = np.array([antpos[k] for k in sorted(antpos.keys())])
 
     # Validate inputs
     nax, nfeed, nant, ntimes = _validate_inputs(
-        precision, polarized, antpos, times, I_sky
+        precision, polarized, antvecs, times, fluxes
     )
+
+    # Get baselines if not provided
+    if baselines is None:
+        baselines = [(ant1, ant2) for ant1 in antpos for ant2 in antpos if ant1 != ant2]
 
     # TODO: Add comment
     highest_peak = memtrace(0)
@@ -147,7 +155,7 @@ def simulate(
     coord_method_params = coord_method_params or {}
 
     coords = coord_method(
-        flux=np.zeros_like(fluxes[0]),
+        flux=fluxes,
         times=times,
         telescope_loc=telescope_loc,
         skycoords=skycoords,
@@ -169,33 +177,45 @@ def simulate(
         nsrc=nsrc_alloc,
     )
 
+    # Get the NUFFT transform
+    finufft_options = finufft_options or {}
+    nufft = CPU_NUFFT(
+        eps=eps,
+        nfeed=nfeed,
+        npairs=len(baselines),
+        precision=precision,
+        **finufft_options,
+    )
+
     # Setup the coordinate rotation and beam interpolation functions
     bmfunc.setup()
     coords.setup()
-    
+    nufft.setup()
+
+    # Allocate memory for the visibility array
+    vis = np.full((ntimes, nufft.npairs, nfeed, nfeed), 0.0, dtype=ctype)
+
     for ti, time in enumerate(times):
         # Rotate the coordinates to the current time
         coords.rotate(ti)
-        
-        for c in range(nchunks):
-            # Get the sky coordinates for this chunk
-            crd_top, flux_up, nsrcs_up = coords.get_chunk(c)
 
-            beam_values = bmfunc(crd_top[0], crd_top[1], check=ti == 0)
+        for ci in range(nchunks):
+            # Get the sky coordinates for this chunk
+            crdtop, flux_up, nsrcs_up = coords.get_chunk(ci)
+
+            beam_values = bmfunc(crdtop[0], crdtop[1], check=ti == 0)
+
+            # Compute the beam/sky product
+            # TODO: Add comment
 
             # Calculate the visibilities for this chunk
-            # TODO: Need a function for calculating visibilities
-            vis_chunk = _simulate_chunk(
-                coords=coords,
-                bmfunc=bmfunc,
-                fluxes=fluxes,
-                baselines=baselines,
-                nfeed=nfeed,
-                nant=nant,
-                ntimes=ntimes,
-                nfeed_alloc=nsrc_alloc,
-                polarized=polarized,
-                precision=precision,
+            nufft.compute(
+                tx=crdtop[0, :nsrcs_up],
+                ty=crdtop[1, :nsrcs_up],
+                tz=crdtop[2, :nsrcs_up],  # Will only be used is the array is not flat
+                source_strength=flux_up[:nsrcs_up],
+                chunk=ci,
             )
-            # Update the visibilities array
-            vis[ti, c * npixc : (c + 1) * npixc] = vis_chunk
+
+        # Sum chunks and store result in the visibility array
+        nufft.sum_chunks(vis[ti])

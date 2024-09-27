@@ -42,7 +42,7 @@ def _evaluate_beam(
         The interpolation function to use when interpolating the beam. Can be either be
         'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
         at the edges of the beam, while the latter is faster but less accurate
-        for interpolation orders greater than linear. 
+        for interpolation orders greater than linear.
     """
     # Primary beam pattern using direct interpolation of UVBeam object
     kw = (

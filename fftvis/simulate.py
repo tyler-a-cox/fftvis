@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import finufft
 import numpy as np
-from matvis import conversions
+from matvis import coordinates
+from matvis.core.beams import prepare_beam_unpolarized
 import time
 import psutil
 from rich.progress import Progress
@@ -103,16 +104,16 @@ def simulate_vis(
         eps = default_accuracy_dict[precision]
 
     # Source coordinate transform, from equatorial to Cartesian
-    crd_eq = conversions.point_source_crd_eq(ra, dec)
+    crd_eq = coordinates.point_source_crd_eq(ra, dec)
 
     # Make sure antpos has the right format
     ants = {k: np.array(v) for k, v in ants.items()}
 
     # Get coordinate transforms as a function of LST
-    eq2tops = np.array([conversions.eci_to_enu_matrix(lst, latitude) for lst in lsts])
+    eq2tops = np.array([coordinates.eci_to_enu_matrix(lst, latitude) for lst in lsts])
 
     # Prepare the beam
-    beam = conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
+    beam = prepare_beam_unpolarized(beam)
 
     return simulate(
         ants=ants,
@@ -271,13 +272,13 @@ def simulate(
     rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
 
     # Compute baseline vectors
-    blx, bly, blz = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
-        :, :
-    ].T.astype(real_dtype)
+    blx, bly, blz = np.array(
+        [rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines]
+    )[:, :].T.astype(real_dtype)
 
     # Check if the array is flat within tolerance
     is_coplanar = np.all(np.less_equal(np.abs(blz), flat_array_tol))
-    
+
     # Generate visibility array
     if expand_vis:
         vis = np.zeros(
@@ -301,7 +302,6 @@ def simulate(
     highest_peak = logutils.memtrace(highest_peak)
 
     with Progress() as progress:
-
         simtimes_task = progress.add_task(
             "Simulating Times", total=ntimes, visible=live_progress
         )
@@ -335,7 +335,7 @@ def simulate(
                 )
 
             # Compute azimuth and zenith angles
-            az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+            az, za = coordinates.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
             # Rotate source coordinates with rotation matrix.
             tx, ty, tz = np.dot(rotation_matrix.T, [tx, ty, tz])

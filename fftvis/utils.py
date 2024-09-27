@@ -73,7 +73,7 @@ def get_pos_reds(antpos, decimals=3, include_autos=True):
 
 def get_plane_to_xy_rotation_matrix(antvecs):
     """
-    Compute the rotation matrix that projects the antenna positions onto the xy-plane. 
+    Compute the rotation matrix that projects the antenna positions onto the xy-plane.
     This function is used to rotate the antenna positions so that they lie in the xy-plane.
 
     Parameters:
@@ -90,11 +90,11 @@ def get_plane_to_xy_rotation_matrix(antvecs):
     antx, anty, antz = antvecs.T
     basis = np.array([antx, anty, np.ones_like(antz)]).T
     plane, res, rank, s = linalg.lstsq(basis, antz)
-    
+
     # Project the antenna positions onto the plane
     slope_x, slope_y, z_offset = plane
 
-    # Plane is already approximately aligned with the xy-axes, 
+    # Plane is already approximately aligned with the xy-axes,
     # return identity rotation matrix
     if np.isclose(slope_x, 0) and np.isclose(slope_y, 0.0):
         return np.eye(3)
@@ -102,21 +102,22 @@ def get_plane_to_xy_rotation_matrix(antvecs):
     # Normalize the normal vector
     normal = np.array([slope_x, slope_y, -1])
     normal = normal / np.linalg.norm(normal)
-    
+
     # Compute the rotation axis
     axis = np.array([slope_y, -slope_x, 0])
     axis = axis / np.linalg.norm(axis)
-    
+
     # Compute the rotation angle
     theta = np.arccos(-normal[2])
-    
+
     # Compute the rotation matrix using Rodrigues' formula
-    K = np.array([[0, -axis[2], axis[1]],
-                  [axis[2], 0, -axis[0]],
-                  [-axis[1], axis[0], 0]])
+    K = np.array(
+        [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
+    )
     rotation_matrix = np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * np.dot(K, K)
-    
+
     return rotation_matrix
+
 
 def get_required_chunks(
     freemem: int,
@@ -240,7 +241,11 @@ def get_desired_chunks(
     >>> get_desired_chunks(1024, 2, [beam1, beam2], 3, 4, 8, 16, 32)
     (2, 8)
     """
-    nbeampix = beam.data_array.shape[-2] * beam.data_array.shape[-1] if hasattr(beam, "data_array") else 0
+    nbeampix = (
+        beam.data_array.shape[-2] * beam.data_array.shape[-1]
+        if hasattr(beam, "data_array")
+        else 0
+    )
 
     nchunks = min(
         max(
