@@ -13,7 +13,7 @@
 
 ## Limitations
 - Currently no support for per-antenna beams
-- Currently no support for polarized sky emission 
+- Currently no support for polarized sky emission
 - Diffuse sky models must be pixelized
 
 ## Installation
@@ -40,7 +40,7 @@ cmake -D FINUFFT_USE_CUDA=ON ..
 cmake --build .
 ```
 
-Install `Python` installation 
+Install `Python` installation
 ```bash
 pip install python/cufinufft
 ```

@@ -13,11 +13,11 @@ setup(
     license="MIT",
     packages=find_packages(),
     install_requires=[
-        "numpy", 
-        "matvis", 
-        "finufft", 
-        "pyuvdata@git+https://github.com/RadioAstronomySoftwareGroup/pyuvdata", 
-        "psutil"
+        "numpy",
+        "matvis",
+        "finufft",
+        "pyuvdata@git+https://github.com/RadioAstronomySoftwareGroup/pyuvdata",
+        "psutil",
     ],
     extras_require={
         "dev": [
