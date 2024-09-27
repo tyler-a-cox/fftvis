@@ -1,7 +1,7 @@
 import numpy as np
 from pyuvdata import UVBeam
 from astropy import units as un
-from astropy.coordinates import SkyCoord
+from astropy.coordinates import SkyCoord, EarthLocation
 from matvis.core.beams import prepare_beam_unpolarized
 from .cpu.cpu import simulate as cpu_simulate_vis
 # from .gpu.gpu import simulate as gpu_simulate_vis
@@ -21,6 +21,7 @@ def simulate_vis(
     freqs: np.ndarray,
     times: np.ndarray,
     beam: UVBeam,
+    telescope_loc: EarthLocation,
     baselines: list[tuple] = None,
     precision: int = 2,
     polarized: bool = False,
@@ -127,6 +128,7 @@ def simulate_vis(
             precision=precision,
             polarized=polarized,
             eps=eps,
+            telescope_loc=telescope_loc,
             beam_spline_opts=beam_spline_opts,
             flat_array_tol=flat_array_tol,
             # interpolation_function=interpolation_function,

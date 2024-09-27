@@ -180,6 +180,7 @@ def simulate(
     # Get the NUFFT transform
     finufft_options = finufft_options or {}
     nufft = CPU_NUFFT(
+        antpos=antpos,
         eps=eps,
         nfeed=nfeed,
         npairs=len(baselines),
