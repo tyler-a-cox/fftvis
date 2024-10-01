@@ -89,10 +89,10 @@ def get_plane_to_xy_rotation_matrix(antvecs):
     # Fit a plane to the antenna positions
     antx, anty, antz = antvecs.T
     basis = np.array([antx, anty, np.ones_like(antz)]).T
-    plane, res, rank, s = linalg.lstsq(basis, antz)
+    plane, _, _, _ = np.linalg.lstsq(basis, antz)
 
     # Project the antenna positions onto the plane
-    slope_x, slope_y, z_offset = plane
+    slope_x, slope_y, _ = plane
 
     # Plane is already approximately aligned with the xy-axes,
     # return identity rotation matrix
