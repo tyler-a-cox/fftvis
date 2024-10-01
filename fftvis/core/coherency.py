@@ -29,11 +29,11 @@ def compute_apparent_coherency(beam, coherency_matrix):
     # Compute the apparent coherency
     if coherency_matrix.ndim == 1:
         apparent_coherency = xp.einsum(
-            'ijs,s,jks->ijs', beam, coherency_matrix, beam.conj()
+            "ijs,s,jks->ijs", beam, coherency_matrix, beam.conj()
         )
-    elif coherency_matrix.ndim > 2:   
+    elif coherency_matrix.ndim > 2:
         apparent_coherency = xp.einsum(
-            'ij...,jk...lk...->il...', beam, coherency_matrix, beam.conj()
+            "ij...,jk...lk...->il...", beam, coherency_matrix, beam.conj()
         )
 
     return apparent_coherency
