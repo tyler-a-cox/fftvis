@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import finufft
 import numpy as np
-from matvis import conversions
+from matvis import coordinates
+from matvis.core.beams import prepare_beam_unpolarized
 import time
 import psutil
 from rich.progress import Progress
@@ -104,16 +105,16 @@ def simulate_vis(
         eps = default_accuracy_dict[precision]
 
     # Source coordinate transform, from equatorial to Cartesian
-    crd_eq = conversions.point_source_crd_eq(ra, dec)
+    crd_eq = coordinates.point_source_crd_eq(ra, dec)
 
     # Make sure antpos has the right format
     ants = {k: np.array(v) for k, v in ants.items()}
 
     # Get coordinate transforms as a function of LST
-    eq2tops = np.array([conversions.eci_to_enu_matrix(lst, latitude) for lst in lsts])
+    eq2tops = np.array([coordinates.eci_to_enu_matrix(lst, latitude) for lst in lsts])
 
     # Prepare the beam
-    beam = conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
+    beam = prepare_beam_unpolarized(beam)
 
     return simulate(
         ants=ants,
@@ -230,8 +231,10 @@ def simulate(
     if eps is None:
         eps = default_accuracy_dict[precision]
 
-    freqs = freqs.astype(real_dtype)
-    fluxes = fluxes.astype(real_dtype)
+    if freqs.dtype != real_dtype:
+        freqs = freqs.astype(real_dtype)
+    if fluxes.dtype != complex_dtype:
+        fluxes = fluxes.astype(complex_dtype)
 
     # Get the redundant groups - TODO handle this better
     if not baselines:
@@ -245,10 +248,7 @@ def simulate(
         expand_vis = False
 
     # Check if the beam is complex
-    beam_values, _ = beam.interp(
-        az_array=np.array([0]), za_array=np.array([0]), freq_array=np.array([freqs[0]])
-    )
-    is_beam_complex = np.issubdtype(beam_values.dtype, np.complexfloating)
+    is_beam_complex = np.issubdtype(beam.data_array.dtype, np.complexfloating)
 
     if isinstance(beam, UVBeam):
         beam_here = beam.interp(freq_array=freqs, new_object=True, run_check=False)
@@ -256,11 +256,13 @@ def simulate(
         beam_here = beam
 
     # Convert to correct precision
-    crd_eq = crd_eq.astype(real_dtype)
-    eq2tops = eq2tops.astype(real_dtype)
+    if crd_eq.dtype != real_dtype:
+        crd_eq = crd_eq.astype(real_dtype)
+    if eq2tops.dtype != real_dtype:
+        eq2tops = eq2tops.astype(real_dtype)
 
     # Factor of 0.5 accounts for splitting Stokes between polarization channels
-    Isky = (0.5 * fluxes).astype(complex_dtype)
+    Isky = 0.5 * fluxes
 
     # Flatten antenna positions
     antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
@@ -302,6 +304,9 @@ def simulate(
     mlast = pr.memory_info().rss
     highest_peak = logutils.memtrace(highest_peak)
 
+    if interpolation_function == "parallel_beam_interp":
+        beam_interp = [beams.ParallelBeamInterp(beam_here, fi) for fi in range(nfreqs)]
+
     with Progress() as progress:
 
         simtimes_task = progress.add_task(
@@ -337,7 +342,7 @@ def simulate(
                 )
 
             # Compute azimuth and zenith angles
-            az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+            az, za = coordinates.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
             # Rotate source coordinates with rotation matrix.
             tx, ty, tz = np.dot(rotation_matrix.T, [tx, ty, tz])
@@ -348,16 +353,26 @@ def simulate(
 
                 # Compute beams - only single beam is supported
                 A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
-                A_s = beams._evaluate_beam(
-                    A_s,
-                    beam_here,
-                    az,
-                    za,
-                    polarized,
-                    freqs[fi],
-                    spline_opts=beam_spline_opts,
-                    interpolation_function=interpolation_function,
-                )
+
+                if interpolation_function == "parallel_beam_interp":
+                    A_s = beam_interp[fi].interp(
+                        A_s=A_s, 
+                        az=az, 
+                        za=za, 
+                        polarized=polarized
+                    )
+
+                else:
+                    A_s = beams._evaluate_beam(
+                        A_s,
+                        beam_here,
+                        az,
+                        za,
+                        polarized,
+                        freqs[fi],
+                        spline_opts=beam_spline_opts,
+                        interpolation_function=interpolation_function,
+                    )
                 A_s = A_s.transpose((1, 0, 2))
                 beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
                 beam_product = beam_product.reshape(nax * nfeeds, nsim_sources)

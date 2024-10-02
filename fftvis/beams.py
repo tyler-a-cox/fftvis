@@ -1,5 +1,6 @@
 import numpy as np
 from pyuvdata import UVBeam
+from fast_interp import interp2d
 
 
 def _evaluate_beam(
@@ -80,3 +81,79 @@ def _evaluate_beam(
             raise ValueError("Beam interpolation resulted in an invalid value")
 
     return A_s
+
+class ParallelBeamInterpolator:
+    def __init__(self, beam: UVBeam, freq_ind: int, order: int = 1):
+        """
+        Parameters
+        ----------
+        beam
+        """
+        self.data_array = beam.data_array[:, :, freq_ind]
+        self.freq_array = beam.freq_array
+        az_min, az_max = np.min(beam.axis1_array), np.max(beam.axis1_array)
+        za_min, za_max = np.min(beam.axis2_array), np.max(beam.axis2_array)
+        daz = np.diff(beam.axis1_array)[0]
+        dza = np.diff(beam.axis2_array)[0]
+        
+        self.complex_beam = np.issubdtype(self.data_array.dtype, np.complexfloating)
+
+        # Beam interpolation object
+        self.interp_objs_real = [
+            interp2d(
+                a=(az_min, za_min),
+                b=(az_max, za_max),
+                h=(daz, dza),
+                f=np.copy(self.data_array[ax_ind, feed_ind].real.T), # numba is very picky about this copy
+                k=order,
+            )
+            for ax_ind in range(self.data_array.shape[0])
+            for feed_ind in range(self.data_array.shape[1])
+        ]
+
+        if self.complex_beam:
+            self.interp_objs_imag = [
+                interp2d(
+                    a=(az_min, za_min),
+                    b=(az_max, za_max),
+                    h=(daz, dza),
+                    f=np.copy(self.data_array[ax_ind, feed_ind].imag.T), # numba is very picky about this copy
+                    k=order,
+                )
+                for ax_ind in range(self.data_array.shape[0])
+                for feed_ind in range(self.data_array.shape[1])
+            ]
+
+    def interp(self, A_s: np.ndarray, az: np.ndarray, za: np.ndarray, polarized: bool, check: bool = False):
+        """
+        Parameters
+        ----------
+        az
+        za
+        freq
+        """
+        #for i, interp_obj in enumerate(self.interp_objs_real):
+        
+        ci = 0
+        for ax_ind in range(self.data_array.shape[0]):
+            for feed_ind in range(self.data_array.shape[1]):
+                interp_obj = self.interp_objs_real[ci]
+                if self.complex_beam:
+                    interp_obj_imag = self.interp_objs_imag[ci]
+                    interp_beam = interp_obj(az, za) + 1j * interp_obj_imag(az, za)
+                else:
+                    interp_beam = interp_obj(az, za)
+
+                if not polarized:
+                    interp_beam = np.sqrt(interp_beam)
+
+                A_s[ax_ind, feed_ind] = interp_beam
+                ci += 1
+
+        # Check for invalid beam values
+        if check:
+            sm = np.sum(A_s)
+            if np.isinf(sm) or np.isnan(sm):
+                raise ValueError("Beam interpolation resulted in an invalid value")
+
+        return A_s
