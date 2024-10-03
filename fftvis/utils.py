@@ -1,5 +1,6 @@
 import numpy as np
 from scipy import linalg
+from numba import jit
 IDEALIZED_BL_TOL = 1e-8  # bl_error_tol for redcal.get_reds when using antenna positions calculated from reds
 speed_of_light = 299792458.0  # m/s
 
@@ -113,3 +114,9 @@ def get_plane_to_xy_rotation_matrix(antvecs):
     rotation_matrix = np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * np.dot(K, K)
     
     return rotation_matrix
+
+@jit(nopython=True, parallel=True, fastmath=True)
+def enu_to_az_za(enu_e, enu_n):
+    """
+    """
+    pass
