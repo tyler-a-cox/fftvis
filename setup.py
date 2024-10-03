@@ -18,6 +18,7 @@ setup(
         "finufft", 
         "pyuvdata@git+https://github.com/RadioAstronomySoftwareGroup/pyuvdata", 
         "psutil",
+        "numba",
         "fast_interp@git+https://github.com/dbstein/fast_interp",
     ],
     extras_require={
