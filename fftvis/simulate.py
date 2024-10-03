@@ -290,9 +290,9 @@ def simulate(
     else:
         vis = np.zeros((ntimes, nbls, nfeeds, nfeeds, nfreqs), dtype=complex_dtype)
 
-    blx /= utils.speed_of_light
-    bly /= utils.speed_of_light
-    blz /= utils.speed_of_light
+    blx *= (2 * np.pi) / utils.speed_of_light
+    bly *= (2 * np.pi) / utils.speed_of_light
+    blz *= (2 * np.pi) / utils.speed_of_light
 
     u = np.zeros_like(blx)
     v = np.zeros_like(bly)
@@ -303,6 +303,7 @@ def simulate(
     pr = psutil.Process()
     mlast = pr.memory_info().rss
     highest_peak = logutils.memtrace(highest_peak)
+    
 
     if interpolation_function == "parallel_beam_interp":
         beam_interp = [beams.ParallelBeamInterpolator(beam_here, fi) for fi in range(nfreqs)]
@@ -381,28 +382,31 @@ def simulate(
                 i_sky = beam_product * Isky[above_horizon, fi]
 
                 # Compute visibilities w/ non-uniform FFT
+                _vis_here = np.zeros((nfeeds * nfeeds, u.size), dtype=complex_dtype)
                 if is_coplanar:
-                    _vis_here = finufft.nufft2d3(
-                        2 * np.pi * tx,
-                        2 * np.pi * ty,
-                        i_sky,
-                        u,
-                        v,
-                        modeord=0,
-                        eps=eps,
-                    )
+                    for vi, _i_sky in enumerate(i_sky):
+                        _vis_here[vi] = finufft.nufft2d3(
+                            tx,
+                            ty,
+                            _i_sky,
+                            u,
+                            v,
+                            modeord=0,
+                            eps=eps,
+                        )
                 else:
-                    _vis_here = finufft.nufft3d3(
-                        2 * np.pi * tx,
-                        2 * np.pi * ty,
-                        2 * np.pi * tz,
-                        i_sky,
-                        u,
-                        v,
-                        w,
-                        modeord=0,
-                        eps=eps,
-                    )
+                    for vi, _i_sky in enumerate(i_sky):
+                        _vis_here[vi] = finufft.nufft3d3(
+                            tx,
+                            ty,
+                            tz,
+                            _i_sky,
+                            u,
+                            v,
+                            w,
+                            modeord=0,
+                            eps=eps,
+                        )
 
                 # Expand out the visibility array
                 _vis[..., fi] = _vis_here.reshape(nfeeds, nfeeds, nbls)
@@ -410,28 +414,37 @@ def simulate(
                 # If beam is complex, we need to compute the reverse negative frequencies
                 if is_beam_complex and expand_vis:
                     # Compute
+                    _vis_here_neg = np.zeros((nfeeds * nfeeds, u.size), dtype=complex_dtype)
                     if is_coplanar:
-                        _vis_here_neg = finufft.nufft2d3(
-                            2 * np.pi * tx,
-                            2 * np.pi * ty,
-                            i_sky,
-                            -u,
-                            -v,
-                            modeord=0,
-                            eps=eps,
-                        )
+                        for vi, _i_sky in enumerate(i_sky):
+                            if vi == 0 or vi == 3:
+                                _vis_here_neg[vi] = _vis_here[vi]
+                            else:
+                                _vis_here_neg[vi] = finufft.nufft2d3(
+                                    tx,
+                                    ty,
+                                    _i_sky,
+                                    -u,
+                                    -v,
+                                    modeord=0,
+                                    eps=eps,
+                                )
                     else:
-                        _vis_here_neg = finufft.nufft3d3(
-                            2 * np.pi * tx,
-                            2 * np.pi * ty,
-                            2 * np.pi * tz,
-                            i_sky,
-                            -u,
-                            -v,
-                            -w,
-                            modeord=0,
-                            eps=eps,
-                        )
+                        for vi, _i_sky in enumerate(i_sky):
+                            if vi == 0 or vi == 3:
+                                _vis_here_neg[vi] = _vis_here[vi]
+                            else:
+                                _vis_here_neg[vi] = finufft.nufft3d3(
+                                    tx,
+                                    ty,
+                                    tz,
+                                    _i_sky,
+                                    -u,
+                                    -v,
+                                    -w,
+                                    modeord=0,
+                                    eps=eps,
+                                )
                     _vis_negatives[..., fi] = _vis_here_neg.reshape(
                         nfeeds, nfeeds, nbls
                     )
