@@ -17,7 +17,8 @@ setup(
         "matvis", 
         "finufft", 
         "pyuvdata@git+https://github.com/RadioAstronomySoftwareGroup/pyuvdata", 
-        "psutil"
+        "psutil",
+        "fast_interp@git+https://github.com/dbstein/fast_interp",
     ],
     extras_require={
         "dev": [
