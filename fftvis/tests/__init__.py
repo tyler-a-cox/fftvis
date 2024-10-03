@@ -11,7 +11,7 @@ from pyuvdata import UVBeam
 from pyuvsim import AnalyticBeam, simsetup
 from pyuvsim.telescope import BeamList
 
-from matvis import DATA_PATH, conversions
+from matvis import DATA_PATH, coordinates
 
 nfreq = 1
 ntime = 5  # 20
@@ -121,7 +121,7 @@ def get_standard_sim_params(
     freqs = np.unique(uvdata.freq_array)
 
     # Correct source locations so that matvis uses the right frame
-    ra_new, dec_new = conversions.equatorial_to_eci_coords(
+    ra_new, dec_new = coordinates.equatorial_to_eci_coords(
         ra_dec[:, 0], ra_dec[:, 1], obstime, location, unit="rad", frame="icrs"
     )
 
