@@ -305,7 +305,7 @@ def simulate(
     highest_peak = logutils.memtrace(highest_peak)
 
     if interpolation_function == "parallel_beam_interp":
-        beam_interp = [beams.ParallelBeamInterp(beam_here, fi) for fi in range(nfreqs)]
+        beam_interp = [beams.ParallelBeamInterpolator(beam_here, fi) for fi in range(nfreqs)]
 
     with Progress() as progress:
 
