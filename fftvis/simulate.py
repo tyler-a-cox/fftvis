@@ -114,7 +114,8 @@ def simulate_vis(
     eq2tops = np.array([coordinates.eci_to_enu_matrix(lst, latitude) for lst in lsts])
 
     # Prepare the beam
-    beam = prepare_beam_unpolarized(beam)
+    if not polarized:
+        beam = prepare_beam_unpolarized(beam)
 
     return simulate(
         ants=ants,
