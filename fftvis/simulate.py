@@ -324,13 +324,13 @@ def simulate(
             tx, ty, tz = np.dot(eq2top, crd_eq)
 
             # Only simulate above the horizon
-            above_horizon = tz > 0
+            above_horizon = np.flatnonzero(tz > 0)
             tx = tx[above_horizon]
             ty = ty[above_horizon]
             tz = tz[above_horizon]
 
             # Number of above horizon points
-            nsim_sources = above_horizon.sum()
+            nsim_sources = above_horizon.size
 
             if nsim_sources == 0:
                 continue
