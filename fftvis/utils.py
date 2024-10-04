@@ -119,4 +119,13 @@ def get_plane_to_xy_rotation_matrix(antvecs):
 def enu_to_az_za(enu_e, enu_n):
     """
     """
-    pass
+    lsqr = enu_n**2.0 + enu_e**2.0
+    zeta = np.where(lsqr < 1, np.sqrt(1 - lsqr), 0)
+
+    az = np.arctan2(enu_e, enu_n)
+    za = 0.5 * np.pi - np.arcsin(zeta)
+
+    # Flip and rotate azimuth coordinate if uvbeam convention is used
+    az = 0.5 * np.pi - az
+    az = np.mod(az, 2 * np.pi)
+    return az, za

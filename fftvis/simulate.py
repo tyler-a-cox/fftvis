@@ -344,7 +344,10 @@ def simulate(
                 )
 
             # Compute azimuth and zenith angles
-            az, za = coordinates.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+            if interpolation_function == "parallel_beam_interp":
+                az, za = utils.enu_to_az_za(enu_e=tx, enu_n=ty)
+            else:
+                az, za = coordinates.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
 
             # Rotate source coordinates with rotation matrix.
             tx, ty, tz = np.dot(rotation_matrix.T, [tx, ty, tz])
