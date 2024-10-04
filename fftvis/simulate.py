@@ -425,7 +425,7 @@ def simulate(
                     if is_coplanar:
                         for vi, _i_sky in enumerate(i_sky):
                             if vi == 0 or vi == 3:
-                                _vis_here_neg[vi] = _vis_here[vi]
+                                _vis_here_neg[vi] = np.conj(_vis_here[vi])
                             else:
                                 _vis_here_neg[vi] = finufft.nufft2d3(
                                     tx,
@@ -439,7 +439,7 @@ def simulate(
                     else:
                         for vi, _i_sky in enumerate(i_sky):
                             if vi == 0 or vi == 3:
-                                _vis_here_neg[vi] = _vis_here[vi]
+                                _vis_here_neg[vi] = np.conj(_vis_here[vi])
                             else:
                                 _vis_here_neg[vi] = finufft.nufft3d3(
                                     tx,
