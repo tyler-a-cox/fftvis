@@ -321,16 +321,19 @@ def simulate(
         # Loop over time samples
         for ti, eq2top in enumerate(eq2tops):
             # Convert to topocentric coordinates
-            tx, ty, tz = np.dot(eq2top, crd_eq)
+            if interpolation_function == "parallel_beam_interp":
+                tx, ty, tz = utils.numba_dot(eq2top, crd_eq)
+            else:
+                tx, ty, tz = np.dot(eq2top, crd_eq)
 
             # Only simulate above the horizon
-            above_horizon = np.flatnonzero(tz > 0)
+            above_horizon = tz > 0
             tx = tx[above_horizon]
             ty = ty[above_horizon]
             tz = tz[above_horizon]
 
             # Number of above horizon points
-            nsim_sources = above_horizon.size
+            nsim_sources = above_horizon.sum()
 
             if nsim_sources == 0:
                 continue

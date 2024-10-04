@@ -129,3 +129,9 @@ def enu_to_az_za(enu_e, enu_n):
     az = 0.5 * np.pi - az
     az = np.mod(az, 2 * np.pi)
     return az, za
+
+@jit(nopython=True)
+def numba_dot(x, b):
+    """
+    """
+    return np.dot(x, b)
