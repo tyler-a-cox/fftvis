@@ -239,8 +239,13 @@ def simulate(
 
     if eps is None:
         eps = default_accuracy_dict[precision]
-
-    freqs = freqs.astype(real_dtype)
+    
+    if ra.dtype != real_dtype:
+        ra = ra.astype(real_dtype)
+    if dec.dtype != real_dtype:
+        dec = dec.astype(real_dtype)
+    if freqs.dtype != real_dtype:
+        freqs = freqs.astype(real_dtype)
 
     # Get the redundant groups - TODO handle this better
     if baselines is None:
@@ -406,7 +411,7 @@ def _evaluate_vis_single_time_freq_chunk(
         times=time,
         telescope_loc=location, 
         skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs"),   
-        source_buffer=1.0
+        source_buffer=1.0,
     )
     coord_mgr.setup()
     coord_mgr.rotate(ti)
@@ -423,7 +428,7 @@ def _evaluate_vis_single_time_freq_chunk(
     # Rotate source coordinates with rotation matrix.
     topo = np.dot(rotation_matrix.T, topo)
     topo *= 2*np.pi
-    
+
     for freqidx, freq in zip(freq_idx, freqs):
         uvw = bls * freq
 
@@ -445,12 +450,6 @@ def _evaluate_vis_single_time_freq_chunk(
 
         # Compute sky beam product
         i_sky = beam_product * flux[:, freqidx]
-
-        print("FFTVIS: ", ti)
-        print("topo: ", topo / (2*np.pi))
-        print("i_sky: ", i_sky)
-        print("uvw: ", uvw)
-        print('beam: ', A_s)
         
         # Compute visibilities w/ non-uniform FFT
         if is_coplanar:
