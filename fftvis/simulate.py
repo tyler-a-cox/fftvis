@@ -8,7 +8,7 @@ import finufft
 import numpy as np
 from matvis import coordinates
 from matvis.core.beams import prepare_beam_unpolarized
-from matvis.cpu.coords import CoordinateRotationAstropy
+from matvis.cpu.coords import CoordinateRotationAstropy, CoordinateRotationERFA
 
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy import units as un
@@ -408,11 +408,11 @@ def _evaluate_vis_single_time_freq_chunk(
 
     time = Time(time, format='jd')
     
-    coord_mgr = CoordinateRotationAstropy(
+    coord_mgr = CoordinateRotationERFA(
         flux=flux,
         times=time,
         telescope_loc=location, 
-        skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs"),   
+        skycoords=SkyCoord(ra=ra, dec=dec, frame="icrs", unit="rad"),   
         source_buffer=1.0,
     )
     coord_mgr.setup()
@@ -425,10 +425,12 @@ def _evaluate_vis_single_time_freq_chunk(
         return vis
 
     # Compute azimuth and zenith angles
-    az, za = coordinates.enu_to_az_za(enu_e=topo[0], enu_n=topo[1], orientation="uvbeam")
+    az, za = coordinates.enu_to_az_za(
+        enu_e=topo[0, :nsim_sources], enu_n=topo[1, :nsim_sources], orientation="uvbeam"
+    )
     
     # Rotate source coordinates with rotation matrix.
-    topo = np.dot(rotation_matrix.T, topo)
+    topo = np.dot(rotation_matrix.T, topo[:, :nsim_sources])
     topo *= 2*np.pi
 
     for freqidx, freq in zip(freq_idx, freqs):
@@ -451,7 +453,7 @@ def _evaluate_vis_single_time_freq_chunk(
         beam_product.shape = (nax * nfeeds, nsim_sources)
 
         # Compute sky beam product
-        i_sky = beam_product * flux[:, freqidx]
+        i_sky = beam_product * flux[:nsim_sources, freqidx]
         
         # Compute visibilities w/ non-uniform FFT
         if is_coplanar:
