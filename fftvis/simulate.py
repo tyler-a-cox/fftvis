@@ -1,4 +1,7 @@
 from __future__ import annotations
+import multiprocessing.shared_memory
+import multiprocessing
+from functools import partial
 
 import finufft
 import numpy as np
@@ -311,6 +314,22 @@ def simulate(
         tstart = time.time()
         plast = tstart
 
+        for freq in freqs:
+            vis = _evaluate_vis_all_times(
+                ants=ants,
+                freq=freq,
+                flux=fluxes,
+                beam=beam,
+                crd_eq=crd_eq,
+                eq2tops=eq2tops,
+                baselines=baselines,
+                precision=precision,
+                polarized=polarized,
+                eps=eps,
+                beam_spline_opts=beam_spline_opts,
+                interpolation_function=interpolation_function,
+            )
+
         # Loop over time samples
         for ti, eq2top in enumerate(eq2tops):
             # Convert to topocentric coordinates
@@ -479,3 +498,237 @@ def simulate(
             if polarized
             else np.moveaxis(vis[..., 0, 0, :], 2, 0)
         )
+
+def _evaluate_vis_all_times(
+    ants: dict,
+    freq: np.ndarray,
+    flux: np.ndarray,
+    beam: UVBeam,
+    crd_eq: np.ndarray,
+    eq2tops: np.ndarray,
+    baselines: list[tuple[int, int]] | None = None,
+    precision: int = 2,
+    polarized: bool = False,
+    eps: float | None = None,
+    beam_spline_opts: dict = None,
+    interpolation_function: str = "az_za_map_coordinates",
+    use_multiprocessing: bool = True,
+    num_processes: int = None,
+):
+    """
+    Parameters:
+    ----------
+    ants : dict
+        Dictionary of antenna positions in the form {ant_index: np.array([x,y,z])}.
+    freqs : np.ndarray
+        Frequencies to evaluate visibilities at in Hz.
+    fluxes : np.ndarray
+        Intensity distribution of sources/pixels on the sky, assuming intensity
+        (Stokes I) only. The Stokes I intensity will be split equally between
+        the two linear polarization channels, resulting in a factor of 0.5 from
+        the value inputted here. This is done even if only one polarization
+        channel is simulated.
+    beam : UVBeam
+        Beam object to use for the array. Per-antenna beams are not yet supported.
+    crd_eq : np.ndarray
+        Cartesian unit vectors of sources in an ECI (Earth Centered
+        Inertial) system, which has the Earth's center of mass at
+        the origin, and is fixed with respect to the distant stars.
+        The components of the ECI vector for each source are:
+        (cos(RA) cos(Dec), sin(RA) cos(Dec), sin(Dec)).
+        Shape=(3, NSRCS).
+    eq2tops : np.ndarray
+        Set of 3x3 transformation matrices to rotate the RA and Dec
+        cosines in an ECI coordinate system (see `crd_eq`) to
+        topocentric ENU (East-North-Up) unit vectors at each
+        time/LST/hour angle in the dataset. Shape=(NTIMES, 3, 3).
+    baselines : list of tuples, default = None
+        If provided, only the baselines within the list will be simulated and array of
+        shape (nbls, nfreqs, ntimes) will be returned
+    precision : int, optional
+        Which precision level to use for floats and complex numbers
+        Allowed values:
+        - 1: float32, complex64
+        - 2: float64, complex128
+    eps : float, default = 6e-8
+        Desired accuracy of the non-uniform fast fourier transform.
+    beam_spline_opts : dict, optional
+        Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.  
+    flat_array_tol : float, default = 0.0
+        Tolerance for checking if the array is flat in units of meters. If the
+        z-coordinate of all baseline vectors is within this tolerance, the array
+        is considered flat and the z-coordinate is set to zero. Default is 0.0.
+    interpolation_function : str, default = "az_za_simple"
+        The interpolation function to use when interpolating the beam. Can be either be
+        'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
+        at the edges of the beam, while the latter is faster but less accurate
+        for interpolation orders greater than linear.
+    """
+    single_time_vis_sim = partial(
+        _evaluate_vis_single_time,
+        ants=ants,
+        freq=freq,
+        # flux=flux, # Make shared memory
+        beam=beam,
+        # crd_eq=crd_eq, # Make shared memory
+        baselines=baselines, 
+        precision=precision,
+        polarized=polarized,
+        eps=eps,
+        interpolation_function=interpolation_function,
+        beam_spline_opts=beam_spline_opts,
+        is_coplanar=is_coplanar,
+    )
+
+    if use_multiprocessing:
+        # Create shared memory for flux and coordinates
+        shared_flux_mem = multiprocessing.shared_memory.SharedMemory(
+            create=True, size=flux.nbytes
+        )
+        shared_coords_mem = multiprocessing.shared_memory.SharedMemory(
+            create=True, size=crd_eq.nbytes
+        )
+        shared_flux = np.ndarray(
+            flux.shape, dtype=flux.dtype, buffer=shared_flux_mem.buf
+        )
+        shared_coords = np.ndarray(
+            crd_eq.shape, dtype=crd_eq.dtype, buffer=shared_coords_mem.buf
+        )
+
+        # Copy data to shared memory
+        shared_flux[:] = flux
+        shared_coords[:] = crd_eq
+
+        # Get number of processes for multiprocessing
+        if num_processes is None:
+            num_processes = multiprocessing.cpu_count()
+
+        # Create pool and map function
+        with multiprocessing.Pool(processes=num_processes) as pool:
+            results = pool.map(single_time_vis_sim, eq2tops)
+
+    else:
+        results = []
+        for eq2top in eq2tops:
+            results.append(single_time_vis_sim(eq2top))
+
+    return results
+
+def _evaluate_vis_single_time(
+    eq2top: np.ndarray,
+    u: np.ndarray,
+    v: np.ndarray,
+    w: np.ndarray,
+    freq: float,
+    flux: np.ndarray,
+    beam: UVBeam,
+    crd_eq: np.ndarray,
+    data_shape: tuple,
+    polarized: bool = False,
+    eps: float | None = None,
+    beam_spline_opts: dict = None,
+    interpolation_function: str = "az_za_map_coordinates",
+    n_threads: int = 1,
+):
+    """
+    """
+    nfeeds, nax, nbls, nfreqs = data_shape
+    # Get sizes of inputs
+    tx, ty, tz = np.dot(eq2top, crd_eq)
+
+    # Only simulate above the horizon
+    above_horizon = tz > 0
+    tx = tx[above_horizon]
+    ty = ty[above_horizon]
+    tz = tz[above_horizon]
+
+    # Number of above horizon points
+    nsim_sources = above_horizon.sum()
+
+    if nsim_sources == 0:
+        return # TODO: This should be handled better
+
+    # Compute azimuth and zenith angles
+    az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
+
+    # Rotate source coordinates with rotation matrix.
+    tx, ty, tz = np.dot(rotation_matrix.T, [tx, ty, tz])
+
+    # Compute beams - only single beam is supported
+    A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
+    A_s = beams._evaluate_beam(
+        A_s,
+        beam,
+        az,
+        za,
+        polarized,
+        freq,
+        spline_opts=beam_spline_opts,
+        interpolation_function=interpolation_function,
+    )
+    A_s = A_s.transpose((1, 0, 2))
+    beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
+    beam_product = beam_product.reshape(nax * nfeeds, nsim_sources)
+
+    # Compute sky beam product
+    i_sky = beam_product * flux[above_horizon]
+
+    # Compute visibilities w/ non-uniform FFT
+    if is_coplanar:
+        vis_here = finufft.nufft2d3(
+            2 * np.pi * tx,
+            2 * np.pi * ty,
+            i_sky,
+            u,
+            v,
+            modeord=0,
+            eps=eps,
+            n_threads=n_threads,
+        )
+    else:
+        vis_here = finufft.nufft3d3(
+            2 * np.pi * tx,
+            2 * np.pi * ty,
+            2 * np.pi * tz,
+            i_sky,
+            u,
+            v,
+            w,
+            modeord=0,
+            eps=eps,
+            n_threads=n_threads
+        )
+
+    # Expand out the visibility array
+    # _vis_here = _vis_here.reshape(nfeeds, nfeeds, nbls)
+
+    # If beam is complex, we need to compute the reverse negative frequencies
+    if is_beam_complex and expand_vis:
+        # Compute
+        if is_coplanar:
+            vis_here_neg = finufft.nufft2d3(
+                2 * np.pi * tx,
+                2 * np.pi * ty,
+                i_sky,
+                -u,
+                -v,
+                modeord=0,
+                eps=eps,
+                n_threads=n_threads,
+            )
+        else:
+            vis_here_neg = finufft.nufft3d3(
+                2 * np.pi * tx,
+                2 * np.pi * ty,
+                2 * np.pi * tz,
+                i_sky,
+                -u,
+                -v,
+                -w,
+                modeord=0,
+                eps=eps,
+                n_threads=n_threads
+            )
+
+    # Sometimes the negative frequencies are not needed
+    return vis_here, vis_here_neg
