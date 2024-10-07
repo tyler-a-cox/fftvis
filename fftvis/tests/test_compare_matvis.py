@@ -9,7 +9,8 @@ from . import get_standard_sim_params
 @pytest.mark.parametrize('precision', [2,1])
 @pytest.mark.parametrize('use_analytic_beam', [True, False])
 @pytest.mark.parametrize('tilt_array', [True, False])
-def test_simulate(polarized: bool, precision: int, use_analytic_beam: bool, tilt_array: bool):
+@pytest.mark.parametrize('nprocesses', [1, 2])
+def test_simulate(polarized: bool, precision: int, use_analytic_beam: bool, tilt_array: bool, nprocesses: int):
 
     (
         ants,
@@ -49,7 +50,7 @@ def test_simulate(polarized: bool, precision: int, use_analytic_beam: bool, tilt
     fvis = simulate.simulate_vis(
         ants, flux, ra, dec, freqs, times.jd, cpu_beams[0], eps=1e-10 if precision==2 else 6e-8,
         baselines=sim_baselines, polarized=polarized, precision=precision,
-        telescope_loc=location,
+        telescope_loc=location, nprocesses=nprocesses
     )
 
     # Should have shape (nfreqs, ntimes, nants, nants)
