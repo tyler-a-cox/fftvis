@@ -54,8 +54,6 @@ def _evaluate_beam(
         if isinstance(beam, UVBeam)
         else {}
     )
-    if isinstance(beam, UVBeam) and not beam.future_array_shapes:
-        beam.use_future_array_shapes()
 
     interp_beam = beam.interp(
         az_array=az,
