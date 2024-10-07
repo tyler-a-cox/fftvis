@@ -14,7 +14,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         "numpy", 
-        "matvis", 
+        "matvis@git+https://github.com/HERA-Team/matvis", 
         "finufft", 
         "pyuvdata@git+https://github.com/RadioAstronomySoftwareGroup/pyuvdata", 
         "psutil"
