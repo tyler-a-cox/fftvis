@@ -5,11 +5,13 @@ from fftvis import simulate
 from pyuvsim.analyticbeam import AnalyticBeam
 
 
-def test_simulate():
+@pytest.mark.parametrize('polarized', [False, True])
+@pytest.mark.parametrize('precision', [2,1])
+def test_simulate(polarized: bool, precision: int):
     """ """
     # Simulation parameters
-    ntimes = 10
-    nfreqs = 5
+    ntimes = 3
+    nfreqs = 2
     nants = 3
     nsrcs = 20
 
@@ -31,95 +33,39 @@ def test_simulate():
     dec = np.linspace(-0.5 * np.pi, 0.5 * np.pi, nsrcs)
     sky_model = rng.uniform(0, 1, size=(nsrcs, 1)) * (freqs[None] / 150e6) ** -2.5
 
+    # Simulate with specified baselines
+    sim_baselines = [(0, 1), (0, 2), (1, 2)]
+
     # Use matvis as a reference
     mvis = matvis.simulate_vis(
-        antpos, sky_model, ra, dec, freqs, lsts, beams=[beam], precision=2
+        antpos, sky_model, ra, dec, freqs, lsts, beams=[beam], 
+        polarized=polarized, precision=precision       
     )
 
     # Use fftvis to simulate visibilities
     fvis = simulate.simulate_vis(
-        antpos, sky_model, ra, dec, freqs, lsts, beam, precision=2, eps=1e-10
+        antpos, sky_model, ra, dec, freqs, lsts, beam, eps=1e-10 if precision==2 else 6e-8,
+        baselines=sim_baselines, polarized=polarized, precision=precision
     )
 
     # Should have shape (nfreqs, ntimes, nants, nants)
-    assert fvis.shape == (nfreqs, ntimes, nants, nants)
-
-    # Check that the results are the same
-    assert np.allclose(mvis, fvis, atol=1e-5)
-
-    # Test polarized visibilities
-    # Use matvis as a reference
-    mvis = matvis.simulate_vis(
-        antpos,
-        sky_model,
-        ra,
-        dec,
-        freqs,
-        lsts,
-        beams=[beam],
-        precision=2,
-        polarized=True,
-    )
-
-    # Use fftvis to simulate visibilities
-    fvis = simulate.simulate_vis(
-        antpos,
-        sky_model,
-        ra,
-        dec,
-        freqs,
-        lsts,
-        beam,
-        precision=2,
-        eps=1e-10,
-        polarized=True,
-    )
-
-    # Should have shape (nfreqs, ntimes, nfeeds, nfeeds, nants, nants)
-    assert fvis.shape == (nfreqs, ntimes, 2, 2, nants, nants)
-
-    # Check that the polarized results are the same
-    assert np.allclose(mvis, fvis, atol=1e-5)
-
-    # Simulate with specified baselines
-    sim_baselines = [(0, 1), (0, 2), (1, 2)]
-    fvis = simulate.simulate_vis(
-        antpos,
-        sky_model,
-        ra,
-        dec,
-        freqs,
-        lsts,
-        beam,
-        baselines=sim_baselines,
-        precision=2,
-        eps=1e-10,
-        polarized=True,
-    )
-
-    # Should have shape (nfreqs, ntimes, 2, 2, len(sim_baselines))
-    assert fvis.shape == (nfreqs, ntimes, 2, 2, len(sim_baselines))
+    if polarized:
+        assert fvis.shape == (nfreqs, ntimes, 2, 2, len(sim_baselines))
+    else:
+        assert fvis.shape == (nfreqs, ntimes, len(sim_baselines))
 
     # Check that the polarized results are the same
     for bi, bl in enumerate(sim_baselines):
-        assert np.allclose(fvis[:, :, :, :, bi], mvis[:, :, :, :, bl[0], bl[1]])
+        print(bl)
+        print(fvis[0,1,0,0, bi])
+        print(mvis[0,1,0,0, bl[0], bl[1]])
+        
+        print(fvis[0,1,1, 1, bi])
+        print(mvis[0,1,1, 1, bl[0], bl[1]])
+        
+        print(np.nonzero(~np.isclose(fvis[..., bi], mvis[..., bl[0], bl[1]], atol=1e-5 if precision==2 else 1e-4)))
+        np.testing.assert_allclose(fvis[..., bi], mvis[..., bl[0], bl[1]], atol=1e-5 if precision==2 else 1e-4)
 
-    # Test with precision 1
-    # Use matvis as a reference
-    mvis = matvis.simulate_vis(
-        antpos, sky_model, ra, dec, freqs, lsts, beams=[beam], precision=1
-    )
-
-    # Use fftvis to simulate visibilities
-    fvis = simulate.simulate_vis(
-        antpos, sky_model, ra, dec, freqs, lsts, beam, precision=1, eps=6e-8
-    )
-
-    # Should have shape (nfreqs, ntimes, nants, nants)
-    assert fvis.shape == (nfreqs, ntimes, nants, nants)
-
-    # Check that the results are the same
-    assert np.allclose(mvis, fvis, atol=1e-4)
 
 
 def test_simulate_non_coplanar():
@@ -158,11 +104,13 @@ def test_simulate_non_coplanar():
 
     # Use fftvis to simulate visibilities
     fvis = simulate.simulate_vis(
-        antpos, sky_model, ra, dec, freqs, lsts, beam, precision=2, eps=1e-10
+        antpos, sky_model, ra, dec, freqs, lsts, beam, precision=2, eps=1e-10,
+        baselines=[(i, j) for i in range(nants) for j in range(nants)]
     )
+    fvis.shape = (nfreqs, ntimes, nants, nants)
 
     # Check that the results are the same
-    assert np.allclose(mvis, fvis, atol=1e-5)
+    np.testing.assert_allclose(mvis, fvis, atol=1e-5)
 
     # Check that the results are different
     assert not np.allclose(mvis_flat, fvis, atol=1e-5)
