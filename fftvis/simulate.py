@@ -3,12 +3,14 @@ from multiprocessing.shared_memory import SharedMemory
 from multiprocessing.managers import SharedMemoryManager
 from multiprocessing import Pool, cpu_count
 from functools import partial
+import ray
 
 import finufft
 import numpy as np
 from matvis import coordinates
 from matvis.core.beams import prepare_beam_unpolarized
 from matvis.cpu.coords import CoordinateRotationAstropy, CoordinateRotationERFA
+from matvis.core.coords import CoordinateRotation
 
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy import units as un
@@ -221,6 +223,7 @@ def simulate(
         Array of shape (nfreqs, ntimes, nants, nants) if polarized is False, and
         (nfreqs, ntimes, nfeed, nfeedd, nants, nants) if polarized is True.
     """
+    
     if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
         tm.start()
 
@@ -287,71 +290,66 @@ def simulate(
     if nprocesses is None:
         nprocesses = cpu_count()
 
-    if nprocesses > 1:
-        # Since compute time per-time is pretty stable, use maximum available chunksize.
-        pool = Pool(processes=nprocesses)
-        mapfunc = partial(pool.map, chunksize=ntimes//nprocesses + 1)
-    else:
-        mapfunc = map
+    coord_mgr = CoordinateRotationERFA(
+        flux=Isky,
+        times=Time(times, format='jd'),
+        telescope_loc=telescope_loc,
+        skycoords=SkyCoord(ra=ra, dec=dec, frame='icrs', unit='rad'),
+        source_buffer=1.0
+    )
 
-    with SharedMemoryManager() as smm:
-        def share(x: np.ndarray):
-            shared_mem = smm.SharedMemory(size=x.nbytes)
-            shared = np.ndarray(x.shape, dtype=x.dtype, buffer=shared_mem.buf)
-            shared[:] = x
-            return shared_mem
+    nprocesses, freq_chunks, time_chunks, nf, nt = utils.get_task_chunks(nprocesses, nfreqs, ntimes)
+
+    if nprocesses > 1:
+        ray.init()
         
-        Isky_sm = share(Isky)
-        baselines_sm = share(bls)
-        times_sm = share(times)
-        rotation_matrix_sm = share(rotation_matrix)
-        freqs_sm = share(freqs)
-        ra_sm = share(ra)
-        dec_sm = share(dec)
-        
-        # Generate visibility array
-        # visshape = (ntimes, nbls, nfeeds, nfeeds, nfreqs)
-        # vis_mem = smm.SharedMemory(
-        #     size=np.prod(visshape)*np.dtype(complex_dtype).itemsize
-        # )
-        # vis = np.ndarray(visshape, dtype=complex_dtype, buffer=vis_mem.buf)
-        # vis[:] = 0.0  # initialize to zero
-        
-        single_time_vis_sim = partial(
-            _evaluate_vis_single_time_freq_chunk,
-            n_threads = 1 if nprocesses > 1 else 0,
-            freq_idx=list(range(nfreqs)),
+        # Put data into shared-memory pool
+        Isky = ray.put(Isky)
+        bls = ray.put(bls) 
+        times = ray.put(times)
+        rotation_matrix = ray.put(rotation_matrix)
+        freqs = ray.put(freqs)
+        ra = ray.put(ra)
+        dec = ray.put(dec)
+        beam = ray.put(beam)
+        coord_mgr = ray.put(coord_mgr)
+         
+    logger.info(f"Splitting calculation into chunks with {nf} frequencies and {nt} times each")
+    
+    futures = []
+    for fc, tc in zip(freq_chunks, time_chunks):
+        kw = dict(
+            time_idx=tc,
+            freq_idx=fc,
             beam=beam,
             nax=nax,
+            coord_mgr=coord_mgr,
+            rotation_matrix=rotation_matrix,
+            bls=bls,
+            freqs=freqs,
+            complex_dtype=complex_dtype,
+            nfeeds=nfeeds,
+            location=telescope_loc,
             polarized=polarized,
             eps=eps,
             beam_spline_opts=beam_spline_opts,
             interpolation_function=interpolation_function,
+            n_threads=1 if nprocesses > 1 else 0,
             is_coplanar=is_coplanar,
-            location=telescope_loc,
-            times_shape=times.shape,
-            flux_shape=Isky.shape,
-            baselines_shape=bls.shape,
-            #vis_shape=vis.shape,
-            freqs_shape=freqs.shape,
-            times_name=times_sm.name,
-            flux_name=Isky_sm.name,
-            baselines_name=baselines_sm.name,
-            ra_name=ra_sm.name,
-            dec_name=dec_sm.name,
-            #vis_name=vis_mem.name,
-            rotation_matrix_name=rotation_matrix_sm.name,
-            freqs_name=freqs_sm.name,
-            real_dtype=real_dtype,
-            complex_dtype=complex_dtype,
-            nfeeds=nfeeds,
         )
-    
-        vis = np.array(list(mapfunc(single_time_vis_sim, range(ntimes))))  # 'list' to force computation
-
+        
+        if nprocesses > 1:
+            futures.append(_evaluate_vis_chunk_remote.remote(**kw))
+        else:
+            futures.append(_evaluate_vis_chunk(**kw))
+        
     if nprocesses > 1:
-        pool.close()
-                    
+        futures = ray.get(futures)
+        
+    vis = np.zeros(dtype=complex_dtype, shape=(ntimes, bls.shape[1], nfeeds, nfeeds, nfreqs))
+    for fc, tc, future in zip(freq_chunks, time_chunks, futures):
+        vis[tc][..., fc] = future
+                     
     return (
         np.transpose(vis, (4, 0, 2, 3, 1))
         if polarized
@@ -359,23 +357,15 @@ def simulate(
     )
 
 
-def _evaluate_vis_single_time_freq_chunk(
-    ti: int,
-    freq_idx: np.ndarray,
+def _evaluate_vis_chunk(
+    time_idx: slice,
+    freq_idx: slice,
     beam: UVBeam,
     nax: int,
-    times_shape: tuple[int],
-    flux_shape: tuple[int],
-    baselines_shape: tuple[int],
-    freqs_shape: tuple[int],
-    times_name: str,
-    flux_name: str,
-    baselines_name: str,
-    ra_name: str,
-    dec_name: str,
-    freqs_name: str,
-    rotation_matrix_name: str,
-    real_dtype: np.dtype,
+    coord_mgr: CoordinateRotation,
+    rotation_matrix: np.ndarray,
+    bls: np.ndarray,
+    freqs: np.ndarray,
     complex_dtype: np.dtype,
     nfeeds: int,
     location: EarthLocation,
@@ -386,100 +376,80 @@ def _evaluate_vis_single_time_freq_chunk(
     n_threads: int = 1,
     is_coplanar: bool = False,    
 ):
-    # Get arrays from shared memory
-    _times = SharedMemory(times_name)
-    _flux = SharedMemory(flux_name)
-    _baselines = SharedMemory(baselines_name)
-    _ra = SharedMemory(ra_name)
-    _dec = SharedMemory(dec_name)
-    _rotation_matrix = SharedMemory(rotation_matrix_name)
-    _freqs = SharedMemory(freqs_name)
-    
-    time = np.ndarray(times_shape, dtype=float, buffer=_times.buf)
-    flux = np.ndarray(flux_shape, dtype=complex_dtype, buffer=_flux.buf)
-    bls = np.ndarray(baselines_shape, dtype=real_dtype, buffer=_baselines.buf)
-    ra = np.ndarray(flux_shape[:1], dtype=real_dtype, buffer=_ra.buf)
-    dec = np.ndarray(flux_shape[:1], dtype=real_dtype, buffer=_dec.buf)
-    
-    rotation_matrix = np.ndarray((3, 3), dtype=real_dtype, buffer=_rotation_matrix.buf)
-    freqs = np.ndarray(freqs_shape, dtype=real_dtype, buffer=_freqs.buf)
-    
     nbls = bls.shape[1]
-
-    time = Time(time, format='jd')
+    ntimes = len(coord_mgr.times)
+    nfreqs = len(freqs)
     
-    coord_mgr = CoordinateRotationERFA(
-        flux=flux,
-        times=time,
-        telescope_loc=location, 
-        skycoords=SkyCoord(ra=ra, dec=dec, frame="icrs", unit="rad"),   
-        source_buffer=1.0,
-    )
+    nt_here = len(coord_mgr.times[time_idx])
+    nf_here = len(freqs[freq_idx])
+    vis = np.zeros(dtype=complex_dtype, shape=(nt_here, nbls, nfeeds, nfeeds, nf_here))
     coord_mgr.setup()
-    coord_mgr.rotate(ti)
-    topo, flux, nsim_sources = coord_mgr.select_chunk(0)
     
-    vis = np.zeros(dtype=complex_dtype, shape=(nbls, nfeeds, nfeeds, len(freqs)))
-
-    if nsim_sources == 0:
-        return vis
-
-    # Compute azimuth and zenith angles
-    az, za = coordinates.enu_to_az_za(
-        enu_e=topo[0, :nsim_sources], enu_n=topo[1, :nsim_sources], orientation="uvbeam"
-    )
-    
-    # Rotate source coordinates with rotation matrix.
-    topo = np.dot(rotation_matrix.T, topo[:, :nsim_sources])
-    topo *= 2*np.pi
-
-    for freqidx, freq in zip(freq_idx, freqs):
-        uvw = bls * freq
-
-        # Compute beams - only single beam is supported
-        A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=vis.dtype)
-        A_s = beams._evaluate_beam(
-            A_s,
-            beam,
-            az,
-            za,
-            polarized,
-            freq,
-            spline_opts=beam_spline_opts,
-            interpolation_function=interpolation_function,
-        )
-        A_s = A_s.transpose((1, 0, 2))
-        beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
-        beam_product.shape = (nax * nfeeds, nsim_sources)
-
-        # Compute sky beam product
-        i_sky = beam_product * flux[:nsim_sources, freqidx]
+    for ti in range(ntimes)[time_idx]:
+        coord_mgr.rotate(ti)
+        topo, flux, nsim_sources = coord_mgr.select_chunk(0)
         
-        # Compute visibilities w/ non-uniform FFT
-        if is_coplanar:
-            _vis_here = finufft.nufft2d3(
-                topo[0],
-                topo[1],
-                i_sky,
-                uvw[0],
-                uvw[1],
-                modeord=0,
-                eps=eps,
-                nthreads=n_threads,
-            )
-        else:
-            _vis_here = finufft.nufft3d3(
-                topo[0],
-                topo[1],
-                topo[2],
-                i_sky,
-                uvw[0],
-                uvw[1],
-                uvw[2],
-                modeord=0,
-                eps=eps,
-                nthreads=n_threads,
-            )
-        vis[..., freqidx] = np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0)
+        if nsim_sources == 0:
+            continue
 
+        # Compute azimuth and zenith angles
+        az, za = coordinates.enu_to_az_za(
+            enu_e=topo[0, :nsim_sources], enu_n=topo[1, :nsim_sources], orientation="uvbeam"
+        )
+        
+        # Rotate source coordinates with rotation matrix.
+        topo = np.dot(rotation_matrix.T, topo[:, :nsim_sources])
+        topo *= 2*np.pi
+
+        for freqidx in range(nfreqs)[freq_idx]:
+            freq = freqs[freqidx]
+            uvw = bls * freq
+
+            # Compute beams - only single beam is supported
+            A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=vis.dtype)
+            A_s = beams._evaluate_beam(
+                A_s,
+                beam,
+                az,
+                za,
+                polarized,
+                freq,
+                spline_opts=beam_spline_opts,
+                interpolation_function=interpolation_function,
+            )
+            A_s = A_s.transpose((1, 0, 2))
+            beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
+            beam_product.shape = (nax * nfeeds, nsim_sources)
+
+            # Compute sky beam product
+            i_sky = beam_product * flux[:nsim_sources, freqidx]
+            
+            # Compute visibilities w/ non-uniform FFT
+            if is_coplanar:
+                _vis_here = finufft.nufft2d3(
+                    topo[0],
+                    topo[1],
+                    i_sky,
+                    uvw[0],
+                    uvw[1],
+                    modeord=0,
+                    eps=eps,
+                    nthreads=n_threads,
+                )
+            else:
+                _vis_here = finufft.nufft3d3(
+                    topo[0],
+                    topo[1],
+                    topo[2],
+                    i_sky,
+                    uvw[0],
+                    uvw[1],
+                    uvw[2],
+                    modeord=0,
+                    eps=eps,
+                    nthreads=n_threads,
+                )
+            vis[ti, ..., freqidx] = np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0)
     return vis
+
+_evaluate_vis_chunk_remote = ray.remote(_evaluate_vis_chunk)
