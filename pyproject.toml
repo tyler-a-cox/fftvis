@@ -49,6 +49,9 @@ dev = [
     "pre-commit",
     "pytest-cov",
     "pytest-xdist",
+    "pyradiosky",
+    "pyuvsim[sim]",
+    "hera_sim"
 ]
 
 [project.scripts]
