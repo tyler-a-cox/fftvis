@@ -294,13 +294,12 @@ def simulate(
         flux=Isky,
         times=Time(times, format='jd'),
         telescope_loc=telescope_loc,
-        skycoords=SkyCoord(ra=ra, dec=dec, frame='icrs', unit='rad'),
-        source_buffer=1.0
+        skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame='icrs'),
+        source_buffer=1.0,
+        precision=precision,
     )
 
     nprocesses, freq_chunks, time_chunks, nf, nt = utils.get_task_chunks(nprocesses, nfreqs, ntimes)
-    # print (nprocesses)
-    # start = time.time()
     if nprocesses > 1:
         ray.init(num_cpus=nprocesses)
         
@@ -314,7 +313,6 @@ def simulate(
         dec = ray.put(dec)
         beam = ray.put(beam)
         coord_mgr = ray.put(coord_mgr)
-    # print (f"Time to prepare data: {time.time() - start}")
          
     logger.info(f"Splitting calculation into chunks with {nf} frequencies and {nt} times each")
     
