@@ -44,6 +44,7 @@ def test_simulate(polarized: bool, precision: int, use_analytic_beam: bool, tilt
         polarized=polarized,
         precision=precision,
         antpairs=sim_baselines,
+        coord_method='CoordinateRotationERFA'
     )
 
     # Use fftvis to simulate visibilities

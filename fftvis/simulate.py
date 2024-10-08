@@ -49,7 +49,6 @@ def simulate_vis(
     beam_spline_opts: dict = None,
     use_feed: str = "x",
     flat_array_tol: float = 0.0,
-    live_progress: bool = True,
     interpolation_function: str = "az_za_map_coordinates",
     nprocesses: int | None = 1,
 ):
@@ -138,7 +137,6 @@ def simulate_vis(
         eps=eps,
         beam_spline_opts=beam_spline_opts,
         flat_array_tol=flat_array_tol,
-        live_progress=live_progress,
         interpolation_function=interpolation_function,
         nprocesses=nprocesses,
     )
@@ -158,8 +156,6 @@ def simulate(
     polarized: bool = False,
     eps: float | None = None,
     beam_spline_opts: dict = None,
-    max_progress_reports: int = 100,
-    live_progress: bool = True,
     flat_array_tol: float = 0.0,
     interpolation_function: str = "az_za_map_coordinates",
     nprocesses: int | None = 1,
@@ -233,6 +229,7 @@ def simulate(
     nfreqs = np.size(freqs)
     ntimes = len(times)
 
+
     nax = nfeeds = 2 if polarized else 1
 
     if precision == 1:
@@ -256,6 +253,9 @@ def simulate(
     if baselines is None:
         reds = utils.get_pos_reds(ants, include_autos=True)
         baselines = [red[0] for red in reds]
+
+    # Get number of baselines
+    nbls = len(baselines)
 
     if isinstance(beam, UVBeam):
         beam = beam.interp(freq_array=freqs, new_object=True, run_check=False)
@@ -299,9 +299,10 @@ def simulate(
     )
 
     nprocesses, freq_chunks, time_chunks, nf, nt = utils.get_task_chunks(nprocesses, nfreqs, ntimes)
-
+    # print (nprocesses)
+    # start = time.time()
     if nprocesses > 1:
-        ray.init()
+        ray.init(num_cpus=nprocesses)
         
         # Put data into shared-memory pool
         Isky = ray.put(Isky)
@@ -313,6 +314,7 @@ def simulate(
         dec = ray.put(dec)
         beam = ray.put(beam)
         coord_mgr = ray.put(coord_mgr)
+    # print (f"Time to prepare data: {time.time() - start}")
          
     logger.info(f"Splitting calculation into chunks with {nf} frequencies and {nt} times each")
     
@@ -345,8 +347,9 @@ def simulate(
         
     if nprocesses > 1:
         futures = ray.get(futures)
+        ray.shutdown()
         
-    vis = np.zeros(dtype=complex_dtype, shape=(ntimes, bls.shape[1], nfeeds, nfeeds, nfreqs))
+    vis = np.zeros(dtype=complex_dtype, shape=(ntimes, nbls, nfeeds, nfeeds, nfreqs))
     for fc, tc, future in zip(freq_chunks, time_chunks, futures):
         vis[tc][..., fc] = future
                      
@@ -385,7 +388,7 @@ def _evaluate_vis_chunk(
     vis = np.zeros(dtype=complex_dtype, shape=(nt_here, nbls, nfeeds, nfeeds, nf_here))
     coord_mgr.setup()
     
-    for ti in range(ntimes)[time_idx]:
+    for time_index, ti in enumerate(range(ntimes)[time_idx]):
         coord_mgr.rotate(ti)
         topo, flux, nsim_sources = coord_mgr.select_chunk(0)
         
@@ -430,8 +433,8 @@ def _evaluate_vis_chunk(
                     topo[0],
                     topo[1],
                     i_sky,
-                    uvw[0],
-                    uvw[1],
+                    np.ascontiguousarray(uvw[0]),
+                    np.ascontiguousarray(uvw[1]),
                     modeord=0,
                     eps=eps,
                     nthreads=n_threads,
@@ -442,14 +445,14 @@ def _evaluate_vis_chunk(
                     topo[1],
                     topo[2],
                     i_sky,
-                    uvw[0],
-                    uvw[1],
-                    uvw[2],
+                    np.ascontiguousarray(uvw[0]),
+                    np.ascontiguousarray(uvw[1]),
+                    np.ascontiguousarray(uvw[2]),
                     modeord=0,
                     eps=eps,
                     nthreads=n_threads,
                 )
-            vis[ti, ..., freqidx] = np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0)
+            vis[time_index, ..., freqidx] = np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0)
     return vis
 
 _evaluate_vis_chunk_remote = ray.remote(_evaluate_vis_chunk)

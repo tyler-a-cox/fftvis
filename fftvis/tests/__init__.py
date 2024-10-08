@@ -14,7 +14,7 @@ from pyuvsim.telescope import BeamList
 from matvis import DATA_PATH, coordinates
 
 nfreq = 1
-ntime = 20  # 20
+ntime = 4  # 20
 nants = 2  # 4
 nsource = 250
 beam_file = DATA_PATH / "NF_HERA_Dipole_small.fits"
