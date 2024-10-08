@@ -11,6 +11,7 @@ from matvis import coordinates
 from matvis.core.beams import prepare_beam_unpolarized
 from matvis.cpu.coords import CoordinateRotationAstropy, CoordinateRotationERFA
 from matvis.core.coords import CoordinateRotation
+from typing import Callable, Literal
 
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy import units as un
@@ -51,6 +52,10 @@ def simulate_vis(
     flat_array_tol: float = 0.0,
     interpolation_function: str = "az_za_map_coordinates",
     nprocesses: int | None = 1,
+    coord_method: Literal[
+        "CoordinateRotationAstropy", "CoordinateRotationERFA"
+    ] = "CoordinateRotationERFA",
+    coord_method_params: dict | None = None,
 ):
     """
     Parameters:
@@ -139,6 +144,8 @@ def simulate_vis(
         flat_array_tol=flat_array_tol,
         interpolation_function=interpolation_function,
         nprocesses=nprocesses,
+        coord_method=coord_method,
+        coord_method_params=coord_method_params,
     )
 
 
@@ -159,6 +166,10 @@ def simulate(
     flat_array_tol: float = 0.0,
     interpolation_function: str = "az_za_map_coordinates",
     nprocesses: int | None = 1,
+    coord_method: Literal[
+        "CoordinateRotationAstropy", "CoordinateRotationERFA"
+    ] = "CoordinateRotationERFA",
+    coord_method_params: dict | None = None,
 ):
     """
     Parameters:
@@ -290,13 +301,17 @@ def simulate(
     if nprocesses is None:
         nprocesses = cpu_count()
 
-    coord_mgr = CoordinateRotationERFA(
+    coord_method = CoordinateRotation._methods[coord_method]
+    coord_method_params = coord_method_params or {}
+    coord_mgr = coord_method(
         flux=Isky,
         times=Time(times, format='jd'),
         telescope_loc=telescope_loc,
         skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame='icrs'),
         source_buffer=1.0,
         precision=precision,
+        **coord_method_params,
+        #update_bcrs_every=np.inf, # Don't update BCRS
     )
 
     nprocesses, freq_chunks, time_chunks, nf, nt = utils.get_task_chunks(nprocesses, nfreqs, ntimes)
