@@ -36,7 +36,8 @@ dependencies = [
     "pyuvdata@git+https://github.com/RadioAstronomySoftwareGroup/pyuvdata",
     "psutil",
     "typer",
-    "rich"
+    "rich",
+    "ray",
 ]
 dynamic = ["version"]
 
