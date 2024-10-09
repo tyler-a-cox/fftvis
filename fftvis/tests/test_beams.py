@@ -43,17 +43,22 @@ def test_beam_interpolators(polarized):
     za = np.linspace(0, np.pi / 2.0, nsrcs)
     freq = np.array([150e6])
 
-    beam1 = np.zeros((2, 2, nsrcs)) if polarized else np.zeros((1, 1, nsrcs))
-    beam2 = np.zeros((2, 2, nsrcs)) if polarized else np.zeros((1, 1, nsrcs))
-
     # Evaluate the beam
-    beams._evaluate_beam(
-        beam1, az=az, za=za, beam=beam, polarized=polarized, freq=freq, spline_opts={'kx': 1, 'ky': 1}, interpolation_function="az_za_simple"
+    beam1 =beams._evaluate_beam(
+        az=az, za=za, beam=beam, polarized=polarized, freq=freq, spline_opts={'kx': 1, 'ky': 1}, interpolation_function="az_za_simple"
     )
 
-    beams._evaluate_beam(
-        beam2, az=az, za=za, beam=beam, polarized=polarized, freq=freq, spline_opts={'order': 1}, interpolation_function="az_za_map_coordinates"
+    beam2 = beams._evaluate_beam(
+        az=az, za=za, beam=beam, polarized=polarized, freq=freq, spline_opts={'order': 1}, interpolation_function="az_za_map_coordinates"
     )
 
     # Check that the beams are equal
     np.testing.assert_allclose(beam1, beam2)
+    
+def test_get_apparent_flux_polarized():
+    beam=np.arange(12).reshape((2, 2, 3)).astype(complex)
+    flux = np.arange(3).astype(float)
+    
+    appflux = np.einsum("bas,s,bcs->acs", beam.conj(), flux, beam)
+    beams.get_apparent_flux_polarized(beam, flux)
+    np.testing.assert_allclose(appflux, beam)

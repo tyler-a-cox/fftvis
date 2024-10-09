@@ -426,10 +426,7 @@ def _evaluate_vis_chunk(
             freq = freqs[freqidx]
             uvw = bls * freq
 
-            # Compute beams - only single beam is supported
-            A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=vis.dtype)
             A_s = beams._evaluate_beam(
-                A_s,
                 beam,
                 az,
                 za,
@@ -437,11 +434,15 @@ def _evaluate_vis_chunk(
                 freq,
                 spline_opts=beam_spline_opts,
                 interpolation_function=interpolation_function,
-            )
-            A_s = A_s.transpose((1, 0, 2))
-            i_sky = np.einsum("abs,s,cbs->acs", A_s.conj(), flux[:nsim_sources, freqidx], A_s)
-            i_sky.shape = (nax * nfeeds, nsim_sources)
+            ).astype(complex_dtype)
+            if polarized:
+               beams.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])            
+            else:
+                A_s *= flux[:nsim_sources, freqidx]
 
+            A_s.shape = (nfeeds**2, nsim_sources)
+            i_sky = A_s
+            
             if i_sky.dtype != complex_dtype:
                 i_sky = i_sky.astype(complex_dtype)
             

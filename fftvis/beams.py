@@ -1,9 +1,8 @@
 import numpy as np
 from pyuvdata import UVBeam
-
+import numba as nb
 
 def _evaluate_beam(
-    A_s: np.ndarray,
     beam: UVBeam,
     az: np.ndarray,
     za: np.ndarray,
@@ -67,14 +66,42 @@ def _evaluate_beam(
     else:
         # Here we have already asserted that the beam is a power beam and
         # has only one polarization, so we just evaluate that one.
-        interp_beam = np.sqrt(interp_beam[0, 0, 0, :])
-
-    A_s[:, :] = interp_beam
+        interp_beam = interp_beam[0, 0, 0, :]
 
     # Check for invalid beam values
     if check:
-        sm = np.sum(A_s)
+        sm = np.sum(interp_beam)
         if np.isinf(sm) or np.isnan(sm):
             raise ValueError("Beam interpolation resulted in an invalid value")
 
-    return A_s
+    return interp_beam
+
+@nb.jit(
+    nopython=True,
+    parallel=False,
+    nogil=False
+)
+def get_apparent_flux_polarized(beam: np.ndarray, flux: np.ndarray):
+    """Calculate apparent flux of the sources."""
+    nax, nfd, nsrc = beam.shape
+    
+    for isrc in range(nsrc):
+        c = np.conj(beam[:, :, isrc])
+        
+        i00 = (
+            c[0, 0] * beam[0, 0, isrc] + 
+            c[1, 0] * beam[1, 0, isrc] 
+        )
+        i01 = (
+            c[0, 0] * beam[0, 1, isrc] + 
+            c[1, 0] * beam[1, 1, isrc] 
+        )
+        
+        i11 = (
+            c[0, 1] * beam[0, 1, isrc] + 
+            c[1, 1] * beam[1, 1, isrc] 
+        )
+        beam[0, 0, isrc] = i00 * flux[isrc]
+        beam[0, 1, isrc] = i01 * flux[isrc]
+        beam[1, 0, isrc] = np.conj(i01) * flux[isrc]
+        beam[1, 1, isrc] = i11 * flux[isrc]
