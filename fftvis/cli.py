@@ -1,5 +1,5 @@
 import typer
-from matvis.cli import get_standard_sim_params, get_line_based_stats, get_summary_stats, get_label
+from matvis.cli import get_standard_sim_params, get_line_based_stats, get_summary_stats, get_label, get_redundancies
 from .simulate import simulate_vis, _evaluate_vis_chunk
 from pathlib import Path
 from typing import Optional
@@ -13,6 +13,7 @@ import cProfile
 import pstats
 import os
 import numpy as np
+from hera_sim.antpos import hex_array
 
 cns = Console()
 
@@ -37,10 +38,15 @@ def run_profile(
     nza: int = 180,
     nprocesses: int = 1,
     update_bcrs_every: float = np.inf,
+    hera: int = 0,
+    nside: int = 0,
 ):
     """Run the script."""
     logger.setLevel(log_level.upper())
 
+    if nside > 0:
+        nsource = 12*nside**2
+        
     (
         ants,
         flux,
@@ -53,7 +59,11 @@ def run_profile(
     ) = get_standard_sim_params(
         analytic_beam, nfreq, ntimes, nants, nsource, nbeams=1, naz=naz, nza=nza
     )
+    if hera > 0:
+        ants = hex_array(hera)
+
     ants = {k: list(v) for k, v in ants.items()}
+    nants = len(ants)
     
     cns.print(Rule("Running fftvis profile"))
     cns.print(f"  NANTS:            {nants:>7}")
