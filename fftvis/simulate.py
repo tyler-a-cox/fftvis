@@ -410,16 +410,20 @@ def _evaluate_vis_chunk(
         coord_mgr.rotate(ti)
         topo, flux, nsim_sources = coord_mgr.select_chunk(0)
         
+        # truncate to nsim_sources
+        topo = topo[:, :nsim_sources]
+        flux = flux[:nsim_sources]
+
         if nsim_sources == 0:
             continue
 
         # Compute azimuth and zenith angles
         az, za = coordinates.enu_to_az_za(
-            enu_e=topo[0, :nsim_sources], enu_n=topo[1, :nsim_sources], orientation="uvbeam"
+            enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
         )
         
         # Rotate source coordinates with rotation matrix.
-        topo = np.dot(rotation_matrix.T, topo[:, :nsim_sources])
+        topo = np.dot(rotation_matrix.T, topo)
         topo *= 2*np.pi
 
         for freqidx in range(nfreqs)[freq_idx]:
@@ -438,19 +442,18 @@ def _evaluate_vis_chunk(
                 spline_opts=beam_spline_opts,
                 interpolation_function=interpolation_function,
             )
-            A_s = A_s.transpose((1, 0, 2))
-            i_sky = np.einsum("abs,s,cbs->acs", A_s.conj(), flux[:nsim_sources, freqidx], A_s)
-            i_sky.shape = (nax * nfeeds, nsim_sources)
+            np.einsum("bas,s,bcs->acs", A_s.conj(), flux[:, freqidx], A_s, out=A_s)
+            A_s.shape = (nax * nfeeds, nsim_sources)
 
-            if i_sky.dtype != complex_dtype:
-                i_sky = i_sky.astype(complex_dtype)
+            if A_s.dtype != complex_dtype:
+                A_s = A_s.astype(complex_dtype)
             
             # Compute visibilities w/ non-uniform FFT
             if is_coplanar:
                 _vis_here = finufft.nufft2d3(
                     topo[0],
                     topo[1],
-                    i_sky,
+                    A_s,
                     np.ascontiguousarray(uvw[0]),
                     np.ascontiguousarray(uvw[1]),
                     modeord=0,
@@ -462,7 +465,7 @@ def _evaluate_vis_chunk(
                     topo[0],
                     topo[1],
                     topo[2],
-                    i_sky,
+                    A_s,
                     np.ascontiguousarray(uvw[0]),
                     np.ascontiguousarray(uvw[1]),
                     np.ascontiguousarray(uvw[2]),
