@@ -334,6 +334,7 @@ def simulate(
     )
     
     futures = []
+    init_time = time.time()
     with threadpool_limits(limits=cpu_count() if nprocesses > 1 else 1, user_api='blas'):
         for fc, tc in zip(freq_chunks, time_chunks):
             kw = dict(
@@ -363,7 +364,9 @@ def simulate(
         
         if nprocesses > 1:
             futures = ray.get(futures)
-        
+    end_time = time.time()
+    print("Main loop evaluation time: ", end_time - init_time)
+    
     vis = np.zeros(dtype=complex_dtype, shape=(ntimes, nbls, nfeeds, nfeeds, nfreqs))
     for fc, tc, future in zip(freq_chunks, time_chunks, futures):
         vis[tc][..., fc] = future
