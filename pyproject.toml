@@ -38,6 +38,7 @@ dependencies = [
     "typer",
     "rich",
     "ray",
+    "threadpoolctl"
 ]
 dynamic = ["version"]
 

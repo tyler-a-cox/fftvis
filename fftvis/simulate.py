@@ -4,6 +4,7 @@ from multiprocessing.managers import SharedMemoryManager
 from multiprocessing import Pool, cpu_count
 from functools import partial
 import ray
+from threadpoolctl import threadpool_limits
 
 import finufft
 import numpy as np
@@ -308,15 +309,14 @@ def simulate(
         times=Time(times, format='jd'),
         telescope_loc=telescope_loc,
         skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame='icrs'),
-        source_buffer=1.0,
         precision=precision,
         **coord_method_params,
-        #update_bcrs_every=np.inf, # Don't update BCRS
     )
 
     nprocesses, freq_chunks, time_chunks, nf, nt = utils.get_task_chunks(nprocesses, nfreqs, ntimes)
     if nprocesses > 1:
-        ray.init(num_cpus=nprocesses)
+        if not ray.is_initialized():
+            ray.init()
         
         # Put data into shared-memory pool
         Isky = ray.put(Isky)
@@ -329,38 +329,40 @@ def simulate(
         beam = ray.put(beam)
         coord_mgr = ray.put(coord_mgr)
          
-    logger.info(f"Splitting calculation into chunks with {nf} frequencies and {nt} times each")
+    logger.info(
+        f"Splitting calculation into {nprocesses} chunk(s) with {nf} frequencies and {nt} times each"
+    )
     
     futures = []
-    for fc, tc in zip(freq_chunks, time_chunks):
-        kw = dict(
-            time_idx=tc,
-            freq_idx=fc,
-            beam=beam,
-            nax=nax,
-            coord_mgr=coord_mgr,
-            rotation_matrix=rotation_matrix,
-            bls=bls,
-            freqs=freqs,
-            complex_dtype=complex_dtype,
-            nfeeds=nfeeds,
-            location=telescope_loc,
-            polarized=polarized,
-            eps=eps,
-            beam_spline_opts=beam_spline_opts,
-            interpolation_function=interpolation_function,
-            n_threads=1 if nprocesses > 1 else 0,
-            is_coplanar=is_coplanar,
-        )
+    with threadpool_limits(limits=cpu_count() if nprocesses > 1 else 1, user_api='blas'):
+        for fc, tc in zip(freq_chunks, time_chunks):
+            kw = dict(
+                time_idx=tc,
+                freq_idx=fc,
+                beam=beam,
+                nax=nax,
+                coord_mgr=coord_mgr,
+                rotation_matrix=rotation_matrix,
+                bls=bls,
+                freqs=freqs,
+                complex_dtype=complex_dtype,
+                nfeeds=nfeeds,
+                location=telescope_loc,
+                polarized=polarized,
+                eps=eps,
+                beam_spline_opts=beam_spline_opts,
+                interpolation_function=interpolation_function,
+                n_threads=1 if nprocesses > 1 else 0,
+                is_coplanar=is_coplanar,
+            )
+        
+            if nprocesses > 1:
+                futures.append(_evaluate_vis_chunk_remote.remote(**kw))
+            else:
+                futures.append(_evaluate_vis_chunk(**kw))
         
         if nprocesses > 1:
-            futures.append(_evaluate_vis_chunk_remote.remote(**kw))
-        else:
-            futures.append(_evaluate_vis_chunk(**kw))
-        
-    if nprocesses > 1:
-        futures = ray.get(futures)
-        ray.shutdown()
+            futures = ray.get(futures)
         
     vis = np.zeros(dtype=complex_dtype, shape=(ntimes, nbls, nfeeds, nfeeds, nfreqs))
     for fc, tc, future in zip(freq_chunks, time_chunks, futures):

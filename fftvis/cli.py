@@ -9,6 +9,10 @@ from rich.rule import Rule
 from line_profiler import LineProfiler
 import time
 from pyuvdata.telescopes import get_telescope
+import cProfile
+import pstats
+import os
+import numpy as np
 
 cns = Console()
 
@@ -32,6 +36,7 @@ def run_profile(
     naz: int = 360,
     nza: int = 180,
     nprocesses: int = 1,
+    update_bcrs_every: float = np.inf,
 ):
     """Run the script."""
     logger.setLevel(log_level.upper())
@@ -63,31 +68,18 @@ def run_profile(
     cns.print(f"  NZA:              {nza:>7}")
     cns.print(f"  NPROCESSES:       {nprocesses:>7}")
     
+    if coord_method == "CoordinateRotationERFA":
+        cns.print(f"  BCRS UPDATE:       {update_bcrs_every:>7}")
+        coord_params = {"update_bcrs_every": update_bcrs_every}
+    else:
+        coord_params = {}
+        
     cns.print(Rule())
 
     profiler.add_function(simulate_vis)
     profiler.add_function(_evaluate_vis_chunk)
 
     init_time = time.time()
-    profiler.runcall(
-        simulate_vis,
-        ants=ants,
-        fluxes=flux,
-        ra=ra,
-        dec=dec,
-        freqs=freqs,
-        times=times,
-        beam=cpu_beams[0],
-        polarized=True,
-        precision=2 if double_precision else 1,
-        telescope_loc=get_telescope("hera").location,
-        nprocesses=nprocesses,
-        #coord_method=coord_method,
-        #baselines=pairs,
-    )
-    out_time = time.time()
-
-    outdir = Path(outdir).expanduser().absolute()
 
     str_id = get_label(
         analytic_beam=analytic_beam,
@@ -103,28 +95,34 @@ def run_profile(
         naz=naz,
         nza=nza,
     )
-
-    with open(f"{outdir}/full-stats-{str_id}.txt", "w") as fl:
-        profiler.print_stats(stream=fl, stripzeros=True)
-
-    if verbose:
-        profiler.print_stats()
-
-    # line_stats = get_line_based_stats(profiler.get_stats())
-    # thing_stats = get_summary_stats(line_stats, STEPS)
-
-    # cns.print()
-    # cns.print(Rule("Summary of timings"))
-    # cns.print(f"         Total Time:            {out_time - init_time:.3e} seconds")
-    # for thing, (hits, _time, time_per_hit, percent, nlines) in thing_stats.items():
-    #     cns.print(
-    #         f"{thing:>19}: {hits:>4} hits, {_time:.3e} seconds, {time_per_hit:.3e} sec/hit, {percent:4.2f}%, {nlines} lines"
-    #     )
-    # cns.print(Rule())
-
-    # with open(f"{outdir}/summary-stats-{str_id}.pkl", "wb") as fl:
-    #     pickle.dump(thing_stats, fl)
-        
-        
+    
+    cProfile.runctx(
+        """simulate_vis(
+    ants=ants,
+    fluxes=flux,
+    ra=ra,
+    dec=dec,
+    freqs=freqs,
+    times=times,
+    beam=cpu_beams[0],
+    polarized=True,
+    precision=2 if double_precision else 1,
+    telescope_loc=get_telescope("hera").location,
+    nprocesses=nprocesses,
+    coord_method_params=coord_params,
+        )""", 
+        globals(),
+        locals(), 
+        str_id
+    )
+    
+    out_time = time.time()
+    cns.print("TOTAL TIME: ", out_time - init_time)
+    
+    p = pstats.Stats(str_id)
+    p.sort_stats("cumulative").print_stats(50)
+    os.system(f"flameprof --format=log {str_id} > {str_id}.flame")
+    
+                
 if __name__=="__main__":
     app()
