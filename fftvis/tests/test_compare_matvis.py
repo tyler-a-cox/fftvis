@@ -44,14 +44,16 @@ def test_simulate(polarized: bool, precision: int, use_analytic_beam: bool, tilt
         polarized=polarized,
         precision=precision,
         antpairs=sim_baselines,
-        coord_method='CoordinateRotationERFA'
+        coord_method='CoordinateRotationERFA',
+        source_buffer=0.75
     )
 
     # Use fftvis to simulate visibilities
     fvis = simulate.simulate_vis(
         ants, flux, ra, dec, freqs, times.jd, cpu_beams[0], eps=1e-10 if precision==2 else 6e-8,
         baselines=sim_baselines, polarized=polarized, precision=precision,
-        telescope_loc=location, nprocesses=nprocesses
+        telescope_loc=location, nprocesses=nprocesses,
+        coord_method_params={"source_buffer": 0.75}
     )
 
     # Should have shape (nfreqs, ntimes, nants, nants)
