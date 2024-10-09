@@ -273,7 +273,7 @@ def simulate(
         beam = beam.interp(freq_array=freqs, new_object=True, run_check=False)
     
     # Factor of 0.5 accounts for splitting Stokes between polarization channels
-    Isky = (0.5 * fluxes).astype(complex_dtype)
+    Isky = 0.5 * fluxes
 
     # Flatten antenna positions
     antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
@@ -439,11 +439,11 @@ def _evaluate_vis_chunk(
                 interpolation_function=interpolation_function,
             )
             A_s = A_s.transpose((1, 0, 2))
-            beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
-            beam_product.shape = (nax * nfeeds, nsim_sources)
+            i_sky = np.einsum("abs,s,cbs->acs", A_s.conj(), flux[:nsim_sources, freqidx], A_s)
+            i_sky.shape = (nax * nfeeds, nsim_sources)
 
-            # Compute sky beam product
-            i_sky = beam_product * flux[:nsim_sources, freqidx]
+            if i_sky.dtype != complex_dtype:
+                i_sky = i_sky.astype(complex_dtype)
             
             # Compute visibilities w/ non-uniform FFT
             if is_coplanar:
