@@ -115,7 +115,7 @@ def run_profile(
     ra=ra,
     dec=dec,
     freqs=freqs,
-    times=times,
+    times=times.jd,
     beam=cpu_beams[0],
     polarized=True,
     precision=2 if double_precision else 1,
