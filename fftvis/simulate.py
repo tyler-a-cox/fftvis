@@ -59,7 +59,8 @@ def simulate_vis(
         "CoordinateRotationAstropy", "CoordinateRotationERFA"
     ] = "CoordinateRotationERFA",
     coord_method_params: dict | None = None,
-    force_use_ray: bool = False
+    force_use_ray: bool = False,
+    trace_mem: bool = True,
 ):
     """
     Parameters:
@@ -151,6 +152,7 @@ def simulate_vis(
         coord_method=coord_method,
         coord_method_params=coord_method_params,
         force_use_ray=force_use_ray,
+        trace_mem=trace_mem,
     )
 
 
@@ -176,6 +178,7 @@ def simulate(
     ] = "CoordinateRotationERFA",
     coord_method_params: dict | None = None,
     force_use_ray: bool = False,
+    trace_mem: bool = True,
 ):
     """
     Parameters:
@@ -286,8 +289,8 @@ def simulate(
 
     # Rotate the array to the xy-plane
     rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
-    rotation_matrix = rotation_matrix.astype(real_dtype)
-    rotated_antvecs = np.dot(rotation_matrix.T, antvecs.T)
+    rotation_matrix = np.ascontiguousarray(rotation_matrix.astype(real_dtype).T)
+    rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
     rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
 
     # Compute baseline vectors
@@ -365,7 +368,7 @@ def simulate(
                 interpolation_function=interpolation_function,
                 n_threads=1 if nprocesses > 1 else 0,
                 is_coplanar=is_coplanar,
-                trace_mem=nprocesses > 1 or force_use_ray
+                trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem
             )
         
             if nprocesses > 1 or force_use_ray:
@@ -415,7 +418,7 @@ def _evaluate_vis_chunk(
     if trace_mem:
         memray.Tracker(
             "/tmp/ray/session_latest/logs/"
-            f"memray-{int(time.time())}_{pid}.bin"
+            f"memray-{time.time()}_{pid}.bin"
         ).__enter__()
         
     logutils.printmem(pr, "Starting")
@@ -449,9 +452,7 @@ def _evaluate_vis_chunk(
         )
         
         # Rotate source coordinates with rotation matrix.
-        #topo = np.dot(rotation_matrix.T, topo)
-        utils.inplace_rot(rotation_matrix.T, topo)
-#            np.dot(rotation_matrix.T, topo, out=topo)
+        utils.inplace_rot(rotation_matrix, topo)     
         topo *= 2*np.pi
         logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Az/Za")
         
