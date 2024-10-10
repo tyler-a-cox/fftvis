@@ -1,8 +1,24 @@
 from __future__ import annotations
+from multiprocessing.shared_memory import SharedMemory
+from multiprocessing.managers import SharedMemoryManager
+from multiprocessing import Pool, cpu_count
+from functools import partial
+import ray
+from threadpoolctl import threadpool_limits
+import os
+import memray
 
 import finufft
 import numpy as np
-from matvis import conversions
+from matvis import coordinates
+from matvis.core.beams import prepare_beam_unpolarized
+from matvis.cpu.coords import CoordinateRotationAstropy, CoordinateRotationERFA
+from matvis.core.coords import CoordinateRotation
+from typing import Callable, Literal
+
+from astropy.coordinates import EarthLocation, SkyCoord
+from astropy import units as un
+from astropy.time import Time
 import time
 import psutil
 from rich.progress import Progress
@@ -27,18 +43,24 @@ def simulate_vis(
     ra: np.ndarray,
     dec: np.ndarray,
     freqs: np.ndarray,
-    lsts: np.ndarray,
+    times: np.ndarray,
     beam,
+    telescope_loc: EarthLocation,
     baselines: list[tuple] = None,
     precision: int = 2,
     polarized: bool = False,
-    latitude: float = -0.5361913261514378,
     eps: float = None,
     beam_spline_opts: dict = None,
     use_feed: str = "x",
     flat_array_tol: float = 0.0,
-    live_progress: bool = True,
     interpolation_function: str = "az_za_map_coordinates",
+    nprocesses: int | None = 1,
+    coord_method: Literal[
+        "CoordinateRotationAstropy", "CoordinateRotationERFA"
+    ] = "CoordinateRotationERFA",
+    coord_method_params: dict | None = None,
+    force_use_ray: bool = False,
+    trace_mem: bool = True,
 ):
     """
     Parameters:
@@ -103,33 +125,34 @@ def simulate_vis(
     if eps is None:
         eps = default_accuracy_dict[precision]
 
-    # Source coordinate transform, from equatorial to Cartesian
-    crd_eq = conversions.point_source_crd_eq(ra, dec)
-
     # Make sure antpos has the right format
     ants = {k: np.array(v) for k, v in ants.items()}
 
-    # Get coordinate transforms as a function of LST
-    eq2tops = np.array([conversions.eci_to_enu_matrix(lst, latitude) for lst in lsts])
-
     # Prepare the beam
-    beam = conversions.prepare_beam(beam, polarized=polarized, use_feed=use_feed)
+    if not polarized:
+        beam = prepare_beam_unpolarized(beam, use_pol=use_feed*2)
 
     return simulate(
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
         beam=beam,
-        crd_eq=crd_eq,
-        eq2tops=eq2tops,
+        ra=ra,
+        dec=dec,
+        times=times,
+        telescope_loc=telescope_loc,
         baselines=baselines,
         precision=precision,
         polarized=polarized,
         eps=eps,
         beam_spline_opts=beam_spline_opts,
         flat_array_tol=flat_array_tol,
-        live_progress=live_progress,
         interpolation_function=interpolation_function,
+        nprocesses=nprocesses,
+        coord_method=coord_method,
+        coord_method_params=coord_method_params,
+        force_use_ray=force_use_ray,
+        trace_mem=trace_mem,
     )
 
 
@@ -138,17 +161,24 @@ def simulate(
     freqs: np.ndarray,
     fluxes: np.ndarray,
     beam,
-    crd_eq: np.ndarray,
-    eq2tops: np.ndarray,
+    ra: np.ndarray,
+    dec: np.ndarray,
+    times: np.ndarray,
+    telescope_loc: EarthLocation,
     baselines: list[tuple[int, int]] | None = None,
     precision: int = 2,
     polarized: bool = False,
     eps: float | None = None,
     beam_spline_opts: dict = None,
-    max_progress_reports: int = 100,
-    live_progress: bool = True,
     flat_array_tol: float = 0.0,
     interpolation_function: str = "az_za_map_coordinates",
+    nprocesses: int | None = 1,
+    coord_method: Literal[
+        "CoordinateRotationAstropy", "CoordinateRotationERFA"
+    ] = "CoordinateRotationERFA",
+    coord_method_params: dict | None = None,
+    force_use_ray: bool = False,
+    trace_mem: bool = True,
 ):
     """
     Parameters:
@@ -198,13 +228,18 @@ def simulate(
         'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
         at the edges of the beam, while the latter is faster but less accurate
         for interpolation orders greater than linear.
-
+    nprocesses : int, optional
+        The number of parallel processes to use. Computations are parallelized over
+        integration times. Set to 1 to disable multiprocessing entirely, or set to 
+        None to use all available processors.
+        
     Returns:
     -------
     vis : np.ndarray
         Array of shape (nfreqs, ntimes, nants, nants) if polarized is False, and
         (nfreqs, ntimes, nfeed, nfeedd, nants, nants) if polarized is True.
     """
+    
     if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
         tm.start()
 
@@ -212,13 +247,10 @@ def simulate(
 
     # Get sizes of inputs
     nfreqs = np.size(freqs)
-    nants = len(ants)
-    ntimes = len(eq2tops)
+    ntimes = len(times)
 
-    if polarized:
-        nax = nfeeds = 2
-    else:
-        nax = nfeeds = 1
+
+    nax = nfeeds = 2 if polarized else 1
 
     if precision == 1:
         real_dtype = np.float32
@@ -229,38 +261,27 @@ def simulate(
 
     if eps is None:
         eps = default_accuracy_dict[precision]
-
-    freqs = freqs.astype(real_dtype)
-    fluxes = fluxes.astype(real_dtype)
+    
+    if ra.dtype != real_dtype:
+        ra = ra.astype(real_dtype)
+    if dec.dtype != real_dtype:
+        dec = dec.astype(real_dtype)
+    if freqs.dtype != real_dtype:
+        freqs = freqs.astype(real_dtype)
 
     # Get the redundant groups - TODO handle this better
-    if not baselines:
+    if baselines is None:
         reds = utils.get_pos_reds(ants, include_autos=True)
         baselines = [red[0] for red in reds]
-        nbls = len(baselines)
-        bl_to_red_map = {red[0]: np.array(red) for red in reds}
-        expand_vis = True
-    else:
-        nbls = len(baselines)
-        expand_vis = False
 
-    # Check if the beam is complex
-    beam_values, _ = beam.interp(
-        az_array=np.array([0]), za_array=np.array([0]), freq_array=np.array([freqs[0]])
-    )
-    is_beam_complex = np.issubdtype(beam_values.dtype, np.complexfloating)
+    # Get number of baselines
+    nbls = len(baselines)
 
     if isinstance(beam, UVBeam):
-        beam_here = beam.interp(freq_array=freqs, new_object=True, run_check=False)
-    else:
-        beam_here = beam
-
-    # Convert to correct precision
-    crd_eq = crd_eq.astype(real_dtype)
-    eq2tops = eq2tops.astype(real_dtype)
-
+        beam = beam.interp(freq_array=freqs, new_object=True, run_check=False)
+    
     # Factor of 0.5 accounts for splitting Stokes between polarization channels
-    Isky = (0.5 * fluxes).astype(complex_dtype)
+    Isky = 0.5 * fluxes
 
     # Flatten antenna positions
     antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
@@ -268,214 +289,246 @@ def simulate(
 
     # Rotate the array to the xy-plane
     rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
-    rotation_matrix = rotation_matrix.astype(real_dtype)
-    rotated_antvecs = np.dot(rotation_matrix.T, antvecs.T)
+    rotation_matrix = np.ascontiguousarray(rotation_matrix.astype(real_dtype).T)
+    rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
     rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
 
     # Compute baseline vectors
-    blx, bly, blz = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
+    bls = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
         :, :
     ].T.astype(real_dtype)
 
     # Check if the array is flat within tolerance
-    is_coplanar = np.all(np.less_equal(np.abs(blz), flat_array_tol))
+    is_coplanar = np.all(np.less_equal(np.abs(bls[2]), flat_array_tol))
     
-    # Generate visibility array
-    if expand_vis:
-        vis = np.zeros(
-            (ntimes, nants, nants, nfeeds, nfeeds, nfreqs), dtype=complex_dtype
-        )
-    else:
-        vis = np.zeros((ntimes, nbls, nfeeds, nfeeds, nfreqs), dtype=complex_dtype)
-
-    blx /= utils.speed_of_light
-    bly /= utils.speed_of_light
-    blz /= utils.speed_of_light
-
-    u = np.zeros_like(blx)
-    v = np.zeros_like(bly)
-    w = np.zeros_like(blz)
-
+    bls /= utils.speed_of_light
+    
     # Have up to 100 reports as it iterates through time.
-    report_chunk = ntimes // max_progress_reports + 1
-    pr = psutil.Process()
-    mlast = pr.memory_info().rss
     highest_peak = logutils.memtrace(highest_peak)
 
-    with Progress() as progress:
+    # Get number of processes for multiprocessing
+    if nprocesses is None:
+        nprocesses = cpu_count()
 
-        simtimes_task = progress.add_task(
-            "Simulating Times", total=ntimes, visible=live_progress
+    coord_method = CoordinateRotation._methods[coord_method]
+    coord_method_params = coord_method_params or {}
+    coord_mgr = coord_method(
+        flux=Isky,
+        times=Time(times, format='jd'),
+        telescope_loc=telescope_loc,
+        skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame='icrs'),
+        precision=precision,
+        **coord_method_params,
+    )
+
+    if getattr(coord_mgr, "update_bcrs_every", 0) == np.inf:
+        # We don't need to ever update BCRS, so we get it now before sending
+        # out the jobs to multiple processes.
+        coord_mgr._set_bcrs(0)
+        
+    nprocesses, freq_chunks, time_chunks, nf, nt = utils.get_task_chunks(nprocesses, nfreqs, ntimes)
+    if nprocesses > 1 or force_use_ray:
+        # Try to estimate how much shared memory will be required.
+        required_shm = (
+            Isky.nbytes + bls.nbytes + times.nbytes + rotation_matrix.nbytes +
+            freqs.nbytes + ra.nbytes + dec.nbytes
         )
-
-        tstart = time.time()
-        plast = tstart
-
-        # Loop over time samples
-        for ti, eq2top in enumerate(eq2tops):
-            # Convert to topocentric coordinates
-            tx, ty, tz = np.dot(eq2top, crd_eq)
-
-            # Only simulate above the horizon
-            above_horizon = tz > 0
-            tx = tx[above_horizon]
-            ty = ty[above_horizon]
-            tz = tz[above_horizon]
-
-            # Number of above horizon points
-            nsim_sources = above_horizon.sum()
-
-            if nsim_sources == 0:
-                continue
-
-            # Form the visibility array
-            _vis = np.zeros((nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype)
-
-            if is_beam_complex and expand_vis:
-                _vis_negatives = np.zeros(
-                    (nfeeds, nfeeds, nbls, nfreqs), dtype=complex_dtype
-                )
-
-            # Compute azimuth and zenith angles
-            az, za = conversions.enu_to_az_za(enu_e=tx, enu_n=ty, orientation="uvbeam")
-
-            # Rotate source coordinates with rotation matrix.
-            tx, ty, tz = np.dot(rotation_matrix.T, [tx, ty, tz])
-
-            for fi in range(nfreqs):
-                # Compute uv coordinates
-                u[:], v[:], w[:] = blx * freqs[fi], bly * freqs[fi], blz * freqs[fi]
-
-                # Compute beams - only single beam is supported
-                A_s = np.zeros((nax, nfeeds, nsim_sources), dtype=complex_dtype)
-                A_s = beams._evaluate_beam(
-                    A_s,
-                    beam_here,
-                    az,
-                    za,
-                    polarized,
-                    freqs[fi],
-                    spline_opts=beam_spline_opts,
-                    interpolation_function=interpolation_function,
-                )
-                A_s = A_s.transpose((1, 0, 2))
-                beam_product = np.einsum("abs,cbs->acs", A_s.conj(), A_s)
-                beam_product = beam_product.reshape(nax * nfeeds, nsim_sources)
-
-                # Compute sky beam product
-                i_sky = beam_product * Isky[above_horizon, fi]
-
-                # Compute visibilities w/ non-uniform FFT
-                if is_coplanar:
-                    _vis_here = finufft.nufft2d3(
-                        2 * np.pi * tx,
-                        2 * np.pi * ty,
-                        i_sky,
-                        u,
-                        v,
-                        modeord=0,
-                        eps=eps,
-                    )
-                else:
-                    _vis_here = finufft.nufft3d3(
-                        2 * np.pi * tx,
-                        2 * np.pi * ty,
-                        2 * np.pi * tz,
-                        i_sky,
-                        u,
-                        v,
-                        w,
-                        modeord=0,
-                        eps=eps,
-                    )
-
-                # Expand out the visibility array
-                _vis[..., fi] = _vis_here.reshape(nfeeds, nfeeds, nbls)
-
-                # If beam is complex, we need to compute the reverse negative frequencies
-                if is_beam_complex and expand_vis:
-                    # Compute
-                    if is_coplanar:
-                        _vis_here_neg = finufft.nufft2d3(
-                            2 * np.pi * tx,
-                            2 * np.pi * ty,
-                            i_sky,
-                            -u,
-                            -v,
-                            modeord=0,
-                            eps=eps,
-                        )
-                    else:
-                        _vis_here_neg = finufft.nufft3d3(
-                            2 * np.pi * tx,
-                            2 * np.pi * ty,
-                            2 * np.pi * tz,
-                            i_sky,
-                            -u,
-                            -v,
-                            -w,
-                            modeord=0,
-                            eps=eps,
-                        )
-                    _vis_negatives[..., fi] = _vis_here_neg.reshape(
-                        nfeeds, nfeeds, nbls
-                    )
-
-            # Expand out the visibility array in antenna by antenna matrix
-            if expand_vis:
-                for bi, bls in enumerate(baselines):
-                    np.add.at(
-                        vis,
-                        (ti, bl_to_red_map[bls][:, 0], bl_to_red_map[bls][:, 1]),
-                        _vis[..., bi, :],
-                    )
-
-                    # Add the conjugate, avoid auto baselines twice
-                    if bls[0] != bls[1]:
-                        # If beam is complex, we need to use the negative frequencies
-                        # otherwise, we can just use the conjugate
-                        if is_beam_complex:
-                            np.add.at(
-                                vis,
-                                (
-                                    ti,
-                                    bl_to_red_map[bls][:, 1],
-                                    bl_to_red_map[bls][:, 0],
-                                ),
-                                _vis_negatives[..., bi, :],
-                            )
-                        else:
-                            np.add.at(
-                                vis,
-                                (
-                                    ti,
-                                    bl_to_red_map[bls][:, 1],
-                                    bl_to_red_map[bls][:, 0],
-                                ),
-                                _vis[..., bi, :].conj(),
-                            )
-
+        if isinstance(beam, UVBeam):
+            required_shm += beam.data_array.nbytes
+        
+        # Add visibility memory
+        required_shm += (ntimes * nfreqs * nbls * nax * nfeeds) * np.dtype(complex_dtype).itemsize
+        
+        logger.info(f"Initializing with {required_shm/1024**3:.2f} GB of shared memory")
+        if not ray.is_initialized():
+            try:
+                ray.init(object_store_memory = 2*required_shm, include_dashboard=False)
+            except ValueError:
+                # If there is a ray cluster already running, just connect to it.
+                ray.init()    
+                
+        # Put data into shared-memory pool
+        Isky = ray.put(Isky)
+        bls = ray.put(bls) 
+        times = ray.put(times)
+        rotation_matrix = ray.put(rotation_matrix)
+        freqs = ray.put(freqs)
+        ra = ray.put(ra)
+        dec = ray.put(dec)
+        beam = ray.put(beam)
+        coord_mgr = ray.put(coord_mgr)
+         
+    logger.info(
+        f"Splitting calculation into {nprocesses} chunk(s) with {nf} frequencies and {nt} times each"
+    )
+    
+    futures = []
+    init_time = time.time()
+    with threadpool_limits(limits=cpu_count() if nprocesses > 1 else 1, user_api='blas'):
+        for fc, tc in zip(freq_chunks, time_chunks):
+            kw = dict(
+                time_idx=tc,
+                freq_idx=fc,
+                beam=beam,
+                nax=nax,
+                coord_mgr=coord_mgr,
+                rotation_matrix=rotation_matrix,
+                bls=bls,
+                freqs=freqs,
+                complex_dtype=complex_dtype,
+                nfeeds=nfeeds,
+                location=telescope_loc,
+                polarized=polarized,
+                eps=eps,
+                beam_spline_opts=beam_spline_opts,
+                interpolation_function=interpolation_function,
+                n_threads=1 if nprocesses > 1 else 0,
+                is_coplanar=is_coplanar,
+                trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem
+            )
+        
+            if nprocesses > 1 or force_use_ray:
+                futures.append(_evaluate_vis_chunk_remote.remote(**kw))
             else:
-                # Baselines were provided, so we can just add the visibilities
-                vis[ti] = np.swapaxes(_vis, 2, 0)
+                futures.append(_evaluate_vis_chunk(**kw))
+        
+        if nprocesses > 1 or force_use_ray:
+            futures = ray.get(futures)
+    end_time = time.time()
+    logger.info(f"Main loop evaluation time: {end_time - init_time}")
+    
+    vis = np.zeros(dtype=complex_dtype, shape=(ntimes, nbls, nfeeds, nfeeds, nfreqs))
+    for fc, tc, future in zip(freq_chunks, time_chunks, futures):
+        vis[tc][..., fc] = future
+                     
+    return (
+        np.transpose(vis, (4, 0, 2, 3, 1))
+        if polarized
+        else np.moveaxis(vis[..., 0, 0, :], 2, 0)
+    )
 
-            if not (ti % report_chunk) or ti == ntimes - 1:
-                plast, mlast = logutils.log_progress(
-                    tstart, plast, ti + 1, ntimes, pr, mlast
+
+def _evaluate_vis_chunk(
+    time_idx: slice,
+    freq_idx: slice,
+    beam: UVBeam,
+    nax: int,
+    coord_mgr: CoordinateRotation,
+    rotation_matrix: np.ndarray,
+    bls: np.ndarray,
+    freqs: np.ndarray,
+    complex_dtype: np.dtype,
+    nfeeds: int,
+    location: EarthLocation,
+    polarized: bool = False,
+    eps: float | None = None,
+    beam_spline_opts: dict = None,
+    interpolation_function: str = "az_za_map_coordinates",
+    n_threads: int = 1,
+    is_coplanar: bool = False,
+    trace_mem: bool = False,
+):
+    pid = os.getpid()
+    pr = psutil.Process(pid)
+
+    if trace_mem:
+        memray.Tracker(
+            f"memray-{time.time()}_{pid}.bin"
+        ).__enter__()
+        
+    logutils.printmem(pr, "Starting")
+
+    nbls = bls.shape[1]
+    ntimes = len(coord_mgr.times)
+    nfreqs = len(freqs)
+    
+    nt_here = len(coord_mgr.times[time_idx])
+    nf_here = len(freqs[freq_idx])
+    vis = np.zeros(dtype=complex_dtype, shape=(nt_here, nbls, nfeeds, nfeeds, nf_here))
+    logutils.printmem(pr, "After Vis Allocation")
+    coord_mgr.setup()
+    logutils.printmem(pr, "After coord_mgr.setup")
+    
+    for time_index, ti in enumerate(range(ntimes)[time_idx]):
+        coord_mgr.rotate(ti)
+        topo, flux, nsim_sources = coord_mgr.select_chunk(0)
+        logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Select Chunk")
+        
+        # truncate to nsim_sources
+        topo = topo[:, :nsim_sources]
+        flux = flux[:nsim_sources]
+
+        if nsim_sources == 0:
+            continue
+
+        # Compute azimuth and zenith angles
+        az, za = coordinates.enu_to_az_za(
+            enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
+        )
+        
+        # Rotate source coordinates with rotation matrix.
+        utils.inplace_rot(rotation_matrix, topo)     
+        topo *= 2*np.pi
+        logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Az/Za")
+        
+        for freqidx in range(nfreqs)[freq_idx]:
+            freq = freqs[freqidx]
+            uvw = bls * freq
+
+            A_s = beams._evaluate_beam(
+                beam,
+                az,
+                za,
+                polarized,
+                freq,
+                spline_opts=beam_spline_opts,
+                interpolation_function=interpolation_function,
+            ).astype(complex_dtype)
+            logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After BeamInterp")
+            if polarized:
+                beams.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])    
+            else:
+                A_s *= flux[:nsim_sources, freqidx]
+
+            A_s.shape = (nfeeds**2, nsim_sources)
+            i_sky = A_s
+
+            logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After AppFlux")
+            if i_sky.dtype != complex_dtype:
+                i_sky = i_sky.astype(complex_dtype)
+            
+            # Compute visibilities w/ non-uniform FFT
+            if is_coplanar:
+                _vis_here = finufft.nufft2d3(
+                    topo[0],
+                    topo[1],
+                    A_s,
+                    np.ascontiguousarray(uvw[0]),
+                    np.ascontiguousarray(uvw[1]),
+                    modeord=0,
+                    eps=eps,
+                    nthreads=n_threads,
                 )
-                highest_peak = logutils.memtrace(highest_peak)
+            else:
+                _vis_here = finufft.nufft3d3(
+                    topo[0],
+                    topo[1],
+                    topo[2],
+                    A_s,
+                    np.ascontiguousarray(uvw[0]),
+                    np.ascontiguousarray(uvw[1]),
+                    np.ascontiguousarray(uvw[2]),
+                    modeord=0,
+                    eps=eps,
+                    nthreads=n_threads,
+                )
+            logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After GetVis")
 
-            progress.update(simtimes_task, advance=1)
+            vis[time_index, ..., freqidx] = np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0)
+            logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After VisSet")
 
-    if expand_vis:
-        return (
-            np.transpose(vis, (5, 0, 3, 4, 1, 2))
-            if polarized
-            else np.moveaxis(vis[..., 0, 0, :], 3, 0)
-        )
-    else:
-        return (
-            np.transpose(vis, (4, 0, 2, 3, 1))
-            if polarized
-            else np.moveaxis(vis[..., 0, 0, :], 2, 0)
-        )
+
+    return vis
+
+
+_evaluate_vis_chunk_remote = ray.remote(_evaluate_vis_chunk)
