@@ -328,8 +328,20 @@ def simulate(
         
     nprocesses, freq_chunks, time_chunks, nf, nt = utils.get_task_chunks(nprocesses, nfreqs, ntimes)
     if nprocesses > 1 or force_use_ray:
+        # Try to estimate how much shared memory will be required.
+        required_shm = (
+            Isky.nbytes + bls.nbytes + times.nbytes + rotation_matrix.nbytes +
+            freqs.nbytes + ra.nbytes + dec.nbytes
+        )
+        if isinstance(beam, UVBeam):
+            required_shm += beam.data_array.nbytes
+        
+        # Add visibility memory
+        required_shm += (ntimes * nfreqs * nbls * nax * nfeeds) * np.dtype(complex_type).item_size
+        
+        logger.info(f"Initializing with {required_shm/1024**3:.2f} GB of shared memory")
         if not ray.is_initialized():
-            ray.init()
+            ray.init(object_store_memory = 2*required_shm, include_dashboard=False)
         
         # Put data into shared-memory pool
         Isky = ray.put(Isky)
