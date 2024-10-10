@@ -337,12 +337,16 @@ def simulate(
             required_shm += beam.data_array.nbytes
         
         # Add visibility memory
-        required_shm += (ntimes * nfreqs * nbls * nax * nfeeds) * np.dtype(complex_type).item_size
+        required_shm += (ntimes * nfreqs * nbls * nax * nfeeds) * np.dtype(complex_dtype).itemsize
         
         logger.info(f"Initializing with {required_shm/1024**3:.2f} GB of shared memory")
         if not ray.is_initialized():
-            ray.init(object_store_memory = 2*required_shm, include_dashboard=False)
-        
+            try:
+                ray.init(object_store_memory = 2*required_shm, include_dashboard=False)
+            except ValueError:
+                # If there is a ray cluster already running, just connect to it.
+                ray.init()    
+                
         # Put data into shared-memory pool
         Isky = ray.put(Isky)
         bls = ray.put(bls) 
