@@ -2,7 +2,7 @@ import numpy as np
 from scipy import linalg
 IDEALIZED_BL_TOL = 1e-8  # bl_error_tol for redcal.get_reds when using antenna positions calculated from reds
 speed_of_light = 299792458.0  # m/s
-
+import numba as nb
 
 def get_pos_reds(antpos, decimals=3, include_autos=True):
     """
@@ -173,3 +173,13 @@ def get_task_chunks(nprocesses: int, nfreqs: int, ntimes: int) -> tuple[int, lis
     freq_chunks = [slice(nf*i, min(nfreqs, (i + 1)*nf)) for i in range(nfc)]*ntc
     time_chunks = sum(([slice(i*nt, min(ntimes, (i + 1)*nt))]*nfc for i in range(ntc)), start=[])
     return nprocesses, freq_chunks, time_chunks, nf, nt
+
+@nb.jit(nopython=True)
+def inplace_rot(rot: np.ndarray, b: np.ndarray):
+    """In-place rotation of coordinates."""
+    nsrc = b.shape[1]
+    out = np.zeros(3, dtype=b.dtype)
+    
+    for n in range(nsrc):
+        np.dot(rot, b[:, n], out=out)
+        b[:, n] = out

@@ -5,6 +5,7 @@ import datetime
 import logging
 import time
 import tracemalloc as tm
+import psutil
 
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,22 @@ def human_readable_size(size, decimal_places=2, indicate_sign=False):
     else:
         return f"{size:.{decimal_places}f} {unit}"
 
+def printmem(pr: psutil.Process, msg: str=""):
+    """Print memory usage of the process."""
+    #if logger.isEnabledFor(logging.INFO):
+    info = pr.memory_info()
+    
+    
+    rss = info.rss
+    shm = info.shared
+    used = rss - shm
 
+    shm = human_readable_size(shm)
+    used = human_readable_size(used)
+    
+    #logger.info(f"{msg} Memory Usage [{pr.pid}]: {used} internal, {shm} shared.")
+    print(f"{msg} Memory Usage [{pr.pid}]: {used} internal, {shm} shared.")
+    
 def memtrace(highest_peak) -> int:
     if logger.isEnabledFor(logging.INFO):
         cm, pm = tm.get_traced_memory()
@@ -48,9 +64,10 @@ def log_progress(start_time, prev_time, iters, niters, pr, last_mem):
     per_iter = total / iters
     expected = per_iter * niters
 
-    rss = pr.memory_info().rss
-    mem = human_readable_size(rss)
-    memdiff = human_readable_size(rss - last_mem, indicate_sign=True)
+    info = pr.memory_info()
+    used = info.rss - info.shared
+    mem = human_readable_size(used)
+    memdiff = human_readable_size(used - last_mem, indicate_sign=True)
 
     logger.info(
         f"""

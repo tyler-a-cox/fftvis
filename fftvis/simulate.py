@@ -5,6 +5,8 @@ from multiprocessing import Pool, cpu_count
 from functools import partial
 import ray
 from threadpoolctl import threadpool_limits
+import os
+import memray
 
 import finufft
 import numpy as np
@@ -57,6 +59,7 @@ def simulate_vis(
         "CoordinateRotationAstropy", "CoordinateRotationERFA"
     ] = "CoordinateRotationERFA",
     coord_method_params: dict | None = None,
+    force_use_ray: bool = False
 ):
     """
     Parameters:
@@ -147,6 +150,7 @@ def simulate_vis(
         nprocesses=nprocesses,
         coord_method=coord_method,
         coord_method_params=coord_method_params,
+        force_use_ray=force_use_ray,
     )
 
 
@@ -171,6 +175,7 @@ def simulate(
         "CoordinateRotationAstropy", "CoordinateRotationERFA"
     ] = "CoordinateRotationERFA",
     coord_method_params: dict | None = None,
+    force_use_ray: bool = False,
 ):
     """
     Parameters:
@@ -313,8 +318,13 @@ def simulate(
         **coord_method_params,
     )
 
+    if getattr(coord_mgr, "update_bcrs_every", 0) == np.inf:
+        # We don't need to ever update BCRS, so we get it now before sending
+        # out the jobs to multiple processes.
+        coord_mgr._set_bcrs(0)
+        
     nprocesses, freq_chunks, time_chunks, nf, nt = utils.get_task_chunks(nprocesses, nfreqs, ntimes)
-    if nprocesses > 1:
+    if nprocesses > 1 or force_use_ray:
         if not ray.is_initialized():
             ray.init()
         
@@ -355,17 +365,18 @@ def simulate(
                 interpolation_function=interpolation_function,
                 n_threads=1 if nprocesses > 1 else 0,
                 is_coplanar=is_coplanar,
+                trace_mem=nprocesses > 1 or force_use_ray
             )
         
-            if nprocesses > 1:
+            if nprocesses > 1 or force_use_ray:
                 futures.append(_evaluate_vis_chunk_remote.remote(**kw))
             else:
                 futures.append(_evaluate_vis_chunk(**kw))
         
-        if nprocesses > 1:
+        if nprocesses > 1 or force_use_ray:
             futures = ray.get(futures)
     end_time = time.time()
-    print("Main loop evaluation time: ", end_time - init_time)
+    logger.info("Main loop evaluation time: ", end_time - init_time)
     
     vis = np.zeros(dtype=complex_dtype, shape=(ntimes, nbls, nfeeds, nfeeds, nfreqs))
     for fc, tc, future in zip(freq_chunks, time_chunks, futures):
@@ -395,8 +406,20 @@ def _evaluate_vis_chunk(
     beam_spline_opts: dict = None,
     interpolation_function: str = "az_za_map_coordinates",
     n_threads: int = 1,
-    is_coplanar: bool = False,    
+    is_coplanar: bool = False,
+    trace_mem: bool = False,
 ):
+    pid = os.getpid()
+    pr = psutil.Process(pid)
+
+    if trace_mem:
+        memray.Tracker(
+            "/tmp/ray/session_latest/logs/"
+            f"memray-{int(time.time())}_{pid}.bin"
+        ).__enter__()
+        
+    logutils.printmem(pr, "Starting")
+
     nbls = bls.shape[1]
     ntimes = len(coord_mgr.times)
     nfreqs = len(freqs)
@@ -404,11 +427,14 @@ def _evaluate_vis_chunk(
     nt_here = len(coord_mgr.times[time_idx])
     nf_here = len(freqs[freq_idx])
     vis = np.zeros(dtype=complex_dtype, shape=(nt_here, nbls, nfeeds, nfeeds, nf_here))
+    logutils.printmem(pr, "After Vis Allocation")
     coord_mgr.setup()
+    logutils.printmem(pr, "After coord_mgr.setup")
     
     for time_index, ti in enumerate(range(ntimes)[time_idx]):
         coord_mgr.rotate(ti)
         topo, flux, nsim_sources = coord_mgr.select_chunk(0)
+        logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Select Chunk")
         
         # truncate to nsim_sources
         topo = topo[:, :nsim_sources]
@@ -423,9 +449,12 @@ def _evaluate_vis_chunk(
         )
         
         # Rotate source coordinates with rotation matrix.
-        topo = np.dot(rotation_matrix.T, topo)
+        #topo = np.dot(rotation_matrix.T, topo)
+        utils.inplace_rot(rotation_matrix.T, topo)
+#            np.dot(rotation_matrix.T, topo, out=topo)
         topo *= 2*np.pi
-
+        logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Az/Za")
+        
         for freqidx in range(nfreqs)[freq_idx]:
             freq = freqs[freqidx]
             uvw = bls * freq
@@ -439,14 +468,16 @@ def _evaluate_vis_chunk(
                 spline_opts=beam_spline_opts,
                 interpolation_function=interpolation_function,
             ).astype(complex_dtype)
+            logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After BeamInterp")
             if polarized:
-               beams.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])            
+                beams.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])    
             else:
                 A_s *= flux[:nsim_sources, freqidx]
 
             A_s.shape = (nfeeds**2, nsim_sources)
             i_sky = A_s
-            
+
+            logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After AppFlux")
             if i_sky.dtype != complex_dtype:
                 i_sky = i_sky.astype(complex_dtype)
             
@@ -475,7 +506,13 @@ def _evaluate_vis_chunk(
                     eps=eps,
                     nthreads=n_threads,
                 )
+            logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After GetVis")
+
             vis[time_index, ..., freqidx] = np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0)
+            logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After VisSet")
+
+
     return vis
+
 
 _evaluate_vis_chunk_remote = ray.remote(_evaluate_vis_chunk)

@@ -17,7 +17,7 @@ from hera_sim.antpos import hex_array
 
 cns = Console()
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('fftvis')
 profiler = LineProfiler()
 
 app = typer.Typer()
@@ -40,6 +40,7 @@ def run_profile(
     update_bcrs_every: float = np.inf,
     hera: int = 0,
     nside: int = 0,
+    force_use_ray: bool = False,
 ):
     """Run the script."""
     logger.setLevel(log_level.upper())
@@ -120,6 +121,7 @@ def run_profile(
     telescope_loc=get_telescope("hera").location,
     nprocesses=nprocesses,
     coord_method_params=coord_params,
+    force_use_ray=force_use_ray,
         )""", 
         globals(),
         locals(), 
