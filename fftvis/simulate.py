@@ -379,7 +379,7 @@ def simulate(
         if nprocesses > 1 or force_use_ray:
             futures = ray.get(futures)
     end_time = time.time()
-    logger.info("Main loop evaluation time: ", end_time - init_time)
+    logger.info(f"Main loop evaluation time: {end_time - init_time}")
     
     vis = np.zeros(dtype=complex_dtype, shape=(ntimes, nbls, nfeeds, nfeeds, nfreqs))
     for fc, tc, future in zip(freq_chunks, time_chunks, futures):

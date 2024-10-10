@@ -41,6 +41,7 @@ def run_profile(
     hera: int = 0,
     nside: int = 0,
     force_use_ray: bool = False,
+    trace_mem: bool = False,
 ):
     """Run the script."""
     logger.setLevel(log_level.upper())
@@ -122,6 +123,7 @@ def run_profile(
     nprocesses=nprocesses,
     coord_method_params=coord_params,
     force_use_ray=force_use_ray,
+    trace_mem=trace_mem,
         )""", 
         globals(),
         locals(), 
