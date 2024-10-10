@@ -417,7 +417,6 @@ def _evaluate_vis_chunk(
 
     if trace_mem:
         memray.Tracker(
-            "/tmp/ray/session_latest/logs/"
             f"memray-{time.time()}_{pid}.bin"
         ).__enter__()
         
