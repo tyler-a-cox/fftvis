@@ -60,7 +60,7 @@ def simulate_vis(
     ] = "CoordinateRotationERFA",
     coord_method_params: dict | None = None,
     force_use_ray: bool = False,
-    trace_mem: bool = True,
+    trace_mem: bool = False,
 ):
     """
     Parameters:
@@ -179,7 +179,7 @@ def simulate(
     ] = "CoordinateRotationERFA",
     coord_method_params: dict | None = None,
     force_use_ray: bool = False,
-    trace_mem: bool = True,
+    trace_mem: bool = False,
 ):
     """
     Parameters:
@@ -312,7 +312,7 @@ def simulate(
         **coord_method_params,
     )
 
-    if getattr(coord_mgr, "update_bcrs_every", 0) == np.inf:
+    if getattr(coord_mgr, "update_bcrs_every", 0) > (times[-1] - times[0])*86400:
         # We don't need to ever update BCRS, so we get it now before sending
         # out the jobs to multiple processes.
         coord_mgr._set_bcrs(0)
