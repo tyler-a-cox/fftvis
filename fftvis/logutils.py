@@ -32,7 +32,6 @@ def printmem(pr: psutil.Process, msg: str=""):
     #if logger.isEnabledFor(logging.INFO):
     info = pr.memory_info()
     
-    
     rss = info.rss
     shm = info.shared
     used = rss - shm
@@ -48,7 +47,7 @@ def memtrace(highest_peak) -> int:
         cm, pm = tm.get_traced_memory()
         logger.info(f"Starting Memory usage  : {cm / 1024**3:.3f} GB")
         logger.info(f"Starting Peak Mem usage: {pm / 1024**3:.3f} GB")
-        logger.info(f"Traemalloc Peak Memory (tot)(GB): {highest_peak / 1024**3:.2f}")
+        logger.info(f"Tracemalloc Peak Memory (tot)(GB): {highest_peak / 1024**3:.2f}")
         tm.reset_peak()
         return max(pm, highest_peak)
 

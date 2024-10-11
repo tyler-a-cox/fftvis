@@ -173,6 +173,7 @@ def simulate(
     flat_array_tol: float = 0.0,
     interpolation_function: str = "az_za_map_coordinates",
     nprocesses: int | None = 1,
+    nthreads: int | None = None,
     coord_method: Literal[
         "CoordinateRotationAstropy", "CoordinateRotationERFA"
     ] = "CoordinateRotationERFA",
@@ -239,16 +240,9 @@ def simulate(
         Array of shape (nfreqs, ntimes, nants, nants) if polarized is False, and
         (nfreqs, ntimes, nfeed, nfeedd, nants, nants) if polarized is True.
     """
-    
-    if not tm.is_tracing() and logger.isEnabledFor(logging.INFO):
-        tm.start()
-
-    highest_peak = logutils.memtrace(0)
-
     # Get sizes of inputs
     nfreqs = np.size(freqs)
     ntimes = len(times)
-
 
     nax = nfeeds = 2 if polarized else 1
 
@@ -303,9 +297,6 @@ def simulate(
     
     bls /= utils.speed_of_light
     
-    # Have up to 100 reports as it iterates through time.
-    highest_peak = logutils.memtrace(highest_peak)
-
     # Get number of processes for multiprocessing
     if nprocesses is None:
         nprocesses = cpu_count()
@@ -327,7 +318,9 @@ def simulate(
         coord_mgr._set_bcrs(0)
         
     nprocesses, freq_chunks, time_chunks, nf, nt = utils.get_task_chunks(nprocesses, nfreqs, ntimes)
-    if nprocesses > 1 or force_use_ray:
+    use_ray = nprocesses > 1 or force_use_ray
+
+    if use_ray:
         # Try to estimate how much shared memory will be required.
         required_shm = (
             Isky.nbytes + bls.nbytes + times.nbytes + rotation_matrix.nbytes +
@@ -357,45 +350,58 @@ def simulate(
         dec = ray.put(dec)
         beam = ray.put(beam)
         coord_mgr = ray.put(coord_mgr)
-         
-    logger.info(
-        f"Splitting calculation into {nprocesses} chunk(s) with {nf} frequencies and {nt} times each"
-    )
+
+    ncpus = nthreads or cpu_count()
+    nthreads_per_proc = [
+        ncpus // nprocesses + (i < ncpus % nprocesses) for i in range(nprocesses)
+    ]
+    _nbig = nthreads_per_proc.count(nthreads_per_proc[0])
+    if _nbig != nprocesses:
+        logger.info(
+            f"Splitting calculation into {nprocesses} processes. {_nbig} processes will"
+            f" use {nthreads_per_proc[0]} threads each, and {nprocesses-_nbig} will use"
+            f" {nthreads_per_proc[-1]} threads. Each process will compute "
+            f"{nf} frequencies and {nt} times."
+        )
+    else:
+        logger.info(
+            f"Splitting calculation into {nprocesses} processes with "
+            f"{nthreads_per_proc[0]} threads per-process. Each process will compute "
+            f"{nf} frequencies and {nt} times."
+        )
+    
     
     futures = []
     init_time = time.time()
-    with threadpool_limits(limits=cpu_count() if nprocesses > 1 else 1, user_api='blas'):
-        ncpus = cpu_count() 
-        nthreads_per_proc = [ncpus // nprocesses + (i < ncpus % nprocesses) for i in range(nprocesses)]
-        for ni, (fc, tc) in enumerate(zip(freq_chunks, time_chunks)):
-            kw = dict(
-                time_idx=tc,
-                freq_idx=fc,
-                beam=beam,
-                nax=nax,
-                coord_mgr=coord_mgr,
-                rotation_matrix=rotation_matrix,
-                bls=bls,
-                freqs=freqs,
-                complex_dtype=complex_dtype,
-                nfeeds=nfeeds,
-                location=telescope_loc,
-                polarized=polarized,
-                eps=eps,
-                beam_spline_opts=beam_spline_opts,
-                interpolation_function=interpolation_function,
-                n_threads=nthreads_per_proc[ni],
-                is_coplanar=is_coplanar,
-                trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem
-            )
+    
+    for (nthi, fc, tc) in zip(nthreads_per_proc, freq_chunks, time_chunks):
+        kw = dict(
+            time_idx=tc,
+            freq_idx=fc,
+            beam=beam,
+            coord_mgr=coord_mgr,
+            rotation_matrix=rotation_matrix,
+            bls=bls,
+            freqs=freqs,
+            complex_dtype=complex_dtype,
+            nfeeds=nfeeds,
+            polarized=polarized,
+            eps=eps,
+            beam_spline_opts=beam_spline_opts,
+            interpolation_function=interpolation_function,
+            n_threads=nthi,
+            is_coplanar=is_coplanar,
+            trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem
+        )
+    
+        if use_ray:
+            futures.append(_evaluate_vis_chunk_remote.remote(**kw))
+        else:
+            futures.append(_evaluate_vis_chunk(**kw))
+    
+    if use_ray:
+        futures = ray.get(futures)
         
-            if nprocesses > 1 or force_use_ray:
-                futures.append(_evaluate_vis_chunk_remote.remote(**kw))
-            else:
-                futures.append(_evaluate_vis_chunk(**kw))
-        
-        if nprocesses > 1 or force_use_ray:
-            futures = ray.get(futures)
     end_time = time.time()
     logger.info(f"Main loop evaluation time: {end_time - init_time}")
     
@@ -414,14 +420,12 @@ def _evaluate_vis_chunk(
     time_idx: slice,
     freq_idx: slice,
     beam: UVBeam,
-    nax: int,
     coord_mgr: CoordinateRotation,
     rotation_matrix: np.ndarray,
     bls: np.ndarray,
     freqs: np.ndarray,
     complex_dtype: np.dtype,
     nfeeds: int,
-    location: EarthLocation,
     polarized: bool = False,
     eps: float | None = None,
     beam_spline_opts: dict = None,
@@ -437,7 +441,7 @@ def _evaluate_vis_chunk(
         memray.Tracker(
             f"memray-{time.time()}_{pid}.bin"
         ).__enter__()
-        
+
     #logutils.printmem(pr, "Starting")
 
     nbls = bls.shape[1]
@@ -450,86 +454,87 @@ def _evaluate_vis_chunk(
     #logutils.printmem(pr, "After Vis Allocation")
     coord_mgr.setup()
     #logutils.printmem(pr, "After coord_mgr.setup")
-    
-    for time_index, ti in enumerate(range(ntimes)[time_idx]):
-        coord_mgr.rotate(ti)
-        topo, flux, nsim_sources = coord_mgr.select_chunk(0)
-        #logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Select Chunk")
-        
-        # truncate to nsim_sources
-        topo = topo[:, :nsim_sources]
-        flux = flux[:nsim_sources]
 
-        if nsim_sources == 0:
-            continue
-
-        # Compute azimuth and zenith angles
-        az, za = coordinates.enu_to_az_za(
-            enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
-        )
-        
-        # Rotate source coordinates with rotation matrix.
-        utils.inplace_rot(rotation_matrix, topo)     
-        topo *= 2*np.pi
-        #logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Az/Za")
-        
-        for freqidx in range(nfreqs)[freq_idx]:
-            freq = freqs[freqidx]
-            uvw = bls * freq
-
-            A_s = beams._evaluate_beam(
-                beam,
-                az,
-                za,
-                polarized,
-                freq,
-                spline_opts=beam_spline_opts,
-                interpolation_function=interpolation_function,
-            ).astype(complex_dtype)
-            #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After BeamInterp")
-            if polarized:
-                beams.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])    
-            else:
-                A_s *= flux[:nsim_sources, freqidx]
-
-            A_s.shape = (nfeeds**2, nsim_sources)
-            i_sky = A_s
-
-            #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After AppFlux")
-            if i_sky.dtype != complex_dtype:
-                i_sky = i_sky.astype(complex_dtype)
+    with threadpool_limits(limits=n_threads, user_api='blas'):
+        for time_index, ti in enumerate(range(ntimes)[time_idx]):
+            coord_mgr.rotate(ti)
+            topo, flux, nsim_sources = coord_mgr.select_chunk(0)
+            #logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Select Chunk")
             
-            # Compute visibilities w/ non-uniform FFT
-            if is_coplanar:
-                _vis_here = finufft.nufft2d3(
-                    topo[0],
-                    topo[1],
-                    A_s,
-                    np.ascontiguousarray(uvw[0]),
-                    np.ascontiguousarray(uvw[1]),
-                    modeord=0,
-                    eps=eps,
-                    nthreads=n_threads,
-                    showwarn=0,
-                )
-            else:
-                _vis_here = finufft.nufft3d3(
-                    topo[0],
-                    topo[1],
-                    topo[2],
-                    A_s,
-                    np.ascontiguousarray(uvw[0]),
-                    np.ascontiguousarray(uvw[1]),
-                    np.ascontiguousarray(uvw[2]),
-                    modeord=0,
-                    eps=eps,
-                    nthreads=n_threads,
-                    showwarn=0,
-                )
-            #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After GetVis")
+            # truncate to nsim_sources
+            topo = topo[:, :nsim_sources]
+            flux = flux[:nsim_sources]
 
-            vis[time_index, ..., freqidx] = np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0)
-            #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After VisSet")
+            if nsim_sources == 0:
+                continue
+
+            # Compute azimuth and zenith angles
+            az, za = coordinates.enu_to_az_za(
+                enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
+            )
+            
+            # Rotate source coordinates with rotation matrix.
+            utils.inplace_rot(rotation_matrix, topo)     
+            topo *= 2*np.pi
+            #logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Az/Za")
+            
+            for freqidx in range(nfreqs)[freq_idx]:
+                freq = freqs[freqidx]
+                uvw = bls * freq
+
+                A_s = beams._evaluate_beam(
+                    beam,
+                    az,
+                    za,
+                    polarized,
+                    freq,
+                    spline_opts=beam_spline_opts,
+                    interpolation_function=interpolation_function,
+                ).astype(complex_dtype)
+                #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After BeamInterp")
+                if polarized:
+                    beams.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])    
+                else:
+                    A_s *= flux[:nsim_sources, freqidx]
+
+                A_s.shape = (nfeeds**2, nsim_sources)
+                i_sky = A_s
+
+                #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After AppFlux")
+                if i_sky.dtype != complex_dtype:
+                    i_sky = i_sky.astype(complex_dtype)
+                
+                # Compute visibilities w/ non-uniform FFT
+                if is_coplanar:
+                    _vis_here = finufft.nufft2d3(
+                        topo[0],
+                        topo[1],
+                        A_s,
+                        np.ascontiguousarray(uvw[0]),
+                        np.ascontiguousarray(uvw[1]),
+                        modeord=0,
+                        eps=eps,
+                        nthreads=n_threads,
+                        showwarn=0,
+                    )
+                else:
+                    _vis_here = finufft.nufft3d3(
+                        topo[0],
+                        topo[1],
+                        topo[2],
+                        A_s,
+                        np.ascontiguousarray(uvw[0]),
+                        np.ascontiguousarray(uvw[1]),
+                        np.ascontiguousarray(uvw[2]),
+                        modeord=0,
+                        eps=eps,
+                        nthreads=n_threads,
+                        showwarn=0,
+                    )
+                #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After GetVis")
+
+                vis[time_index, ..., freqidx] = np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0)
+                #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After VisSet")
 
 
     return vis
