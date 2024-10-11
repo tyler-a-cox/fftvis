@@ -365,7 +365,9 @@ def simulate(
     futures = []
     init_time = time.time()
     with threadpool_limits(limits=cpu_count() if nprocesses > 1 else 1, user_api='blas'):
-        for fc, tc in zip(freq_chunks, time_chunks):
+        ncpus = cpu_count() 
+        nthreads_per_proc = [ncpus // nprocesses + (i < ncpus % nprocesses) for i in range(nprocesses)]
+        for ni, (fc, tc) in enumerate(zip(freq_chunks, time_chunks)):
             kw = dict(
                 time_idx=tc,
                 freq_idx=fc,
@@ -382,7 +384,7 @@ def simulate(
                 eps=eps,
                 beam_spline_opts=beam_spline_opts,
                 interpolation_function=interpolation_function,
-                n_threads=1 if nprocesses > 1 else 0,
+                n_threads=nthreads_per_proc[ni],
                 is_coplanar=is_coplanar,
                 trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem
             )
@@ -436,7 +438,7 @@ def _evaluate_vis_chunk(
             f"memray-{time.time()}_{pid}.bin"
         ).__enter__()
         
-    logutils.printmem(pr, "Starting")
+    #logutils.printmem(pr, "Starting")
 
     nbls = bls.shape[1]
     ntimes = len(coord_mgr.times)
@@ -445,14 +447,14 @@ def _evaluate_vis_chunk(
     nt_here = len(coord_mgr.times[time_idx])
     nf_here = len(freqs[freq_idx])
     vis = np.zeros(dtype=complex_dtype, shape=(nt_here, nbls, nfeeds, nfeeds, nf_here))
-    logutils.printmem(pr, "After Vis Allocation")
+    #logutils.printmem(pr, "After Vis Allocation")
     coord_mgr.setup()
-    logutils.printmem(pr, "After coord_mgr.setup")
+    #logutils.printmem(pr, "After coord_mgr.setup")
     
     for time_index, ti in enumerate(range(ntimes)[time_idx]):
         coord_mgr.rotate(ti)
         topo, flux, nsim_sources = coord_mgr.select_chunk(0)
-        logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Select Chunk")
+        #logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Select Chunk")
         
         # truncate to nsim_sources
         topo = topo[:, :nsim_sources]
@@ -469,7 +471,7 @@ def _evaluate_vis_chunk(
         # Rotate source coordinates with rotation matrix.
         utils.inplace_rot(rotation_matrix, topo)     
         topo *= 2*np.pi
-        logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Az/Za")
+        #logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Az/Za")
         
         for freqidx in range(nfreqs)[freq_idx]:
             freq = freqs[freqidx]
@@ -484,7 +486,7 @@ def _evaluate_vis_chunk(
                 spline_opts=beam_spline_opts,
                 interpolation_function=interpolation_function,
             ).astype(complex_dtype)
-            logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After BeamInterp")
+            #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After BeamInterp")
             if polarized:
                 beams.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])    
             else:
@@ -493,7 +495,7 @@ def _evaluate_vis_chunk(
             A_s.shape = (nfeeds**2, nsim_sources)
             i_sky = A_s
 
-            logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After AppFlux")
+            #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After AppFlux")
             if i_sky.dtype != complex_dtype:
                 i_sky = i_sky.astype(complex_dtype)
             
@@ -508,6 +510,7 @@ def _evaluate_vis_chunk(
                     modeord=0,
                     eps=eps,
                     nthreads=n_threads,
+                    showwarn=0,
                 )
             else:
                 _vis_here = finufft.nufft3d3(
@@ -521,11 +524,12 @@ def _evaluate_vis_chunk(
                     modeord=0,
                     eps=eps,
                     nthreads=n_threads,
+                    showwarn=0,
                 )
-            logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After GetVis")
+            #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After GetVis")
 
             vis[time_index, ..., freqidx] = np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0)
-            logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After VisSet")
+            #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After VisSet")
 
 
     return vis
