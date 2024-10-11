@@ -42,6 +42,7 @@ def run_profile(
     nside: int = 0,
     force_use_ray: bool = False,
     trace_mem: bool = False,
+    beam_spline_order: int = 3,
 ):
     """Run the script."""
     logger.setLevel(log_level.upper())
@@ -79,6 +80,7 @@ def run_profile(
     cns.print(f"  NAZ:              {naz:>7}")
     cns.print(f"  NZA:              {nza:>7}")
     cns.print(f"  NPROCESSES:       {nprocesses:>7}")
+    cns.print(f"  INTERP ORDER:     {beam_spline_order:>7}")
     
     if coord_method == "CoordinateRotationERFA":
         cns.print(f"  BCRS UPDATE:       {update_bcrs_every:>7}")
@@ -124,6 +126,7 @@ def run_profile(
     coord_method_params=coord_params,
     force_use_ray=force_use_ray,
     trace_mem=trace_mem,
+    beam_spline_opts={'order': beam_spline_order},
         )""", 
         globals(),
         locals(), 

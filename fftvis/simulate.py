@@ -1,8 +1,5 @@
 from __future__ import annotations
-from multiprocessing.shared_memory import SharedMemory
-from multiprocessing.managers import SharedMemoryManager
-from multiprocessing import Pool, cpu_count
-from functools import partial
+from multiprocessing import cpu_count
 import ray
 from threadpoolctl import threadpool_limits
 import os
@@ -12,18 +9,15 @@ import finufft
 import numpy as np
 from matvis import coordinates
 from matvis.core.beams import prepare_beam_unpolarized
-from matvis.cpu.coords import CoordinateRotationAstropy, CoordinateRotationERFA
 from matvis.core.coords import CoordinateRotation
-from typing import Callable, Literal
+from typing import Literal
 
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy import units as un
 from astropy.time import Time
 import time
 import psutil
-from rich.progress import Progress
 import logging
-import tracemalloc as tm
 from pyuvdata import UVBeam
 
 from . import utils, beams, logutils
@@ -312,7 +306,7 @@ def simulate(
         **coord_method_params,
     )
 
-    if getattr(coord_mgr, "update_bcrs_every", 0) > (times[-1] - times[0])*86400:
+    if getattr(coord_mgr, "update_bcrs_every", 0) > (times[-1] - times[0])*86400*un.s:
         # We don't need to ever update BCRS, so we get it now before sending
         # out the jobs to multiple processes.
         coord_mgr._set_bcrs(0)
