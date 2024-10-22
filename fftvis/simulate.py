@@ -319,7 +319,8 @@ def simulate(
         required_shm = bls.nbytes + rotation_matrix.nbytes + freqs.nbytes
         
         for key, val in coord_mgr.__dict__.items():
-            required_shm += getattr(val, 'nbytes', 0)
+            if isinstance(val, np.ndarray):
+                required_shm += val.nbytes
             
         if isinstance(beam, UVBeam):
             required_shm += beam.data_array.nbytes
