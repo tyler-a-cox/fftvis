@@ -367,31 +367,33 @@ def simulate(
     
     futures = []
     init_time = time.time()
+    if use_ray:
+        fnc = _evaluate_vis_chunk_remote.remote
+    else:
+        fnc = _evaluate_vis_chunk
     
-    for (nthi, fc, tc) in zip(nthreads_per_proc, freq_chunks, time_chunks):
-        kw = dict(
-            time_idx=tc,
-            freq_idx=fc,
-            beam=beam,
-            coord_mgr=coord_mgr,
-            rotation_matrix=rotation_matrix,
-            bls=bls,
-            freqs=freqs,
-            complex_dtype=complex_dtype,
-            nfeeds=nfeeds,
-            polarized=polarized,
-            eps=eps,
-            beam_spline_opts=beam_spline_opts,
-            interpolation_function=interpolation_function,
-            n_threads=nthi,
-            is_coplanar=is_coplanar,
-            trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem
+    for (nthi, fc, tc) in zip(nthreads_per_proc, freq_chunks, time_chunks):        
+        futures.append(
+            fnc(
+                time_idx=tc,
+                freq_idx=fc,
+                beam=beam,
+                coord_mgr=coord_mgr,
+                rotation_matrix=rotation_matrix,
+                bls=bls,
+                freqs=freqs,
+                complex_dtype=complex_dtype,
+                nfeeds=nfeeds,
+                polarized=polarized,
+                eps=eps,
+                beam_spline_opts=beam_spline_opts,
+                interpolation_function=interpolation_function,
+                n_threads=nthi,
+                is_coplanar=is_coplanar,
+                trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem
+            )
         )
     
-        if use_ray:
-            futures.append(_evaluate_vis_chunk_remote.remote(**kw))
-        else:
-            futures.append(_evaluate_vis_chunk(**kw))
     
     if use_ray:
         futures = ray.get(futures)
