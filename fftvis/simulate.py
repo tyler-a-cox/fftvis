@@ -316,10 +316,11 @@ def simulate(
 
     if use_ray:
         # Try to estimate how much shared memory will be required.
-        required_shm = (
-            Isky.nbytes + bls.nbytes + times.nbytes + rotation_matrix.nbytes +
-            freqs.nbytes + ra.nbytes + dec.nbytes
-        )
+        required_shm = bls.nbytes + rotation_matrix.nbytes + freqs.nbytes
+        
+        for key, val in coord_mgr.__dict__.items():
+            required_shm += getattr(val, 'nbytes', 0)
+            
         if isinstance(beam, UVBeam):
             required_shm += beam.data_array.nbytes
         
@@ -340,14 +341,10 @@ def simulate(
                 
         os.system("ray memory --units MB > before-puts.txt")
         
-        # Put data into shared-memory pool
-        Isky = ray.put(Isky)
+        # Put data into shared-memory pool        
         bls = ray.put(bls) 
-        times = ray.put(times)
         rotation_matrix = ray.put(rotation_matrix)
         freqs = ray.put(freqs)
-        ra = ray.put(ra)
-        dec = ray.put(dec)
         beam = ray.put(beam)
         coord_mgr = ray.put(coord_mgr)
         os.system("ray memory --units MB > after-puts.txt")
