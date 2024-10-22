@@ -326,14 +326,20 @@ def simulate(
         # Add visibility memory
         required_shm += (ntimes * nfreqs * nbls * nax * nfeeds) * np.dtype(complex_dtype).itemsize
         
-        logger.info(f"Initializing with {required_shm/1024**3:.2f} GB of shared memory")
+        logger.info(f"Initializing with {2*required_shm/1024**3:.2f} GB of shared memory")
         if not ray.is_initialized():
             try:
-                ray.init(object_store_memory = 2*required_shm, include_dashboard=False)
+                ray.init(
+                    num_cpus=nprocesses,
+                    object_store_memory = 2*required_shm, 
+                    include_dashboard=False
+                )
             except ValueError:
                 # If there is a ray cluster already running, just connect to it.
                 ray.init()    
                 
+        os.system("ray memory --units MB > before-puts.txt")
+        
         # Put data into shared-memory pool
         Isky = ray.put(Isky)
         bls = ray.put(bls) 
@@ -344,7 +350,8 @@ def simulate(
         dec = ray.put(dec)
         beam = ray.put(beam)
         coord_mgr = ray.put(coord_mgr)
-
+        os.system("ray memory --units MB > after-puts.txt")
+    
     ncpus = nthreads or cpu_count()
     nthreads_per_proc = [
         ncpus // nprocesses + (i < ncpus % nprocesses) for i in range(nprocesses)
@@ -393,10 +400,12 @@ def simulate(
                 trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem
             )
         )
+        os.system("ray memory --units MB > after-futures.txt")
     
     
     if use_ray:
         futures = ray.get(futures)
+        os.system("ray memory --units MB > got-all.txt")
         
     end_time = time.time()
     logger.info(f"Main loop evaluation time: {end_time - init_time}")
