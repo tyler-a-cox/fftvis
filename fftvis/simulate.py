@@ -174,6 +174,7 @@ def simulate(
     coord_method_params: dict | None = None,
     force_use_ray: bool = False,
     trace_mem: bool = False,
+    enable_memory_monitor: bool = False,
 ):
     """
     Parameters:
@@ -227,6 +228,11 @@ def simulate(
         The number of parallel processes to use. Computations are parallelized over
         integration times. Set to 1 to disable multiprocessing entirely, or set to 
         None to use all available processors.
+    enable_memory_monitor : bool, optional
+        Turn on Ray memory monitoring (i.e. its ability to track memory usage and
+        kill tasks that are putting too much memory pressure on). Generally, this is a
+        bad idea for the homogenous calculations done here: if a task goes beyond 
+        available memory, the whole simulation should OOM'd, to save CPU cycles.
         
     Returns:
     -------
@@ -333,6 +339,9 @@ def simulate(
             if trace_mem:
                 # Record which lines of code assign to shared memory, for debugging.
                 os.environ['RAY_record_ref_creation_sites'] = "1"
+                
+            if not enable_memory_monitor:
+                os.environ['RAY_memory_monitor_refresh_ms'] = "0"
                 
             # Only spill shared memory objects to disk if the Store is totally full.
             # If we don't do this, then since we need a relatively small amount of
