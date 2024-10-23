@@ -43,6 +43,7 @@ def run_profile(
     force_use_ray: bool = False,
     trace_mem: bool = False,
     beam_spline_order: int = 3,
+    freq_min: float = 100,  # MHz
 ):
     """Run the script."""
     logger.setLevel(log_level.upper())
@@ -60,7 +61,8 @@ def run_profile(
         cpu_beams,
         beam_idx,
     ) = get_standard_sim_params(
-        analytic_beam, nfreq, ntimes, nants, nsource, nbeams=1, naz=naz, nza=nza
+        analytic_beam, nfreq, ntimes, nants, nsource, nbeams=1, naz=naz, nza=nza,
+        freq_min=freq_min*1e6,
     )
     if hera > 0:
         ants = hex_array(hera)
