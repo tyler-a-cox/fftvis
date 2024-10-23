@@ -379,6 +379,7 @@ def simulate(
     else:
         fnc = _evaluate_vis_chunk
     
+    logutils.printmem(psutil.Process(), 'before loop')
     for (nthi, fc, tc) in zip(nthreads_per_proc, freq_chunks, time_chunks):        
         futures.append(
             fnc(
@@ -402,8 +403,8 @@ def simulate(
         )
         if trace_mem:
             os.system("ray memory --units MB > after-futures.txt")
-    
-    
+
+    logutils.printmem(psutil.Process(), 'while getting futures')
     if use_ray:
         futures = ray.get(futures)
         if trace_mem:
@@ -483,7 +484,7 @@ def _evaluate_vis_chunk(
             # Rotate source coordinates with rotation matrix.
             utils.inplace_rot(rotation_matrix, topo)     
             topo *= 2*np.pi
-            #logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Az/Za")
+            logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Az/Za")
             
             for freqidx in range(nfreqs)[freq_idx]:
                 freq = freqs[freqidx]
