@@ -332,12 +332,12 @@ def simulate(
         if not ray.is_initialized():
             if trace_mem:
                 # Record which lines of code assign to shared memory, for debugging.
-                os.environ['RAY_record_ref_creation_sites'] = 1
+                os.environ['RAY_record_ref_creation_sites'] = "1"
                 
             # Only spill shared memory objects to disk if the Store is totally full.
             # If we don't do this, then since we need a relatively small amount of
             # SHM, it starts writing to disk even though we never needed to.
-            os.environ['RAY_object_spilling_threshold'] = 1.0
+            os.environ['RAY_object_spilling_threshold'] = "1.0"
             
             try:
                 ray.init(
