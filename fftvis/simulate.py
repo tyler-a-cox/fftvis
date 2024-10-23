@@ -340,7 +340,8 @@ def simulate(
                 # If there is a ray cluster already running, just connect to it.
                 ray.init()    
                 
-        os.system("ray memory --units MB > before-puts.txt")
+        if trace_mem:
+            os.system("ray memory --units MB > before-puts.txt")
         
         # Put data into shared-memory pool        
         bls = ray.put(bls) 
@@ -348,7 +349,8 @@ def simulate(
         freqs = ray.put(freqs)
         beam = ray.put(beam)
         coord_mgr = ray.put(coord_mgr)
-        os.system("ray memory --units MB > after-puts.txt")
+        if trace_mem:
+            os.system("ray memory --units MB > after-puts.txt")
     
     ncpus = nthreads or cpu_count()
     nthreads_per_proc = [
@@ -398,12 +400,14 @@ def simulate(
                 trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem
             )
         )
-        os.system("ray memory --units MB > after-futures.txt")
+        if trace_mem:
+            os.system("ray memory --units MB > after-futures.txt")
     
     
     if use_ray:
         futures = ray.get(futures)
-        os.system("ray memory --units MB > got-all.txt")
+        if trace_mem:
+            os.system("ray memory --units MB > got-all.txt")
         
     end_time = time.time()
     logger.info(f"Main loop evaluation time: {end_time - init_time}")
