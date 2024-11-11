@@ -38,7 +38,8 @@ dependencies = [
     "typer",
     "rich",
     "ray",
-    "threadpoolctl"
+    "threadpoolctl",
+    "numba",
 ]
 dynamic = ["version"]
 
