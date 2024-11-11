@@ -11,6 +11,7 @@ from matvis import coordinates
 from matvis.core.beams import prepare_beam_unpolarized
 from matvis.core.coords import CoordinateRotation
 from typing import Literal
+from pyuvdata.beam_interface import BeamInterface
 
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy import units as un
@@ -122,9 +123,11 @@ def simulate_vis(
     # Make sure antpos has the right format
     ants = {k: np.array(v) for k, v in ants.items()}
 
+    beam = BeamInterface(beam)
+    
     # Prepare the beam
     if not polarized:
-        beam = prepare_beam_unpolarized(beam, use_pol=use_feed*2)
+        beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
 
     return simulate(
         ants=ants,

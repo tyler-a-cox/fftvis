@@ -1,9 +1,9 @@
 import numpy as np
-from pyuvdata import UVBeam
+from pyuvdata.beam_interface import BeamInterface
 import numba as nb
 
 def _evaluate_beam(
-    beam: UVBeam,
+    beam: BeamInterface,
     az: np.ndarray,
     za: np.ndarray,
     polarized: bool,
@@ -43,23 +43,19 @@ def _evaluate_beam(
         for interpolation orders greater than linear. 
     """
     # Primary beam pattern using direct interpolation of UVBeam object
-    kw = (
-        {
-            "reuse_spline": True,
-            "check_azza_domain": False,
-            "spline_opts": spline_opts,
-            "interpolation_function": interpolation_function,
-        }
-        if isinstance(beam, UVBeam)
-        else {}
-    )
+    kw = {
+        "reuse_spline": True,
+        "check_azza_domain": False,
+        "spline_opts": spline_opts,
+        "interpolation_function": interpolation_function,
+    }
 
-    interp_beam = beam.interp(
+    interp_beam = beam.compute_response(
         az_array=az,
         za_array=za,
         freq_array=np.atleast_1d(freq),
         **kw,
-    )[0]
+    )
 
     if polarized:
         interp_beam = interp_beam[:, :, 0, :]
