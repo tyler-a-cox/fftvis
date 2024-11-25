@@ -33,7 +33,11 @@ def printmem(pr: psutil.Process, msg: str=""):
     info = pr.memory_info()
     
     rss = info.rss
-    shm = info.shared
+    try:    
+        shm = info.shared
+    except AttributeError:
+        # On macos there is no shared memory
+        shm = 0
     used = rss - shm
 
     shm = human_readable_size(shm)
