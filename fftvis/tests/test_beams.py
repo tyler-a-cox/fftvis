@@ -4,6 +4,7 @@ from fftvis import beams
 
 from pathlib import Path
 from pyuvdata import UVBeam
+from pyuvdata.beam_interface import BeamInterface
 from pyuvdata.data import DATA_PATH
 cst_file = Path(DATA_PATH) / "NicCSTbeams" / "HERA_NicCST_150MHz.txt"
 
@@ -37,7 +38,8 @@ def test_beam_interpolators(polarized):
         ),
         extra_keywords=extra_keywords,
     )
-
+    beam = BeamInterface(beam)
+    
     nsrcs = 100
     az = np.linspace(0, 2 * np.pi, nsrcs)
     za = np.linspace(0, np.pi / 2.0, nsrcs)
