@@ -3,6 +3,7 @@ import pytest
 import numpy as np
 from fftvis import simulate
 from matvis._test_utils import get_standard_sim_params
+import sys
 
 @pytest.mark.parametrize('polarized', [False, True])
 @pytest.mark.parametrize('precision', [2,1])
@@ -10,7 +11,9 @@ from matvis._test_utils import get_standard_sim_params
 @pytest.mark.parametrize('tilt_array', [True, False])
 @pytest.mark.parametrize('nprocesses', [1, 2])
 def test_simulate(polarized: bool, precision: int, use_analytic_beam: bool, tilt_array: bool, nprocesses: int):
-
+    if sys.platform == "darwin" and nprocesses == 2:
+        pytest.skip("Cannot use Ray multiprocessing on MacOS")
+        
     params, *_ = get_standard_sim_params(
         use_analytic_beam=use_analytic_beam, polarized=polarized
     )
