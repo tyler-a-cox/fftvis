@@ -9,3 +9,4 @@ branch = True
 omit = */tests/*
 exclude_lines = 
     if trace_mem:
+    pragma: no cover
