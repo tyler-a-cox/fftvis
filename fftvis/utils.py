@@ -175,7 +175,7 @@ def get_task_chunks(nprocesses: int, nfreqs: int, ntimes: int) -> tuple[int, lis
     return nprocesses, freq_chunks, time_chunks, nf, nt
 
 @nb.jit(nopython=True)
-def inplace_rot(rot: np.ndarray, b: np.ndarray):
+def inplace_rot(rot: np.ndarray, b: np.ndarray):  # pragma: no cover
     """In-place rotation of coordinates."""
     nsrc = b.shape[1]
     out = np.zeros(3, dtype=b.dtype)
