@@ -1,6 +1,5 @@
 import numpy as np
 from fftvis import utils
-from hera_sim.antpos import hex_array
 
 def test_get_plane_to_xy_rotation_matrix():
     """
@@ -51,7 +50,12 @@ def test_get_plane_to_xy_rotation_matrix_errors():
 def test_get_pos_reds():
     """
     """
-    antpos = hex_array(3, sep=10.0, split_core=False)
+    antpos = {
+        ant_index:  np.array([
+            ant_index * 10.0, 0.0, 0.0
+        ])
+        for ant_index in range(10)
+    }
     reds = utils.get_pos_reds(antpos)
 
     for red in reds:
