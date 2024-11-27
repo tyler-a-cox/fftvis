@@ -50,6 +50,23 @@ def test_simulate(polarized: bool, precision: int, use_analytic_beam: bool, tilt
         **params
     )
 
+    fvis_all_bls = simulate.simulate_vis(
+        ants, eps=1e-10 if precision==2 else 6e-8,
+        precision=precision,
+        nprocesses=nprocesses,
+        coord_method_params={"source_buffer": 0.75},
+        trace_mem=False,
+        beam=beam,
+        times=times,
+        **params
+    )
+
+    # Check that the results are the same
+    np.testing.assert_allclose(
+        fvis, fvis_all_bls[:, :, 1], 
+        atol=1e-5 if precision==2 else 1e-4
+    )
+
     freqs = params['freqs']
     
     # Should have shape (nfreqs, ntimes, nants, nants)

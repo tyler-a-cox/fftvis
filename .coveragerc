@@ -10,3 +10,5 @@ omit = */tests/*
 exclude_lines = 
     if trace_mem:
     pragma: no cover
+    if isinstance(beam, UVBeam):
+    if _nbig != nprocesses:
