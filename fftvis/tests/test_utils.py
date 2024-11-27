@@ -1,5 +1,6 @@
 import numpy as np
 from fftvis import utils
+from hera_sim.antpos import hex_array
 
 def test_get_plane_to_xy_rotation_matrix():
     """
@@ -45,3 +46,35 @@ def test_get_plane_to_xy_rotation_matrix_errors():
 
     # Check that all elements of the z-axis within 5-sigma of zero
     np.testing.assert_array_less(np.abs(rm_antvecs[-1]), 5)
+
+
+def test_get_pos_reds():
+    """
+    """
+    antpos = hex_array(3, sep=10.0, split_core=False)
+    reds = utils.get_pos_reds(antpos)
+
+    for red in reds:
+        ai, aj = red[0]
+        blmag = np.linalg.norm(antpos[ai] - antpos[aj])
+        for (ai, aj) in red:
+            assert np.isclose(
+                blmag, 
+                np.linalg.norm(antpos[ai] - antpos[aj])
+            )
+
+    # Check that a non-redundant array returns list of single element lists
+    rng = np.random.default_rng(seed=42)
+    antpos = {
+        ant_index:  np.array([
+            rng.uniform(-100, 100),
+            rng.uniform(-100, 100),
+            0
+        ])
+        for ant_index in range(10)
+        }
+    reds = utils.get_pos_reds(antpos, include_autos=False)
+    
+    for red in reds:
+        assert len(red) == 1
+        
