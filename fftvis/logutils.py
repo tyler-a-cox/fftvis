@@ -5,6 +5,7 @@ import datetime
 import logging
 import time
 import tracemalloc as tm
+import psutil
 
 
 logger = logging.getLogger(__name__)
@@ -26,13 +27,31 @@ def human_readable_size(size, decimal_places=2, indicate_sign=False):
     else:
         return f"{size:.{decimal_places}f} {unit}"
 
+def printmem(pr: psutil.Process, msg: str=""):
+    """Print memory usage of the process."""
+    #if logger.isEnabledFor(logging.INFO):
+    info = pr.memory_info()
+    
+    rss = info.rss
+    try:    
+        shm = info.shared
+    except AttributeError:
+        # On macos there is no shared memory
+        shm = 0
+    used = rss - shm
 
+    shm = human_readable_size(shm)
+    used = human_readable_size(used)
+    
+    #logger.info(f"{msg} Memory Usage [{pr.pid}]: {used} internal, {shm} shared.")
+    print(f"{msg} Memory Usage [{pr.pid}]: {used} internal, {shm} shared.")
+    
 def memtrace(highest_peak) -> int:
     if logger.isEnabledFor(logging.INFO):
         cm, pm = tm.get_traced_memory()
         logger.info(f"Starting Memory usage  : {cm / 1024**3:.3f} GB")
         logger.info(f"Starting Peak Mem usage: {pm / 1024**3:.3f} GB")
-        logger.info(f"Traemalloc Peak Memory (tot)(GB): {highest_peak / 1024**3:.2f}")
+        logger.info(f"Tracemalloc Peak Memory (tot)(GB): {highest_peak / 1024**3:.2f}")
         tm.reset_peak()
         return max(pm, highest_peak)
 
@@ -48,9 +67,10 @@ def log_progress(start_time, prev_time, iters, niters, pr, last_mem):
     per_iter = total / iters
     expected = per_iter * niters
 
-    rss = pr.memory_info().rss
-    mem = human_readable_size(rss)
-    memdiff = human_readable_size(rss - last_mem, indicate_sign=True)
+    info = pr.memory_info()
+    used = info.rss - info.shared
+    mem = human_readable_size(used)
+    memdiff = human_readable_size(used - last_mem, indicate_sign=True)
 
     logger.info(
         f"""

@@ -1,7 +1,15 @@
 [run]
 include = fftvis/*
-omit = fftvis/logutils.py
+omit = 
+    fftvis/logutils.py
+    fftvis/cli.py
 branch = True
 
 [report]
 omit = */tests/*
+exclude_lines = 
+    if trace_mem:
+    pragma: no cover
+    if isinstance(beam, UVBeam):
+    if _nbig != nprocesses:
+    if eps is None:

@@ -3,3 +3,59 @@ requires = ["setuptools>=42", "wheel", "setuptools_scm[toml]>=3.4"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
+
+[project]
+name = "fftvis"
+description = "An FFT-based visibility simulator"
+readme = "README.md"
+authors = [
+    {name="Tyler Cox", email='tyler.a.cox@berkeley.edu'},
+    {name="Steven Murray", email="steven.murray@sns.it"}
+]
+license = {text="MIT"}
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX",
+    "Operating System :: Unix",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+    "numpy",
+    "matvis>=1.3.0",
+    "finufft",
+    "pyuvdata>=3.1.2",
+    "psutil",
+    "typer",
+    "rich",
+    "ray",
+    "threadpoolctl",
+    "numba",
+    "memray"
+]
+dynamic = ["version"]
+
+
+[project.optional-dependencies]
+dev = [
+    "mpi4py",
+    "pytest",
+    "pre-commit",
+    "pytest-cov",
+    "pytest-xdist",
+    "pyradiosky",
+    "pyuvsim[sim]",
+    "hera_sim"
+]
+
+[project.scripts]
+fftvis = "fftvis.cli:app"
