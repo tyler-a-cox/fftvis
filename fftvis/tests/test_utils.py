@@ -82,3 +82,38 @@ def test_get_pos_reds():
     for red in reds:
         assert len(red) == 1
         
+def test_get_task_chunks():
+    """
+    """
+    ntimes, nfreqs, nprocesses = 2, 3, 10
+    
+    # Test when 2 * nproc > ntasks
+    nproc, fslice, tslice, nfreq_chunks, ntime_chunks = utils.get_task_chunks(
+        nprocesses=nprocesses, 
+        ntimes=ntimes, 
+        nfreqs=nfreqs
+    )
+
+    # Check sizes
+    assert nproc == 1
+    assert ntimes == ntime_chunks
+    assert nfreqs == nfreq_chunks
+
+    # Test when 2 * nproc < ntasks
+    nproc, fslice, tslice, nfreq_chunks, ntime_chunks = utils.get_task_chunks(
+        nprocesses=nprocesses, 
+        ntimes=ntimes * 5, 
+        nfreqs=nfreqs
+    )
+
+    # Check sizes
+    assert nproc == nprocesses
+    assert len(fslice) == nproc
+    assert len(tslice) == nproc
+
+    # All frequency slices should be the same
+    for fslc in fslice[1:]:
+        assert fslc == fslice[0]
+
+    for i in range(nproc - 1):
+        assert tslice[i].stop == tslice[i + 1].start

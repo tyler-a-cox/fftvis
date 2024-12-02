@@ -12,3 +12,4 @@ exclude_lines =
     pragma: no cover
     if isinstance(beam, UVBeam):
     if _nbig != nprocesses:
+    if eps is None:
