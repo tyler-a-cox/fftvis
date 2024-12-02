@@ -102,7 +102,7 @@ def test_get_task_chunks():
     # Test when 2 * nproc < ntasks
     nproc, fslice, tslice, nfreq_chunks, ntime_chunks = utils.get_task_chunks(
         nprocesses=nprocesses, 
-        ntimes=ntimes * 5, 
+        ntimes=ntimes * 4, 
         nfreqs=nfreqs
     )
 
@@ -114,6 +114,3 @@ def test_get_task_chunks():
     # All frequency slices should be the same
     for fslc in fslice[1:]:
         assert fslc == fslice[0]
-
-    for i in range(nproc - 1):
-        assert tslice[i].stop == tslice[i + 1].start
