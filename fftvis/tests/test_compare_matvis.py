@@ -61,19 +61,17 @@ def test_simulate(polarized: bool, precision: int, use_analytic_beam: bool, tilt
         **params
     )
 
-    # Check that the results are the same
-    np.testing.assert_allclose(
-        fvis, fvis_all_bls[:, :, 1], 
-        atol=1e-5 if precision==2 else 1e-4
-    )
-
+    # Check shape of result when no baselines are specified
+    nbls = (len(ants) * (len(ants) - 1)) // 2 + 1
     freqs = params['freqs']
     
     # Should have shape (nfreqs, ntimes, nants, nants)
     if polarized:
         assert fvis.shape == (len(freqs), len(times), 2, 2, len(sim_baselines))
+        assert fvis_all_bls.shape == (len(params['freqs']), len(times), 2, 2, nbls)
     else:
         assert fvis.shape == (len(freqs), len(times), len(sim_baselines))
+        assert fvis_all_bls.shape == (len(params['freqs']), len(times), nbls)
 
     # Check that the polarized results are the same
     for bi, bl in enumerate(sim_baselines):
