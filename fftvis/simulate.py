@@ -193,19 +193,15 @@ def simulate(
         the value inputted here. This is done even if only one polarization
         channel is simulated.
     beam : UVBeam
-        Beam object to use for the array. Per-antenna beams are not yet supported.
-    crd_eq : np.ndarray
-        Cartesian unit vectors of sources in an ECI (Earth Centered
-        Inertial) system, which has the Earth's center of mass at
-        the origin, and is fixed with respect to the distant stars.
-        The components of the ECI vector for each source are:
-        (cos(RA) cos(Dec), sin(RA) cos(Dec), sin(Dec)).
-        Shape=(3, NSRCS).
-    eq2tops : np.ndarray
-        Set of 3x3 transformation matrices to rotate the RA and Dec
-        cosines in an ECI coordinate system (see `crd_eq`) to
-        topocentric ENU (East-North-Up) unit vectors at each
-        time/LST/hour angle in the dataset. Shape=(NTIMES, 3, 3).
+        pyuvdata UVBeam object to use for all antennas in the array. Per-antenna 
+        beams are not yet supported.
+    ra, dec : array_like
+        Arrays of source RA and Dec positions in radians. RA goes from [0, 2 pi]
+        and Dec from [-pi/2, +pi/2].
+    times : astropy.Time instance
+        Times of the observation (can be an array of times).
+    telescope_loc
+        An EarthLocation object representing the center of the array.
     baselines : list of tuples, default = None
         If provided, only the baselines within the list will be simulated and array of shape
         (nbls, nfreqs, ntimes) will be returned
@@ -231,6 +227,13 @@ def simulate(
         The number of parallel processes to use. Computations are parallelized over
         integration times. Set to 1 to disable multiprocessing entirely, or set to 
         None to use all available processors.
+    nthreads : int, optional
+        The number of threads to use for each process. If None, the number of threads
+        will be set to the number of available CPUs divided by the number of processes.
+    coord_method : str, optional
+        The method to use for coordinate rotation. Can be either 'CoordinateRotationAstropy'
+        or 'CoordinateRotationERFA'. The former uses the astropy.coordinates package for
+        coordinate transformations, while the latter uses the ERFA library.
     enable_memory_monitor : bool, optional
         Turn on Ray memory monitoring (i.e. its ability to track memory usage and
         kill tasks that are putting too much memory pressure on). Generally, this is a
@@ -400,7 +403,7 @@ def simulate(
     else:
         fnc = _evaluate_vis_chunk
     
-    logutils.printmem(psutil.Process(), 'before loop')
+    # logutils.printmem(psutil.Process(), 'before loop')
     for (nthi, fc, tc) in zip(nthreads_per_proc, freq_chunks, time_chunks):        
         futures.append(
             fnc(
@@ -425,7 +428,7 @@ def simulate(
         if trace_mem:
             os.system("ray memory --units MB > after-futures.txt")
 
-    logutils.printmem(psutil.Process(), 'while getting futures')
+    # logutils.printmem(psutil.Process(), 'while getting futures')
     if use_ray:
         futures = ray.get(futures)
         if trace_mem:
@@ -505,7 +508,7 @@ def _evaluate_vis_chunk(
             # Rotate source coordinates with rotation matrix.
             utils.inplace_rot(rotation_matrix, topo)     
             topo *= 2*np.pi
-            logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Az/Za")
+            # logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Az/Za")
             
             for freqidx in range(nfreqs)[freq_idx]:
                 freq = freqs[freqidx]
