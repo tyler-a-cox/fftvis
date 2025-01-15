@@ -50,6 +50,7 @@ def simulate_vis(
     flat_array_tol: float = 0.0,
     interpolation_function: str = "az_za_map_coordinates",
     nprocesses: int | None = 1,
+    nthreads: int | None = None,
     coord_method: Literal[
         "CoordinateRotationAstropy", "CoordinateRotationERFA"
     ] = "CoordinateRotationERFA",
@@ -73,10 +74,12 @@ def simulate_vis(
         and Dec from [-pi, +pi].
     freqs : np.ndarray
         Frequencies to evaluate visibilities in Hz.
-    lsts : np.ndarray
-        Local sidereal time in radians. Range is [0, 2 pi].
+    times : astropy.Time instance
+        Times of the observation (can be an array of times).
     beam : UVBeam
         Beam object to use for the array. Per-antenna beams are not yet supported.
+    telescope_loc
+        An EarthLocation object representing the center of the array.
     baselines : list of tuples, default = None
         If provided, only the baselines within the list will be simulated and array of shape
         (nbls, nfreqs, ntimes) will be returned if polarized is False, and (nbls, nfreqs, ntimes, 2, 2) if polarized is True.
@@ -89,26 +92,43 @@ def simulate_vis(
         Whether to simulate polarized visibilities. If True, the output will have
         shape (nfreqs, ntimes, 2, 2, nants, nants), and if False, the output will
         have shape (nfreqs, ntimes, nants, nants).
-    latitude : float, optional
-        Latitude of the array in radians. The default is the
-        HERA latitude = -30.7215 * pi / 180.
     eps : float, default = None
         Desired accuracy of the non-uniform fast fourier transform. If None, the default accuracy
         for the given precision will be used. For precision 1, the default accuracy is 6e-8, and for
         precision 2, the default accuracy is 1e-12.
-    beam_spline_opts : dict, optional
-        Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
     flat_array_tol : float, default = 0.0
         Tolerance for checking if the array is flat in units of meters. If the
         z-coordinate of all baseline vectors is within this tolerance, the array
         is considered flat and the z-coordinate is set to zero. Default is 0.0.
-    live_progress : bool, default = True
-        Whether to show progress bar during simulation.
     interpolation_function : str, default = "az_za_simple"
         The interpolation function to use when interpolating the beam. Can be either be
         'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
         at the edges of the beam, while the latter is faster but less accurate
         for interpolation orders greater than linear.
+    nprocesses : int, optional
+        The number of parallel processes to use. Computations are parallelized over
+        integration times. Set to 1 to disable multiprocessing entirely, or set to 
+        None to use all available processors.
+    nthreads : int, optional
+        The number of threads to use for each process. If None, the number of threads
+        will be set to the number of available CPUs divided by the number of processes.
+    coord_method : str, optional
+        The method to use for coordinate rotation. Can be either 'CoordinateRotationAstropy'
+        or 'CoordinateRotationERFA'. The former uses the astropy.coordinates package for
+        coordinate transformations, while the latter uses the ERFA library.
+    coord_method_params : dict, optional
+        Parameters particular to the coordinate rotation method of choice. For example,
+        for the CoordinateRotationERFA method, there is the parameter ``update_bcrs_every``, 
+        which should be a time in seconds, for which larger values speed up the computation.
+        See the documentation for the CoordinateRotation classes in matvis for more information.
+    force_use_ray: bool, default = False
+        Whether to force the use of Ray for parallelization. If False, Ray will only be used
+        if nprocesses > 1.
+    trace_mem : bool, default = False
+        Whether to trace memory usage during the simulation. If True, the memory usage
+        will be recorded at various points in the simulation and saved to a file.
+    live_progress : bool, default = True
+        Whether to show progress bar during simulation.
 
     Returns:
     -------
@@ -146,6 +166,7 @@ def simulate_vis(
         flat_array_tol=flat_array_tol,
         interpolation_function=interpolation_function,
         nprocesses=nprocesses,
+        nthreads=nthreads,
         coord_method=coord_method,
         coord_method_params=coord_method_params,
         force_use_ray=force_use_ray,
@@ -234,6 +255,17 @@ def simulate(
         The method to use for coordinate rotation. Can be either 'CoordinateRotationAstropy'
         or 'CoordinateRotationERFA'. The former uses the astropy.coordinates package for
         coordinate transformations, while the latter uses the ERFA library.
+    coord_method_params : dict, optional
+        Parameters particular to the coordinate rotation method of choice. For example,
+        for the CoordinateRotationERFA method, there is the parameter ``update_bcrs_every``, 
+        which should be a time in seconds, for which larger values speed up the computation.
+        See the documentation for the CoordinateRotation classes in matvis for more information.
+    force_use_ray : bool, default = False
+        Whether to force the use of Ray for parallelization. If False, Ray will only be used
+        if nprocesses > 1.
+    trace_mem : bool, default = False
+        Whether to trace memory usage during the simulation. If True, the memory usage
+        will be recorded at various points in the simulation and saved to a file.
     enable_memory_monitor : bool, optional
         Turn on Ray memory monitoring (i.e. its ability to track memory usage and
         kill tasks that are putting too much memory pressure on). Generally, this is a
