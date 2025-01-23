@@ -354,7 +354,7 @@ def simulate(
         **coord_method_params,
     )
 
-    if getattr(coord_mgr, "update_bcrs_every", 0) > (times[-1] - times[0])*86400*un.s:
+    if getattr(coord_mgr, "update_bcrs_every", 0) > (times[-1] - times[0]).to(un.s).value:
         # We don't need to ever update BCRS, so we get it now before sending
         # out the jobs to multiple processes.
         coord_mgr._set_bcrs(0)
