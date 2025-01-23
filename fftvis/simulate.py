@@ -74,8 +74,8 @@ def simulate_vis(
         and Dec from [-pi, +pi].
     freqs : np.ndarray
         Frequencies to evaluate visibilities in Hz.
-    times : astropy.Time instance
-        Times of the observation (can be an array of times).
+    times : astropy.Time instance or array_like
+        Times of the observation (can be a numpy array of Julian dates or astropy.Time object).
     beam : UVBeam
         Beam object to use for the array. Per-antenna beams are not yet supported.
     telescope_loc
@@ -219,8 +219,8 @@ def simulate(
     ra, dec : array_like
         Arrays of source RA and Dec positions in radians. RA goes from [0, 2 pi]
         and Dec from [-pi/2, +pi/2].
-    times : astropy.Time instance
-        Times of the observation (can be an array of times).
+    times : astropy.Time instance or array_like
+        Times of the observation (can be a numpy array of Julian dates or astropy.Time object).
     telescope_loc
         An EarthLocation object representing the center of the array.
     baselines : list of tuples, default = None
@@ -339,11 +339,15 @@ def simulate(
     if nprocesses is None:
         nprocesses = cpu_count()
 
+    # Check if the times array is a numpy array
+    if isinstance(times, np.ndarray):
+        times = Time(times, format='jd')
+
     coord_method = CoordinateRotation._methods[coord_method]
     coord_method_params = coord_method_params or {}
     coord_mgr = coord_method(
         flux=Isky,
-        times=Time(times, format='jd'),
+        times=times,
         telescope_loc=telescope_loc,
         skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame='icrs'),
         precision=precision,
