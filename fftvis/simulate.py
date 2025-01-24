@@ -607,5 +607,111 @@ def _evaluate_vis_chunk(
 
     return vis
 
+def _evaluate_vis_chunk_gpu(
+    time_idx: slice,
+    freq_idx: slice,
+    beam: UVBeam,
+    coord_mgr: CoordinateRotation,
+    rotation_matrix: np.ndarray,
+    bls: np.ndarray,
+    freqs: np.ndarray,
+    complex_dtype: np.dtype,
+    nfeeds: int,
+    polarized: bool = False,
+    eps: float | None = None,
+    beam_spline_opts: dict = None,
+    interpolation_function: str = "az_za_map_coordinates",
+    n_threads: int = 1,
+    is_coplanar: bool = False,
+    trace_mem: bool = False,
+):
+    nbls = bls.shape[1]
+    ntimes = len(coord_mgr.times)
+    nfreqs = len(freqs)
+    
+    nt_here = len(coord_mgr.times[time_idx])
+    nf_here = len(freqs[freq_idx])
+    vis = np.zeros(dtype=complex_dtype, shape=(nt_here, nbls, nfeeds, nfeeds, nf_here))
+    coord_mgr.setup()
+
+    for time_index, ti in enumerate(range(ntimes)[time_idx]):
+        coord_mgr.rotate(ti)
+        topo, flux, nsim_sources = coord_mgr.select_chunk(0)
+        
+        # truncate to nsim_sources
+        topo = topo[:, :nsim_sources]
+        flux = flux[:nsim_sources]
+
+        if nsim_sources == 0:
+            continue
+
+        # Compute azimuth and zenith angles
+        az, za = coordinates.enu_to_az_za(
+            enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
+        )
+        
+        # Rotate source coordinates with rotation matrix.
+        utils.inplace_rot(rotation_matrix, topo)     
+        topo *= 2*np.pi
+        
+        for freqidx in range(nfreqs)[freq_idx]:
+            freq = freqs[freqidx]
+            uvw = bls * freq
+
+            A_s = beams._evaluate_beam(
+                beam,
+                az,
+                za,
+                polarized,
+                freq,
+                spline_opts=beam_spline_opts,
+                interpolation_function=interpolation_function,
+            ).astype(complex_dtype)
+            
+            if polarized:
+                beams.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])    
+            else:
+                A_s *= flux[:nsim_sources, freqidx]
+
+            A_s.shape = (nfeeds**2, nsim_sources)
+            i_sky = A_s
+
+            #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After AppFlux")
+            if i_sky.dtype != complex_dtype:
+                i_sky = i_sky.astype(complex_dtype)
+            
+            # Compute visibilities w/ non-uniform FFT
+            if is_coplanar:
+                _vis_here = cufinufft.nufft2d3(
+                    topo[0],
+                    topo[1],
+                    A_s,
+                    np.ascontiguousarray(uvw[0]),
+                    np.ascontiguousarray(uvw[1]),
+                    modeord=0,
+                    eps=eps,
+                    nthreads=n_threads,
+                    showwarn=0,
+                )
+            else:
+                _vis_here = cufinufft.nufft3d3(
+                    topo[0],
+                    topo[1],
+                    topo[2],
+                    A_s,
+                    np.ascontiguousarray(uvw[0]),
+                    np.ascontiguousarray(uvw[1]),
+                    np.ascontiguousarray(uvw[2]),
+                    modeord=0,
+                    eps=eps,
+                    nthreads=n_threads,
+                    showwarn=0,
+                )
+
+            vis[time_index, ..., freqidx] = np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0)
+
+
+    return vis
+
 
 _evaluate_vis_chunk_remote = ray.remote(_evaluate_vis_chunk)
