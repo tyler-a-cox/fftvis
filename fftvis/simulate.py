@@ -39,7 +39,8 @@ def simulate_vis(
     dec: np.ndarray,
     freqs: np.ndarray,
     times: np.ndarray,
-    beam,
+    beam: BeamInterface | list[BeamInterface],
+    beam_idx: list[int],
     telescope_loc: EarthLocation,
     baselines: list[tuple] = None,
     precision: int = 2,
@@ -77,7 +78,9 @@ def simulate_vis(
     times : astropy.Time instance or array_like
         Times of the observation (can be a numpy array of Julian dates or astropy.Time object).
     beam : UVBeam
-        Beam object to use for the array. Per-antenna beams are not yet supported.
+        BeamInterface object or list of BeamInterface objects to use for simulation.
+    beam_idx: list of ints
+        The indices of the beams to use for each antenna in the array.
     telescope_loc
         An EarthLocation object representing the center of the array.
     baselines : list of tuples, default = None
@@ -143,17 +146,28 @@ def simulate_vis(
     # Make sure antpos has the right format
     ants = {k: np.array(v) for k, v in ants.items()}
 
-    beam = BeamInterface(beam)
+    # Check if beam is a list of beams
+    if isinstance(beam, list):
+        beam = [BeamInterface(b) for b in beam]
+
+        # Prepare the beams
+        if not polarized:
+            beam = [prepare_beam_unpolarized(b, use_feed=use_feed) for b in beam]
     
-    # Prepare the beam
-    if not polarized:
-        beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
+    else:
+        beam = BeamInterface(beam)
+
+        # Prepare the beam
+        if not polarized:
+            beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
+
 
     return simulate(
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
         beam=beam,
+        beam_idx=beam_idx,
         ra=ra,
         dec=dec,
         times=times,
@@ -178,7 +192,8 @@ def simulate(
     ants: dict,
     freqs: np.ndarray,
     fluxes: np.ndarray,
-    beam,
+    beam: UVBeam,
+    beam_idx: list[int],
     ra: np.ndarray,
     dec: np.ndarray,
     times: np.ndarray,
@@ -216,6 +231,8 @@ def simulate(
     beam : UVBeam
         pyuvdata UVBeam object to use for all antennas in the array. Per-antenna 
         beams are not yet supported.
+    beam_idx: list of ints
+        The indices of the beams to use for each antenna in the array.
     ra, dec : array_like
         Arrays of source RA and Dec positions in radians. RA goes from [0, 2 pi]
         and Dec from [-pi/2, +pi/2].
@@ -311,6 +328,8 @@ def simulate(
 
     if isinstance(beam, UVBeam):
         beam = beam.interp(freq_array=freqs, new_object=True, run_check=False)
+    else:
+        beam = [b.interp(freq_array=freqs, new_object=True, run_check=False) for b in beam]
     
     # Factor of 0.5 accounts for splitting Stokes between polarization channels
     Isky = 0.5 * fluxes
@@ -510,8 +529,6 @@ def _evaluate_vis_chunk(
             f"memray-{time.time()}_{pid}.bin"
         ).__enter__()
 
-    #logutils.printmem(pr, "Starting")
-
     nbls = bls.shape[1]
     ntimes = len(coord_mgr.times)
     nfreqs = len(freqs)
@@ -519,9 +536,9 @@ def _evaluate_vis_chunk(
     nt_here = len(coord_mgr.times[time_idx])
     nf_here = len(freqs[freq_idx])
     vis = np.zeros(dtype=complex_dtype, shape=(nt_here, nbls, nfeeds, nfeeds, nf_here))
-    #logutils.printmem(pr, "After Vis Allocation")
+
     coord_mgr.setup()
-    #logutils.printmem(pr, "After coord_mgr.setup")
+    
 
     with threadpool_limits(limits=n_threads, user_api='blas'):
         for time_index, ti in enumerate(range(ntimes)[time_idx]):
@@ -559,7 +576,7 @@ def _evaluate_vis_chunk(
                     spline_opts=beam_spline_opts,
                     interpolation_function=interpolation_function,
                 ).astype(complex_dtype)
-                #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After BeamInterp")
+                
                 if polarized:
                     beams.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])    
                 else:
@@ -568,7 +585,6 @@ def _evaluate_vis_chunk(
                 A_s.shape = (nfeeds**2, nsim_sources)
                 i_sky = A_s
 
-                #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After AppFlux")
                 if i_sky.dtype != complex_dtype:
                     i_sky = i_sky.astype(complex_dtype)
                 
@@ -599,11 +615,8 @@ def _evaluate_vis_chunk(
                         nthreads=n_threads,
                         showwarn=0,
                     )
-                #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After GetVis")
 
                 vis[time_index, ..., freqidx] = np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0)
-                #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After VisSet")
-
 
     return vis
 
