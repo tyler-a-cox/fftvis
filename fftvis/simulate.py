@@ -149,6 +149,14 @@ def simulate_vis(
     if not polarized:
         beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
 
+    # Sky model should either be unpolarized or have shape (4, nsources, nfreqs)
+    #if (polarized and len(fluxes.shape) != 3 and fluxes.shape[0] != 4) or (
+    #    polarized and len(fluxes.shape) != 2
+    #):
+    #    raise ValueError(
+    #        "If polarized is True, fluxes must have shape (4, nsources, nfreqs) or (nsources, nfreqs)."
+    #    )
+
     return simulate(
         ants=ants,
         freqs=freqs,
@@ -495,6 +503,7 @@ def _evaluate_vis_chunk(
     complex_dtype: np.dtype,
     nfeeds: int,
     polarized: bool = False,
+    polarized_sky: bool = False,
     eps: float | None = None,
     beam_spline_opts: dict = None,
     interpolation_function: str = "az_za_map_coordinates",
@@ -561,7 +570,7 @@ def _evaluate_vis_chunk(
                 ).astype(complex_dtype)
                 #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After BeamInterp")
                 if polarized:
-                    beams.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])    
+                    beams.get_apparent_flux_polarized_beam(A_s, flux[:nsim_sources, freqidx])    
                 else:
                     A_s *= flux[:nsim_sources, freqidx]
 
