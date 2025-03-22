@@ -174,6 +174,28 @@ def get_task_chunks(nprocesses: int, nfreqs: int, ntimes: int) -> tuple[int, lis
     time_chunks = sum(([slice(i*nt, min(ntimes, (i + 1)*nt))]*nfc for i in range(ntc)), start=[])
     return nprocesses, freq_chunks, time_chunks, nf, nt
 
+def stokes_to_coherency(stokes: np.ndarray) -> np.ndarray:
+    """
+    Convert Stokes parameters to coherency matrix.
+
+    Parameters
+    ----------
+    stokes : np.ndarray
+        Stokes parameters in the form [I, Q, U, V].
+    
+    Returns
+    -------
+    coherency : np.ndarray
+        Coherency matrix.
+    """
+    coherency = 0.5 * np.array(
+        [
+            [stokes[..., 0] + stokes[..., 3], stokes[..., 1] + 1j * stokes[..., 2]],
+            [stokes[..., 1] - 1j * stokes[..., 2], stokes[..., 0] - stokes[..., 3]]
+        ]
+    )
+    return coherency
+
 @nb.jit(nopython=True)
 def inplace_rot(rot: np.ndarray, b: np.ndarray):  # pragma: no cover
     """In-place rotation of coordinates."""

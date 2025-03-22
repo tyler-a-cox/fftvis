@@ -64,11 +64,14 @@ def simulate_vis(
     ants : dict
         Dictionary of antenna positions
     fluxes : np.ndarray
-        Intensity distribution of sources/pixels on the sky, assuming intensity
-        (Stokes I) only. The Stokes I intensity will be split equally between
-        the two linear polarization channels, resulting in a factor of 0.5 from
-        the value inputted here. This is done even if only one polarization
-        channel is simulated.
+        Intensity distribution of sources/pixels on the sky. Either an array of size
+        (nsources, nfreqs) or (nsources, nfreqs, 4) can be provided. If an array of size
+        (nsources, nfreqs) is provided, it will be assumed to intensity (Stokes I) only. 
+        The Stokes I intensity will be split equally between the two linear polarization channels, 
+        resulting in a factor of 0.5 from the value inputted here. This is done even if only one 
+        polarization channel is simulated. If an array of size (nsources, nfreqs, 4) is provided,
+        it will be used to be the full set of stokes paraeters (I, Q, U, and V). Full stokes input
+        is only accepted if polarized=True.
     ra, dec : array_like
         Arrays of source RA and Dec positions in radians. RA goes from [0, 2 pi]
         and Dec from [-pi, +pi].
@@ -149,13 +152,14 @@ def simulate_vis(
     if not polarized:
         beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
 
-    # Sky model should either be unpolarized or have shape (4, nsources, nfreqs)
-    #if (polarized and len(fluxes.shape) != 3 and fluxes.shape[0] != 4) or (
-    #    polarized and len(fluxes.shape) != 2
-    #):
-    #    raise ValueError(
-    #        "If polarized is True, fluxes must have shape (4, nsources, nfreqs) or (nsources, nfreqs)."
-    #    )
+    # Sky model should either be unpolarized or have shape (nsources, nfreqs, 4)
+    if not (
+        (polarized and len(fluxes.shape) == 3 and fluxes.shape[-1] != 4) or 
+        (polarized and len(fluxes.shape) != 2)
+    ): 
+        raise ValueError(
+            "If polarized is True, fluxes must have shape (4, nsources, nfreqs) or (nsources, nfreqs)."
+        )
 
     return simulate(
         ants=ants,
@@ -321,7 +325,13 @@ def simulate(
         beam = beam.interp(freq_array=freqs, new_object=True, run_check=False)
     
     # Factor of 0.5 accounts for splitting Stokes between polarization channels
-    Isky = 0.5 * fluxes
+    if len(fluxes.shape) == 2:
+        coherency = 0.5 * fluxes
+        polarized_sky = False
+    else:
+        coherency = utils.stokes_to_coherency(fluxes)
+        coherency = np.transpose(coherency, (2, 3, 0, 1))
+        polarized_sky = True
 
     # Flatten antenna positions
     antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
@@ -354,7 +364,7 @@ def simulate(
     coord_method = CoordinateRotation._methods[coord_method]
     coord_method_params = coord_method_params or {}
     coord_mgr = coord_method(
-        flux=Isky,
+        flux=coherency,
         times=times,
         telescope_loc=telescope_loc,
         skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame='icrs'),
@@ -461,6 +471,7 @@ def simulate(
                 complex_dtype=complex_dtype,
                 nfeeds=nfeeds,
                 polarized=polarized,
+                polarized_sky=polarized_sky,
                 eps=eps,
                 beam_spline_opts=beam_spline_opts,
                 interpolation_function=interpolation_function,
@@ -528,15 +539,12 @@ def _evaluate_vis_chunk(
     nt_here = len(coord_mgr.times[time_idx])
     nf_here = len(freqs[freq_idx])
     vis = np.zeros(dtype=complex_dtype, shape=(nt_here, nbls, nfeeds, nfeeds, nf_here))
-    #logutils.printmem(pr, "After Vis Allocation")
     coord_mgr.setup()
-    #logutils.printmem(pr, "After coord_mgr.setup")
 
     with threadpool_limits(limits=n_threads, user_api='blas'):
         for time_index, ti in enumerate(range(ntimes)[time_idx]):
             coord_mgr.rotate(ti)
             topo, flux, nsim_sources = coord_mgr.select_chunk(0)
-            #logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Select Chunk")
             
             # truncate to nsim_sources
             topo = topo[:, :nsim_sources]
@@ -553,13 +561,12 @@ def _evaluate_vis_chunk(
             # Rotate source coordinates with rotation matrix.
             utils.inplace_rot(rotation_matrix, topo)     
             topo *= 2*np.pi
-            # logutils.printmem(pr, f"[{time_index+1}/{nt_here}] After Az/Za")
             
             for freqidx in range(nfreqs)[freq_idx]:
                 freq = freqs[freqidx]
                 uvw = bls * freq
 
-                A_s = beams._evaluate_beam(
+                apparent_coherency = beams._evaluate_beam(
                     beam,
                     az,
                     za,
@@ -568,25 +575,26 @@ def _evaluate_vis_chunk(
                     spline_opts=beam_spline_opts,
                     interpolation_function=interpolation_function,
                 ).astype(complex_dtype)
-                #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After BeamInterp")
-                if polarized:
-                    beams.get_apparent_flux_polarized_beam(A_s, flux[:nsim_sources, freqidx])    
+
+                if polarized and not polarized_sky:
+                    beams.get_apparent_flux_polarized_beam(apparent_coherency, flux[:nsim_sources, freqidx])    
+                elif polarized and polarized_sky:
+                    beams.get_apparent_flux_polarized(
+                        apparent_coherency, 
+                        np.transpose(flux[:nsim_sources, freqidx], (1, 2, 0)) # Tranpose so that source index is last
+                    )
                 else:
-                    A_s *= flux[:nsim_sources, freqidx]
+                    apparent_coherency *= flux[:nsim_sources, freqidx]
 
-                A_s.shape = (nfeeds**2, nsim_sources)
-                i_sky = A_s
+                apparent_coherency.shape = (nfeeds**2, nsim_sources)
 
-                #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After AppFlux")
-                if i_sky.dtype != complex_dtype:
-                    i_sky = i_sky.astype(complex_dtype)
                 
                 # Compute visibilities w/ non-uniform FFT
                 if is_coplanar:
                     _vis_here = finufft.nufft2d3(
                         topo[0],
                         topo[1],
-                        A_s,
+                        apparent_coherency,
                         np.ascontiguousarray(uvw[0]),
                         np.ascontiguousarray(uvw[1]),
                         modeord=0,
@@ -599,7 +607,7 @@ def _evaluate_vis_chunk(
                         topo[0],
                         topo[1],
                         topo[2],
-                        A_s,
+                        apparent_coherency,
                         np.ascontiguousarray(uvw[0]),
                         np.ascontiguousarray(uvw[1]),
                         np.ascontiguousarray(uvw[2]),
@@ -608,11 +616,8 @@ def _evaluate_vis_chunk(
                         nthreads=n_threads,
                         showwarn=0,
                     )
-                #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After GetVis")
 
                 vis[time_index, ..., freqidx] = np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0)
-                #logutils.printmem(pr, f"[{time_index+1}/{nt_here} | {freqidx}] After VisSet")
-
 
     return vis
 
