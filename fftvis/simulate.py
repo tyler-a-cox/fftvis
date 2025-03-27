@@ -153,13 +153,13 @@ def simulate_vis(
         beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
 
     # Sky model should either be unpolarized or have shape (nsources, nfreqs, 4)
-    if not (
-        (polarized and len(fluxes.shape) == 3 and fluxes.shape[-1] != 4) or 
-        (polarized and len(fluxes.shape) != 2)
-    ): 
-        raise ValueError(
-            "If polarized is True, fluxes must have shape (4, nsources, nfreqs) or (nsources, nfreqs)."
-        )
+    #if not (
+    #    (polarized and len(fluxes.shape) == 3 and fluxes.shape[-1] != 4) or 
+    #    (polarized and len(fluxes.shape) != 2)
+    #): 
+    #    raise ValueError(
+    #        "If polarized is True, fluxes must have shape (4, nsources, nfreqs) or (nsources, nfreqs)."
+    #    )
 
     return simulate(
         ants=ants,
