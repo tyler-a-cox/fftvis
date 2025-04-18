@@ -10,7 +10,6 @@ import logging
 from typing import Literal, Union
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
-from pyuvdata import UVBeam
 from matvis.core.coords import CoordinateRotation
 
 from ..core.simulate import SimulationEngine
@@ -50,9 +49,9 @@ class GPUSimulationEngine(SimulationEngine):
     ) -> np.ndarray:
         """
         Simulate visibilities using GPU implementation.
-        
+
         See base class for parameter descriptions.
-        
+
         Raises
         ------
         NotImplementedError
@@ -81,9 +80,9 @@ class GPUSimulationEngine(SimulationEngine):
     ) -> np.ndarray:
         """
         Evaluate a chunk of visibility data using GPU.
-        
+
         See base class for parameter descriptions.
-        
+
         Raises
         ------
         NotImplementedError

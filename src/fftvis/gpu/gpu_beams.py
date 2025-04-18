@@ -5,7 +5,6 @@ This module provides GPU-specific beam evaluation functionality.
 Currently it contains stub implementations.
 """
 
-import numpy as np
 from ..core.beams import BeamEvaluator
 
 

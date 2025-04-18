@@ -14,17 +14,20 @@ from .core.utils import (
     get_task_chunks,
 )
 
+
 # This is a simple check to determine which implementation to use
 # This could be enhanced to check for actual CUDA availability
 def _use_gpu():
     """Check if GPU implementation should be used."""
-    # This is a placeholder. In a real implementation, 
+    # This is a placeholder. In a real implementation,
     # you might check for CUDA availability or a config setting
     try:
         import cupy
+
         return True
     except ImportError:
         return False
+
 
 # Import implementation-specific functions
 if _use_gpu():

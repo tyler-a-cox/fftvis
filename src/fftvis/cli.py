@@ -1,19 +1,14 @@
 import typer
 from matvis.cli import (
     get_standard_sim_params,
-    get_line_based_stats,
-    get_summary_stats,
     get_label,
-    get_redundancies,
 )
 from pathlib import Path
-from typing import Optional
 import logging
 from rich.console import Console
 from rich.rule import Rule
 from line_profiler import LineProfiler
 import time
-from pyuvdata.telescopes import get_telescope
 import cProfile
 import pstats
 import os

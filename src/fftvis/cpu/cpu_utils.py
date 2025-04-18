@@ -1,13 +1,12 @@
 import numpy as np
 import numba as nb
-from ..core.utils import inplace_rot_base
 
 
 @nb.jit(nopython=True)
 def inplace_rot(rot: np.ndarray, b: np.ndarray):  # pragma: no cover
     """
     CPU implementation of in-place rotation of coordinates using Numba.
-    
+
     Parameters:
     ----------
     rot : np.ndarray

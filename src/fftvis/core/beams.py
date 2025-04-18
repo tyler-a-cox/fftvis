@@ -1,15 +1,16 @@
 import numpy as np
 from abc import ABC, abstractmethod
 from pyuvdata.beam_interface import BeamInterface
-from typing import Dict, Optional, Union, Tuple, Any
+from typing import Dict, Optional
+
 
 class BeamEvaluator(ABC):
     """Abstract base class for beam evaluation.
-    
+
     This class defines the interface for evaluating beams across different implementations
     (CPU, GPU).
     """
-    
+
     @abstractmethod
     def evaluate_beam(
         self,
@@ -50,25 +51,23 @@ class BeamEvaluator(ABC):
             The interpolation function to use when interpolating the beam. Can be either be
             'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
             at the edges of the beam, while the latter is faster but less accurate
-            for interpolation orders greater than linear. 
+            for interpolation orders greater than linear.
         """
         pass
-    
+
     @abstractmethod
     def get_apparent_flux_polarized(
-        self,
-        beam: np.ndarray,
-        flux: np.ndarray
+        self, beam: np.ndarray, flux: np.ndarray
     ) -> np.ndarray:
         """Calculate apparent flux of the sources.
-        
+
         Parameters
         ----------
         beam
             Array with beam values.
         flux
             Array with source flux values.
-            
+
         Returns
         -------
         np.ndarray

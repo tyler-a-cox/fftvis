@@ -2,7 +2,6 @@ from typing import Literal, Union
 import numpy as np
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
-from pyuvdata import UVBeam
 from pyuvdata.beam_interface import BeamInterface
 from matvis.core.beams import prepare_beam_unpolarized
 
@@ -71,6 +70,7 @@ def create_simulation_engine(
         return CPUSimulationEngine(**kwargs)
     elif backend == "gpu":
         from .gpu.gpu_simulate import GPUSimulationEngine
+
         return GPUSimulationEngine(**kwargs)
     else:
         raise ValueError(f"Unsupported backend: {backend}")

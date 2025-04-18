@@ -18,7 +18,6 @@ __all__ = [
     "BeamEvaluator",
     "CPUBeamEvaluator",
     "create_beam_evaluator",
-    
     # Simulation-related exports
     "SimulationEngine",
     "CPUSimulationEngine",

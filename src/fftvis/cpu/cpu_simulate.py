@@ -18,13 +18,12 @@ from astropy.coordinates import EarthLocation, SkyCoord
 from astropy import units as un
 from astropy.time import Time
 from pyuvdata import UVBeam
-from pyuvdata.beam_interface import BeamInterface
 from matvis import coordinates
 from matvis.core.coords import CoordinateRotation
 
 from ..core.simulate import SimulationEngine, default_accuracy_dict
-from ..core import beams  # Import from core module instead of root package
-from .. import utils, logutils
+from .. import utils
+
 # Import the CPU beam evaluator
 from .cpu_beams import CPUBeamEvaluator
 from .cpu_nufft import cpu_nufft2d, cpu_nufft3d
@@ -33,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Create a global instance of CPUBeamEvaluator to use for beam evaluation
 _cpu_beam_evaluator = CPUBeamEvaluator()
+
 
 # Define a standalone function for Ray to use with remote
 @ray.remote
@@ -77,6 +77,7 @@ def _evaluate_vis_chunk_remote(
         trace_mem=trace_mem,
     )
 
+
 class CPUSimulationEngine(SimulationEngine):
     """CPU implementation of the simulation engine."""
 
@@ -109,7 +110,7 @@ class CPUSimulationEngine(SimulationEngine):
     ) -> np.ndarray:
         """
         Simulate visibilities using CPU implementation.
-        
+
         See base class for parameter descriptions.
         """
         # Get sizes of inputs
@@ -273,7 +274,7 @@ class CPUSimulationEngine(SimulationEngine):
 
         futures = []
         init_time = time.time()
-        
+
         # Create a remote version of _evaluate_vis_chunk if needed
         if use_ray:
             fnc = _evaluate_vis_chunk_remote.remote
@@ -315,7 +316,9 @@ class CPUSimulationEngine(SimulationEngine):
         logger.info(f"Main loop evaluation time: {end_time - init_time}")
 
         # Combine results from all workers
-        vis = np.zeros(dtype=complex_dtype, shape=(ntimes, nbls, nfeeds, nfeeds, nfreqs))
+        vis = np.zeros(
+            dtype=complex_dtype, shape=(ntimes, nbls, nfeeds, nfeeds, nfreqs)
+        )
         for fc, tc, future in zip(freq_chunks, time_chunks, futures):
             vis[tc][..., fc] = future
 
@@ -347,7 +350,7 @@ class CPUSimulationEngine(SimulationEngine):
     ) -> np.ndarray:
         """
         Evaluate a chunk of visibility data using CPU.
-        
+
         See base class for parameter descriptions.
         """
         pid = os.getpid()
@@ -362,8 +365,10 @@ class CPUSimulationEngine(SimulationEngine):
 
         nt_here = len(coord_mgr.times[time_idx])
         nf_here = len(freqs[freq_idx])
-        vis = np.zeros(dtype=complex_dtype, shape=(nt_here, nbls, nfeeds, nfeeds, nf_here))
-        
+        vis = np.zeros(
+            dtype=complex_dtype, shape=(nt_here, nbls, nfeeds, nfeeds, nf_here)
+        )
+
         coord_mgr.setup()
 
         with threadpool_limits(limits=n_threads, user_api="blas"):
@@ -400,9 +405,11 @@ class CPUSimulationEngine(SimulationEngine):
                         spline_opts=beam_spline_opts,
                         interpolation_function=interpolation_function,
                     ).astype(complex_dtype)
-                    
+
                     if polarized:
-                        _cpu_beam_evaluator.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])
+                        _cpu_beam_evaluator.get_apparent_flux_polarized(
+                            A_s, flux[:nsim_sources, freqidx]
+                        )
                     else:
                         A_s *= flux[:nsim_sources, freqidx]
 

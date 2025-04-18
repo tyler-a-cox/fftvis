@@ -6,7 +6,6 @@ This module provides CPU-specific NUFFT functionality using the finufft library.
 
 import numpy as np
 import finufft
-from typing import Optional
 
 
 def cpu_nufft2d(

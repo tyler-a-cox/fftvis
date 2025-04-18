@@ -6,15 +6,11 @@ independent of the specific backend implementation.
 """
 
 from abc import ABC, abstractmethod
-from typing import Literal, Optional, List, Tuple, Any, Union
+from typing import Literal, Union
 import numpy as np
-from astropy.coordinates import EarthLocation, SkyCoord
-from astropy import units as un
+from astropy.coordinates import EarthLocation
 from astropy.time import Time
-from pyuvdata import UVBeam
-from pyuvdata.beam_interface import BeamInterface
 from matvis.core.coords import CoordinateRotation
-from matvis.core.beams import prepare_beam_unpolarized
 
 # Default accuracy for the non-uniform fast fourier transform based on precision
 default_accuracy_dict = {
@@ -316,4 +312,6 @@ def simulate_vis(
         (nfreqs, ntimes, nfeed, nfeed, nants, nants) if polarized is True.
     """
     # Function implementation to be provided by the wrapper
-    raise NotImplementedError("This function is a placeholder that should be implemented by the wrapper")
+    raise NotImplementedError(
+        "This function is a placeholder that should be implemented by the wrapper"
+    )

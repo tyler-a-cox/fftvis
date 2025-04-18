@@ -1,6 +1,5 @@
 import pytest
 import numpy as np
-from src.fftvis.core import beams
 from src.fftvis.cpu.cpu_beams import CPUBeamEvaluator
 
 from pathlib import Path
@@ -79,10 +78,10 @@ def test_get_apparent_flux_polarized():
     flux = np.arange(3).astype(float)
 
     appflux = np.einsum("bas,s,bcs->acs", beam.conj(), flux, beam)
-    
+
     # Create a CPU beam evaluator instance and use its method
     cpu_evaluator = CPUBeamEvaluator()
     beam_copy = beam.copy()
     cpu_evaluator.get_apparent_flux_polarized(beam_copy, flux)
-    
+
     np.testing.assert_allclose(appflux, beam_copy)

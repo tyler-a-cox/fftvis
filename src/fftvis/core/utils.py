@@ -189,7 +189,7 @@ def inplace_rot_base(rot, b):
     Base implementation of in-place rotation of coordinates.
     This is a reference implementation that will be optimized by
     CPU and GPU specific implementations.
-    
+
     Parameters:
     ----------
     rot : np.ndarray
@@ -199,7 +199,7 @@ def inplace_rot_base(rot, b):
     """
     nsrc = b.shape[1]
     out = np.zeros(3, dtype=b.dtype)
-    
+
     for n in range(nsrc):
         out[0] = rot[0, 0] * b[0, n] + rot[0, 1] * b[1, n] + rot[0, 2] * b[2, n]
         out[1] = rot[1, 0] * b[0, n] + rot[1, 1] * b[1, n] + rot[1, 2] * b[2, n]
