@@ -2,6 +2,7 @@ import numpy as np
 from pyuvdata.beam_interface import BeamInterface
 import numba as nb
 
+
 def _evaluate_beam(
     beam: BeamInterface,
     az: np.ndarray,
@@ -40,7 +41,7 @@ def _evaluate_beam(
         The interpolation function to use when interpolating the beam. Can be either be
         'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
         at the edges of the beam, while the latter is faster but less accurate
-        for interpolation orders greater than linear. 
+        for interpolation orders greater than linear.
     """
     # Primary beam pattern using direct interpolation of UVBeam object
     kw = {
@@ -72,31 +73,19 @@ def _evaluate_beam(
 
     return interp_beam
 
-@nb.jit(
-    nopython=True,
-    parallel=False,
-    nogil=False
-)
+
+@nb.jit(nopython=True, parallel=False, nogil=False)
 def get_apparent_flux_polarized(beam: np.ndarray, flux: np.ndarray):  # pragma: no cover
     """Calculate apparent flux of the sources."""
     nax, nfd, nsrc = beam.shape
-    
+
     for isrc in range(nsrc):
         c = np.conj(beam[:, :, isrc])
-        
-        i00 = (
-            c[0, 0] * beam[0, 0, isrc] + 
-            c[1, 0] * beam[1, 0, isrc] 
-        )
-        i01 = (
-            c[0, 0] * beam[0, 1, isrc] + 
-            c[1, 0] * beam[1, 1, isrc] 
-        )
-        
-        i11 = (
-            c[0, 1] * beam[0, 1, isrc] + 
-            c[1, 1] * beam[1, 1, isrc] 
-        )
+
+        i00 = c[0, 0] * beam[0, 0, isrc] + c[1, 0] * beam[1, 0, isrc]
+        i01 = c[0, 0] * beam[0, 1, isrc] + c[1, 0] * beam[1, 1, isrc]
+
+        i11 = c[0, 1] * beam[0, 1, isrc] + c[1, 1] * beam[1, 1, isrc]
         beam[0, 0, isrc] = i00 * flux[isrc]
         beam[0, 1, isrc] = i01 * flux[isrc]
         beam[1, 0, isrc] = np.conj(i01) * flux[isrc]
