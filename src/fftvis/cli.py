@@ -6,7 +6,6 @@ from matvis.cli import (
     get_label,
     get_redundancies,
 )
-from .simulate import simulate_vis, _evaluate_vis_chunk
 from pathlib import Path
 from typing import Optional
 import logging
@@ -20,6 +19,10 @@ import pstats
 import os
 import numpy as np
 from hera_sim.antpos import hex_array
+
+# Import from the new structure
+from .wrapper import simulate_vis
+from .cpu.cpu_simulate import CPUSimulationEngine
 
 cns = Console()
 
@@ -51,6 +54,7 @@ def run_profile(
     trace_mem: bool = False,
     beam_spline_order: int = 3,
     freq_min: float = 100,  # MHz
+    backend: str = "cpu",
 ):
     """Run the script."""
     logger.setLevel(log_level.upper())
@@ -97,6 +101,7 @@ def run_profile(
     cns.print(f"  NZA:              {nza:>7}")
     cns.print(f"  NPROCESSES:       {nprocesses:>7}")
     cns.print(f"  INTERP ORDER:     {beam_spline_order:>7}")
+    cns.print(f"  BACKEND:          {backend:>7}")
 
     if coord_method == "CoordinateRotationERFA":
         cns.print(f"  BCRS UPDATE:       {update_bcrs_every:>7}")
@@ -106,8 +111,10 @@ def run_profile(
 
     cns.print(Rule())
 
+    # Add profiling to the simulate_vis function and the CPU implementation's _evaluate_vis_chunk
     profiler.add_function(simulate_vis)
-    profiler.add_function(_evaluate_vis_chunk)
+    cpu_engine = CPUSimulationEngine()
+    profiler.add_function(cpu_engine._evaluate_vis_chunk)
 
     init_time = time.time()
 
@@ -119,7 +126,7 @@ def run_profile(
         nsource=nsource,
         nbeams=1,
         matprod_method="",
-        gpu=False,
+        gpu=backend == "gpu",
         double_precision=double_precision,
         coord_method=coord_method,
         naz=naz,
@@ -143,6 +150,7 @@ def run_profile(
     force_use_ray=force_use_ray,
     trace_mem=trace_mem,
     beam_spline_opts={'order': beam_spline_order},
+    backend=backend,
         )""",
         globals(),
         locals(),
