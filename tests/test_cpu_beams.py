@@ -1,6 +1,7 @@
 import pytest
 import numpy as np
-from fftvis import beams
+from src.fftvis import beams
+from src.fftvis.cpu.cpu_beams import CPUBeamEvaluator
 
 from pathlib import Path
 from pyuvdata import UVBeam
@@ -45,8 +46,11 @@ def test_beam_interpolators(polarized):
     za = np.linspace(0, np.pi / 2.0, nsrcs)
     freq = np.array([150e6])
 
+    # Create a CPU beam evaluator instance
+    cpu_evaluator = CPUBeamEvaluator()
+
     # Evaluate the beam
-    beam1 = beams._evaluate_beam(
+    beam1 = cpu_evaluator.evaluate_beam(
         az=az,
         za=za,
         beam=beam,
@@ -56,7 +60,7 @@ def test_beam_interpolators(polarized):
         interpolation_function="az_za_simple",
     )
 
-    beam2 = beams._evaluate_beam(
+    beam2 = cpu_evaluator.evaluate_beam(
         az=az,
         za=za,
         beam=beam,
@@ -75,5 +79,10 @@ def test_get_apparent_flux_polarized():
     flux = np.arange(3).astype(float)
 
     appflux = np.einsum("bas,s,bcs->acs", beam.conj(), flux, beam)
-    beams.get_apparent_flux_polarized(beam, flux)
-    np.testing.assert_allclose(appflux, beam)
+    
+    # Create a CPU beam evaluator instance and use its method
+    cpu_evaluator = CPUBeamEvaluator()
+    beam_copy = beam.copy()
+    cpu_evaluator.get_apparent_flux_polarized(beam_copy, flux)
+    
+    np.testing.assert_allclose(appflux, beam_copy)

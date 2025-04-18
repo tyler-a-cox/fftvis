@@ -1,5 +1,5 @@
 import numpy as np
-from fftvis import utils
+from src.fftvis import utils
 
 
 def test_get_plane_to_xy_rotation_matrix():

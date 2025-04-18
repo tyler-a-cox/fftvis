@@ -1,7 +1,7 @@
 import matvis
 import pytest
 import numpy as np
-from fftvis import simulate
+from src.fftvis.wrapper import simulate_vis
 from matvis._test_utils import get_standard_sim_params
 import sys
 
@@ -11,12 +11,14 @@ import sys
 @pytest.mark.parametrize("use_analytic_beam", [True, False])
 @pytest.mark.parametrize("tilt_array", [True, False])
 @pytest.mark.parametrize("nprocesses", [1, 2])
+@pytest.mark.parametrize("backend", ["cpu"])  # Add GPU backend when implemented
 def test_simulate(
     polarized: bool,
     precision: int,
     use_analytic_beam: bool,
     tilt_array: bool,
     nprocesses: int,
+    backend: str,
 ):
     if sys.platform == "darwin" and nprocesses == 2:
         pytest.skip("Cannot use Ray multiprocessing on MacOS")
@@ -49,7 +51,7 @@ def test_simulate(
     times = params.pop("times").jd
 
     # Use fftvis to simulate visibilities
-    fvis = simulate.simulate_vis(
+    fvis = simulate_vis(
         ants,
         eps=1e-10 if precision == 2 else 6e-8,
         baselines=sim_baselines,
@@ -59,10 +61,11 @@ def test_simulate(
         trace_mem=False,
         beam=beam,
         times=times,
+        backend=backend,
         **params,
     )
 
-    fvis_all_bls = simulate.simulate_vis(
+    fvis_all_bls = simulate_vis(
         ants,
         eps=1e-10 if precision == 2 else 6e-8,
         precision=precision,
@@ -71,6 +74,7 @@ def test_simulate(
         trace_mem=False,
         beam=beam,
         times=times,
+        backend=backend,
         **params,
     )
 
