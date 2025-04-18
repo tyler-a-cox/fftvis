@@ -23,11 +23,59 @@ from matvis import coordinates
 from matvis.core.coords import CoordinateRotation
 
 from ..core.simulate import SimulationEngine, default_accuracy_dict
-from .. import utils, beams, logutils
+from ..core import beams  # Import from core module instead of root package
+from .. import utils, logutils
+# Import the CPU beam evaluator
+from .cpu_beams import CPUBeamEvaluator
 from .cpu_nufft import cpu_nufft2d, cpu_nufft3d
 
 logger = logging.getLogger(__name__)
 
+# Create a global instance of CPUBeamEvaluator to use for beam evaluation
+_cpu_beam_evaluator = CPUBeamEvaluator()
+
+# Define a standalone function for Ray to use with remote
+@ray.remote
+def _evaluate_vis_chunk_remote(
+    time_idx: slice,
+    freq_idx: slice,
+    beam,
+    coord_mgr,
+    rotation_matrix: np.ndarray,
+    bls: np.ndarray,
+    freqs: np.ndarray,
+    complex_dtype: np.dtype,
+    nfeeds: int,
+    polarized: bool = False,
+    eps: float = None,
+    beam_spline_opts: dict = None,
+    interpolation_function: str = "az_za_map_coordinates",
+    n_threads: int = 1,
+    is_coplanar: bool = False,
+    trace_mem: bool = False,
+):
+    """Ray-compatible remote version of _evaluate_vis_chunk."""
+    # Create a simulation engine instance
+    engine = CPUSimulationEngine()
+    # Call the method on the instance
+    return engine._evaluate_vis_chunk(
+        time_idx=time_idx,
+        freq_idx=freq_idx,
+        beam=beam,
+        coord_mgr=coord_mgr,
+        rotation_matrix=rotation_matrix,
+        bls=bls,
+        freqs=freqs,
+        complex_dtype=complex_dtype,
+        nfeeds=nfeeds,
+        polarized=polarized,
+        eps=eps,
+        beam_spline_opts=beam_spline_opts,
+        interpolation_function=interpolation_function,
+        n_threads=n_threads,
+        is_coplanar=is_coplanar,
+        trace_mem=trace_mem,
+    )
 
 class CPUSimulationEngine(SimulationEngine):
     """CPU implementation of the simulation engine."""
@@ -228,7 +276,6 @@ class CPUSimulationEngine(SimulationEngine):
         
         # Create a remote version of _evaluate_vis_chunk if needed
         if use_ray:
-            _evaluate_vis_chunk_remote = ray.remote(self._evaluate_vis_chunk)
             fnc = _evaluate_vis_chunk_remote.remote
         else:
             fnc = self._evaluate_vis_chunk
@@ -344,7 +391,7 @@ class CPUSimulationEngine(SimulationEngine):
                     freq = freqs[freqidx]
                     uvw = bls * freq
 
-                    A_s = beams._evaluate_beam(
+                    A_s = _cpu_beam_evaluator.evaluate_beam(
                         beam,
                         az,
                         za,
@@ -355,7 +402,7 @@ class CPUSimulationEngine(SimulationEngine):
                     ).astype(complex_dtype)
                     
                     if polarized:
-                        beams.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])
+                        _cpu_beam_evaluator.get_apparent_flux_polarized(A_s, flux[:nsim_sources, freqidx])
                     else:
                         A_s *= flux[:nsim_sources, freqidx]
 
