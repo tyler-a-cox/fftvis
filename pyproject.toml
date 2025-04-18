@@ -58,4 +58,8 @@ dev = [
 ]
 
 [project.scripts]
-fftvis = "fftvis.cli:app"
+fftvis = "src.fftvis.cli:app"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["fftvis", "fftvis.core", "fftvis.cpu", "fftvis.gpu"]
