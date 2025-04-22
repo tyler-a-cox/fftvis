@@ -10,7 +10,7 @@ def inplace_rot(rot: np.ndarray, b: np.ndarray):  # pragma: no cover
     GPU implementation of in-place rotation of coordinates.
 
     This would typically use a GPU acceleration library like CuPy or direct CUDA calls.
-    For now, this is a placeholder that falls back to the base implementation.
+    This function is not implemented yet and will be added when the full GPU implementation is ready.
 
     Parameters:
     ----------
@@ -19,15 +19,14 @@ def inplace_rot(rot: np.ndarray, b: np.ndarray):  # pragma: no cover
     b : np.ndarray
         Array of shape (3, n) containing coordinates to rotate
     """
-    # In a real GPU implementation, you would:
+    raise NotImplementedError("GPU implementation of inplace_rot is not available yet.")
+
+    # Future implementation will include:
     # 1. Transfer data to GPU memory
     # 2. Run a GPU kernel to perform the rotation
     # 3. Transfer results back to CPU memory if needed
-
-    # For now, fall back to the base implementation
-    inplace_rot_base(rot, b)
-
-    # Future implementation might look like:
+    
+    # Example implementation might look like:
     # import cupy as cp
     # rot_gpu = cp.asarray(rot)
     # b_gpu = cp.asarray(b)

@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from src.fftvis.cpu.cpu_beams import CPUBeamEvaluator
+from fftvis.cpu.cpu_beams import CPUBeamEvaluator
 
 from pathlib import Path
 from pyuvdata import UVBeam
@@ -12,7 +12,19 @@ cst_file = Path(DATA_PATH) / "NicCSTbeams" / "HERA_NicCST_150MHz.txt"
 
 @pytest.mark.parametrize("polarized", [True, False])
 def test_beam_interpolators(polarized):
-    """ """
+    """Test that different beam interpolation methods yield consistent results.
+    
+    This test verifies that:
+    1. Different interpolation functions (az_za_simple and az_za_map_coordinates) 
+       produce equivalent beam patterns
+    2. The interpolation works correctly for both polarized and non-polarized beams
+    3. The CPU beam evaluator correctly processes the beam patterns from UVBeam objects
+    
+    Parameters
+    ----------
+    polarized : bool
+        Whether to test with polarized beam patterns (True) or unpolarized (False)
+    """
     extra_keywords = {
         "software": "CST 2016",
         "sim_type": "E-farfield",
@@ -74,6 +86,14 @@ def test_beam_interpolators(polarized):
 
 
 def test_get_apparent_flux_polarized():
+    """Test the calculation of apparent flux for polarized beam patterns.
+    
+    This test verifies that:
+    1. The get_apparent_flux_polarized method correctly computes the apparent flux
+       when applying beam patterns to source fluxes
+    2. The results match the expected Einstein summation for polarized calculations
+    3. The method correctly modifies the beam array in-place with the flux-weighted values
+    """
     beam = np.arange(12).reshape((2, 2, 3)).astype(complex)
     flux = np.arange(3).astype(float)
 

@@ -1,7 +1,7 @@
 import matvis
 import pytest
 import numpy as np
-from src.fftvis.wrapper import simulate_vis
+from fftvis.wrapper import simulate_vis
 from matvis._test_utils import get_standard_sim_params
 import sys
 
@@ -20,6 +20,31 @@ def test_simulate(
     nprocesses: int,
     backend: str,
 ):
+    """Test the simulation of interferometric visibilities with the CPU backend.
+    
+    This test compares the visibilities simulated by fftvis with those from matvis
+    (used as a reference). It verifies that:
+    1. The simulation correctly handles various combinations of parameters
+    2. Results match the reference implementation within precision tolerance
+    3. Output shapes are correct for polarized and non-polarized cases
+    4. Simulations work with both specific baselines and all baselines
+    5. The implementation works correctly with multiple processes
+    
+    Parameters
+    ----------
+    polarized : bool
+        Whether to use polarized beam patterns and calculate full polarization visibilities
+    precision : int
+        Numerical precision to use (1=single, 2=double)
+    use_analytic_beam : bool
+        Whether to use an analytic beam model (True) or a tabulated beam (False)
+    tilt_array : bool
+        Whether to add vertical offsets to create a non-coplanar array
+    nprocesses : int
+        Number of processes to use for parallelization
+    backend : str
+        Computation backend to use ('cpu' or 'gpu')
+    """
     if sys.platform == "darwin" and nprocesses == 2:
         pytest.skip("Cannot use Ray multiprocessing on MacOS")
 

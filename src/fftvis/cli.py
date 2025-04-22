@@ -91,7 +91,6 @@ def run_profile(
     cns.print(f"  DOUBLE-PRECISION: {double_precision:>7}")
     cns.print(f"  ANALYTIC-BEAM:    {analytic_beam:>7}")
     cns.print(f"  COORDROT METHOD:  {coord_method:>7}")
-    # cns.print(f"  NPAIRS:           {len(pairs) if pairs is not None else nants**2:>7}")
     cns.print(f"  NAZ:              {naz:>7}")
     cns.print(f"  NZA:              {nza:>7}")
     cns.print(f"  NPROCESSES:       {nprocesses:>7}")

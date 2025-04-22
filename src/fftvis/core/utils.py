@@ -187,6 +187,7 @@ def get_task_chunks(
 def inplace_rot_base(rot, b):
     """
     Base implementation of in-place rotation of coordinates.
+    
     This is a reference implementation that will be optimized by
     CPU and GPU specific implementations.
 

@@ -1,9 +1,15 @@
 import numpy as np
-from src.fftvis import utils
+from fftvis import utils
 
 
 def test_get_plane_to_xy_rotation_matrix():
-    """ """
+    """Test that the rotation matrix correctly transforms 3D points to the xy-plane.
+    
+    This test creates a set of 3D points that lie on a plane, calculates the rotation
+    matrix to rotate them to the xy-plane, and verifies that:
+    1. After rotation, all z-coordinates are zero (points lie on xy-plane)
+    2. The rotation preserves the lengths of all vectors (is a proper rotation)
+    """
     # Rotate the array to the xy-plane
     x = np.linspace(0, 100, 100)
     y = np.linspace(0, 100, 100)
@@ -23,7 +29,13 @@ def test_get_plane_to_xy_rotation_matrix():
 
 
 def test_get_plane_to_xy_rotation_matrix_errors():
-    """ """
+    """Test the robustness of the rotation matrix function to non-planar points.
+    
+    This test introduces random noise to the z-coordinates of points that were
+    originally on a plane, simulating measurement errors. It verifies that:
+    1. The rotation matrix still works when points don't perfectly lie on a plane
+    2. The rotated points have z-coordinates within an acceptable statistical threshold (5-sigma)
+    """
     # Rotate the array to the xy-plane
     x = np.linspace(0, 100, 100)
     y = np.linspace(0, 100, 100)
@@ -44,7 +56,13 @@ def test_get_plane_to_xy_rotation_matrix_errors():
 
 
 def test_get_pos_reds():
-    """ """
+    """Test the redundant baseline identification function.
+    
+    This test verifies that:
+    1. The get_pos_reds function correctly identifies redundant baselines in a linear array
+    2. Baselines in the same redundant group have the same physical length
+    3. For a non-redundant array with random positions, each baseline is in its own group
+    """
     antpos = {
         ant_index: np.array([ant_index * 10.0, 0.0, 0.0]) for ant_index in range(10)
     }
@@ -69,7 +87,14 @@ def test_get_pos_reds():
 
 
 def test_get_task_chunks():
-    """ """
+    """Test the chunking algorithm for distributing tasks across processes.
+    
+    This test verifies that:
+    1. When there are fewer tasks than processes, the chunking adapts appropriately
+    2. When there are more tasks than processes, all processors are utilized
+    3. The correct slice objects are created for dividing frequency and time dimensions
+    4. The total work is correctly distributed among all available processes
+    """
     ntimes, nfreqs, nprocesses = 2, 3, 10
 
     # Test when 2 * nproc > ntasks
