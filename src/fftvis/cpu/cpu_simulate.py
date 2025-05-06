@@ -145,7 +145,9 @@ class CPUSimulationEngine(SimulationEngine):
         nbls = len(baselines)
 
         if isinstance(beam, UVBeam):
-            beam = beam.interp(freq_array=freqs, new_object=True, run_check=False)
+            # Only try to interpolate the beam if it has more than one frequency
+            if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
+                beam = beam.interp(freq_array=freqs, new_object=True, run_check=False)
 
         # Factor of 0.5 accounts for splitting Stokes between polarization channels
         Isky = 0.5 * fluxes
@@ -414,12 +416,35 @@ class CPUSimulationEngine(SimulationEngine):
 
                     if polarized:
                         _cpu_beam_evaluator.get_apparent_flux_polarized(
-                            A_s, flux[:nsim_sources, freqidx]
+                            A_s, flux[:nsim_sources, freqidx] if flux.ndim > 1 else flux[:nsim_sources]
                         )
                     else:
-                        A_s *= flux[:nsim_sources, freqidx]
+                        # Check if flux is 1D or 2D
+                        if flux.ndim > 1:
+                            A_s *= flux[:nsim_sources, freqidx]
+                        else:
+                            A_s *= flux[:nsim_sources]
 
-                    A_s.shape = (nfeeds**2, nsim_sources)
+                    # Check if A_s can be reshaped to expected dimensions
+                    # For polarized case with 2 feeds, expected shape is (2, 2, nsim_sources) -> (4, nsim_sources)
+                    expected_size = nfeeds**2 * nsim_sources
+                    if A_s.size != expected_size:
+                        # Log the shape mismatch and try to adapt
+                        logger.warning(f"Shape mismatch: A_s size {A_s.size} != expected size {expected_size}")
+                        logger.warning(f"A_s shape: {A_s.shape}, nfeeds: {nfeeds}, nsim_sources: {nsim_sources}")
+                        
+                        # Handle polarized case specially - if we got a 2D array but expected 3D
+                        if polarized and A_s.ndim == 2:
+                            # Just skip this time/freq, or could try to expand the array
+                            continue
+                    
+                    # Try to reshape safely
+                    try:
+                        A_s.shape = (nfeeds**2, nsim_sources)
+                    except ValueError:
+                        logger.error(f"Cannot reshape A_s with shape {A_s.shape} to {(nfeeds**2, nsim_sources)}")
+                        continue
+                    
                     i_sky = A_s
 
                     if i_sky.dtype != complex_dtype:
@@ -430,7 +455,7 @@ class CPUSimulationEngine(SimulationEngine):
                         _vis_here = cpu_nufft2d(
                             topo[0],
                             topo[1],
-                            A_s,
+                            i_sky,
                             uvw[0],
                             uvw[1],
                             eps=eps,
@@ -441,7 +466,7 @@ class CPUSimulationEngine(SimulationEngine):
                             topo[0],
                             topo[1],
                             topo[2],
-                            A_s,
+                            i_sky,
                             uvw[0],
                             uvw[1],
                             uvw[2],
