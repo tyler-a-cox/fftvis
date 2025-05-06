@@ -1,9 +1,23 @@
-import matvis
+import sys
 import pytest
 import numpy as np
-from fftvis.wrapper import simulate_vis
+
+# Monkey patch pyuvdata.telescopes before importing matvis
+import pyuvdata.telescopes
+if not hasattr(pyuvdata.telescopes, 'get_telescope'):
+    from pyuvdata import Telescope
+    
+    def get_telescope(telescope_name, **kwargs):
+        """Compatibility function to create a Telescope object from name."""
+        return Telescope.from_known_telescopes(telescope_name, **kwargs)
+    
+    # Add the function to the module
+    pyuvdata.telescopes.get_telescope = get_telescope
+
+# Now import matvis after the patch
+import matvis
 from matvis._test_utils import get_standard_sim_params
-import sys
+from fftvis.wrapper import simulate_vis
 
 
 @pytest.mark.parametrize("polarized", [False, True])
