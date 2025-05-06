@@ -28,9 +28,6 @@ class CPUBeamEvaluator(BeamEvaluator):
 
             Parameters
             ----------
-            A_s
-                Array of shape (nax, nfeed, nsrcs_up) that will be filled with beam
-            values.
             beam
                 UVBeam object to evaluate.
             az
@@ -56,6 +53,11 @@ class CPUBeamEvaluator(BeamEvaluator):
             np.ndarray
                 Interpolated beam values.
         """
+        # Save these for matvis compatibility
+        self.polarized = polarized
+        self.freq = freq
+        self.spline_opts = spline_opts or {}
+        
         # Primary beam pattern using direct interpolation of UVBeam object
         kw = {
             "reuse_spline": True,

@@ -35,7 +35,11 @@ def create_beam_evaluator(
         If the specified backend is not supported.
     """
     if backend == "cpu":
-        return CPUBeamEvaluator(**kwargs)
+        evaluator = CPUBeamEvaluator(**kwargs)
+        # Ensure the beam_list is properly initialized since this is required by matvis
+        evaluator.beam_list = []
+        evaluator.beam_idx = None
+        return evaluator
     elif backend == "gpu":
         raise NotImplementedError("GPU backend not yet implemented")
     else:

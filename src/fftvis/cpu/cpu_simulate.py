@@ -396,6 +396,12 @@ class CPUSimulationEngine(SimulationEngine):
                     freq = freqs[freqidx]
                     uvw = bls * freq
 
+                    # Update beam evaluator for matvis compatibility
+                    _cpu_beam_evaluator.beam_list = [beam]
+                    _cpu_beam_evaluator.nsrc = len(az)
+                    _cpu_beam_evaluator.polarized = polarized
+                    _cpu_beam_evaluator.freq = freq
+
                     A_s = _cpu_beam_evaluator.evaluate_beam(
                         beam,
                         az,
