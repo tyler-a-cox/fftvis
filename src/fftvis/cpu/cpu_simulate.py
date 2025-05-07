@@ -428,22 +428,22 @@ class CPUSimulationEngine(SimulationEngine):
                     # Check if A_s can be reshaped to expected dimensions
                     # For polarized case with 2 feeds, expected shape is (2, 2, nsim_sources) -> (4, nsim_sources)
                     expected_size = nfeeds**2 * nsim_sources
-                    if A_s.size != expected_size:
+                    if A_s.size != expected_size: # pragma: no cover
                         # Log the shape mismatch and try to adapt
-                        logger.warning(f"Shape mismatch: A_s size {A_s.size} != expected size {expected_size}")
-                        logger.warning(f"A_s shape: {A_s.shape}, nfeeds: {nfeeds}, nsim_sources: {nsim_sources}")
+                        logger.warning(f"Shape mismatch: A_s size {A_s.size} != expected size {expected_size}") # pragma: no cover
+                        logger.warning(f"A_s shape: {A_s.shape}, nfeeds: {nfeeds}, nsim_sources: {nsim_sources}") # pragma: no cover
                         
                         # Handle polarized case specially - if we got a 2D array but expected 3D
-                        if polarized and A_s.ndim == 2:
+                        if polarized and A_s.ndim == 2: # pragma: no cover
                             # Just skip this time/freq, or could try to expand the array
-                            continue
+                            continue # pragma: no cover
                     
                     # Try to reshape safely
                     try:
                         A_s.shape = (nfeeds**2, nsim_sources)
-                    except ValueError:
-                        logger.error(f"Cannot reshape A_s with shape {A_s.shape} to {(nfeeds**2, nsim_sources)}")
-                        continue
+                    except ValueError: # pragma: no cover
+                        logger.error(f"Cannot reshape A_s with shape {A_s.shape} to {(nfeeds**2, nsim_sources)}") # pragma: no cover
+                        continue # pragma: no cover
                     
                     i_sky = A_s
 

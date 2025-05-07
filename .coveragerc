@@ -1,7 +1,7 @@
 [run]
 include = src/fftvis/*
 omit = 
-    src/fftvis/logutils.py
+    */logutils.py
     */cli.py
 branch = True
 
