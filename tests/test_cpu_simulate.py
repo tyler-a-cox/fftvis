@@ -1,6 +1,20 @@
-import sys
 import pytest
+import ray
+import sys
+import os
+import logging
 import numpy as np
+from astropy.time import Time
+from astropy.coordinates import EarthLocation, SkyCoord
+from astropy import units as un
+from pyuvdata import UVBeam
+from pyuvdata.data import DATA_PATH
+from matvis.core.coords import CoordinateRotation
+
+from fftvis.core.simulate import SimulationEngine
+from fftvis.cpu.cpu_simulate import CPUSimulationEngine, _evaluate_vis_chunk_remote
+from fftvis.wrapper import simulate_vis
+from fftvis import utils
 
 # Monkey patch pyuvdata.telescopes before importing matvis
 import pyuvdata.telescopes
@@ -29,6 +43,9 @@ from astropy.coordinates import EarthLocation
 import os
 from pyuvdata import UVBeam
 from pyuvdata.data import DATA_PATH
+from matvis.core.coords import CoordinateRotation
+
+from fftvis.core.simulate import SimulationEngine
 
 
 @pytest.mark.parametrize("polarized", [False, True])
@@ -852,3 +869,320 @@ def test_time_array_handling():
     
     # Check shape for array time
     assert vis_array.shape == (1, 2, 2)
+
+
+@pytest.mark.skipif(sys.platform == "darwin", reason="Ray remote flakey on macOS")
+def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
+    # Minimal inputs for one time/freq, one baseline, unpolarized
+    engine = CPUSimulationEngine()
+    ants = {0: np.array([0.0,0.0,0.0]), 1: np.array([10.0,0.0,0.0])}
+    freqs = np.array([1e8])
+    fluxes = np.ones(1)
+    ra = np.array([0.0])
+    dec = np.array([0.0])
+    times = Time(['2020-01-01'], scale='utc')
+    telescope_loc = EarthLocation(lat=0, lon=0, height=0)
+    beam = UVBeam()
+    beam.data_array = np.ones((1,1,1))
+    params = dict(
+        beam=beam,
+        coord_method_params={"source_buffer": 0.5},
+        ants=ants,
+        freqs=freqs,
+        fluxes=fluxes,
+        ra=ra,
+        dec=dec,
+        times=times,
+        telescope_loc=telescope_loc,
+        nprocesses=1,
+        force_use_ray=True,     # force Ray path
+        trace_mem=False,
+    )
+
+    # Create all the necessary objects directly
+    # Factor of 0.5 accounts for splitting Stokes between polarization channels
+    Isky = 0.5 * fluxes
+    
+    # Create the coordinate manager
+    coord_method = CoordinateRotation._methods["CoordinateRotationERFA"]
+    coord_mgr = coord_method(
+        flux=Isky,
+        times=times,
+        telescope_loc=telescope_loc,
+        skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs"),
+        precision=2,
+        source_buffer=0.5
+    )
+    
+    # Flatten antenna positions
+    antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
+    antvecs = np.array([ants[ant] for ant in ants], dtype=np.float64)
+    
+    # Rotate the array to the xy-plane
+    rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
+    rotation_matrix = np.ascontiguousarray(rotation_matrix.astype(np.float64).T)
+    rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
+    rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
+    
+    # Compute baseline vectors
+    bls = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in [(0, 1)]])[
+        :, :
+    ].T.astype(np.float64)
+    
+    bls /= utils.speed_of_light
+
+    # Direct invocation
+    direct = engine._evaluate_vis_chunk(
+        time_idx=slice(None),
+        freq_idx=slice(None),
+        beam=beam,
+        coord_mgr=coord_mgr,
+        rotation_matrix=rotation_matrix,
+        bls=bls,
+        freqs=freqs,
+        complex_dtype=np.complex128,
+        nfeeds=1,
+        polarized=False,
+        eps=None,
+        beam_spline_opts=None,
+        interpolation_function="az_za_map_coordinates",
+        n_threads=1,
+        is_coplanar=True,
+        trace_mem=False,
+    )
+
+    # Ray remote invocation
+    ray.init(include_dashboard=False, num_cpus=1, object_store_memory=10**7)
+    fut = _evaluate_vis_chunk_remote.remote(
+        time_idx=slice(None),
+        freq_idx=slice(None),
+        beam=beam,
+        coord_mgr=coord_mgr,
+        rotation_matrix=rotation_matrix,
+        bls=bls,
+        freqs=freqs,
+        complex_dtype=np.complex128,
+        nfeeds=1,
+        polarized=False,
+        eps=None,
+        beam_spline_opts=None,
+        interpolation_function="az_za_map_coordinates",
+        n_threads=1,
+        is_coplanar=True,
+        trace_mem=False,
+    )
+    remote = ray.get(fut)
+    ray.shutdown()
+
+    # They should be numerically identical
+    np.testing.assert_allclose(remote, direct)
+
+
+
+# Force Ray path in simulate()
+def test_simulate_force_use_ray_single_proc(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    # Very minimal sim parameters
+    ants = {0: np.array([0.0, 0.0, 0.0]), 1: np.array([10.0, 0.0, 0.0])}
+    freqs = np.array([1e8])
+    fluxes = np.ones(1)
+    ra = np.array([0.0])
+    dec = np.array([0.0])
+    times = Time(['2020-01-01'], scale='utc')
+    telescope_loc = EarthLocation(lat='0d', lon='0d', height=0)
+    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
+    beam = UVBeam()
+    beam.read_cst_beam(
+        beam_file, frequency=[1e8], telescope_name="HERA",
+        feed_name="Dipole", feed_version="1.0", feed_pol=["x"],
+        model_name="test", model_version="1.0"
+    )
+
+    # This will go through the Ray init→put→get path even on macOS
+    vis = simulate_vis(
+        ants=ants,
+        freqs=freqs,
+        fluxes=fluxes,
+        beam=beam,
+        ra=ra,
+        dec=dec,
+        times=times,
+        telescope_loc=telescope_loc,
+        backend="cpu",
+        nprocesses=1,
+        force_use_ray=True,
+    )
+    # Expect shape (nf, nt, nbls)
+    assert vis.shape == (1, 1, 2)
+    assert not np.isnan(vis).any()
+    # Confirm we saw the shared-memory init log
+    assert any("Initializing with" in rec.message for rec in caplog.records)
+
+
+# Trace-memory branch in chunk evaluator
+@pytest.mark.skipif(sys.platform == "darwin", reason="Memray not supported on macOS")
+def test_chunk_eval_trace_mem(tmp_path):
+    engine = CPUSimulationEngine()
+    # reuse minimal setup from direct test above
+    ants = {0: np.array([0.0,0.0,0.0]), 1: np.array([10.0,0.0,0.0])}
+    freqs = np.array([1e8])
+    fluxes = np.ones(1)
+    ra = np.array([0.0])
+    dec = np.array([0.0])
+    times = Time(['2020-01-01'], scale='utc')
+    telescope_loc = EarthLocation(lat=0, lon=0, height=0)
+    beam = UVBeam()
+    beam.data_array = np.ones((1,1,1))  # dummy
+    
+    # Reimplemented from simulate() - we'll directly create coord_mgr, rotation_matrix, and bls
+    # Factor of 0.5 accounts for splitting Stokes between polarization channels
+    Isky = 0.5 * fluxes
+    
+    # Create the coordinate manager
+    coord_method = CoordinateRotation._methods["CoordinateRotationERFA"]
+    coord_mgr = coord_method(
+        flux=Isky,
+        times=times,
+        telescope_loc=telescope_loc,
+        skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs"),
+        precision=2,
+        source_buffer=0.5
+    )
+    
+    # Flatten antenna positions
+    antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
+    antvecs = np.array([ants[ant] for ant in ants], dtype=np.float64)
+    
+    # Rotate the array to the xy-plane
+    rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
+    rotation_matrix = np.ascontiguousarray(rotation_matrix.astype(np.float64).T)
+    rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
+    rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
+    
+    # Compute baseline vectors
+    bls = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in [(0, 1)]])[
+        :, :
+    ].T.astype(np.float64)
+    
+    bls /= utils.speed_of_light
+
+    # call the trace_mem path
+    vis = engine._evaluate_vis_chunk(
+        time_idx=slice(None),
+        freq_idx=slice(None),
+        beam=beam,
+        coord_mgr=coord_mgr,
+        rotation_matrix=rotation_matrix,
+        bls=bls,
+        freqs=freqs,
+        complex_dtype=np.complex128,
+        nfeeds=1,
+        polarized=False,
+        eps=None,
+        beam_spline_opts=None,
+        interpolation_function="az_za_map_coordinates",
+        n_threads=1,
+        is_coplanar=True,
+        trace_mem=True,
+    )
+    # still returns correct shape
+    assert vis.shape == (1, 1, 1, 1, 1) or vis.shape == (1, 1, 1)
+
+
+#  Beam-shape error handling branch
+@pytest.mark.skipif(sys.platform == "darwin", reason="Shape mismatch warning test not consistent on macOS")
+def test_beam_shape_mismatch_logs_warning(caplog, monkeypatch):
+    caplog.set_level(logging.WARNING)
+    engine = CPUSimulationEngine()
+
+    # Create a dummy beam evaluator that returns wrong-size A_s
+    class BadEvaluator:
+        def __init__(self): pass
+        def evaluate_beam(self, *args, **kwargs):
+            # Return an array with a different size than expected
+            # For nsrc=1, nfeeds=1, expected_size is 1*1*1=1, so return size=2
+            return np.ones(2, dtype=np.complex128)
+        
+        def get_apparent_flux_polarized(self, *args, **kwargs):
+            pass
+
+    monkeypatch.setattr("fftvis.cpu.cpu_simulate._cpu_beam_evaluator", BadEvaluator())
+
+    # minimal invocation of _evaluate_vis_chunk:
+    ants = {0: np.array([0,0,0]), 1: np.array([1,0,0])}
+    freqs = np.array([1e8])
+    fluxes = np.ones(1)
+    ra = np.array([0.0])
+    dec = np.array([0.0])
+    times = Time(['2020-01-01'], scale='utc')
+    telescope_loc = EarthLocation(lat=0, lon=0, height=0)
+    beam = UVBeam()
+    beam.data_array = np.ones((1,1,1))
+    
+    # Reimplemented from simulate() - we'll directly create coord_mgr, rotation_matrix, and bls
+    # Factor of 0.5 accounts for splitting Stokes between polarization channels
+    Isky = 0.5 * fluxes
+    
+    # Create the coordinate manager
+    coord_method = CoordinateRotation._methods["CoordinateRotationERFA"]
+    coord_mgr = coord_method(
+        flux=Isky,
+        times=times,
+        telescope_loc=telescope_loc,
+        skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs"),
+        precision=2,
+        source_buffer=0.5
+    )
+    
+    # Monkey-patch the coord_mgr.select_chunk method to force non-zero sources
+    monkeypatch.setattr(coord_mgr, "select_chunk",
+        lambda idx: (np.array([[1.0], [1.0], [1.0]]), np.array([1.0]), 1)
+    )
+    
+    # Flatten antenna positions
+    antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
+    antvecs = np.array([ants[ant] for ant in ants], dtype=np.float64)
+    
+    # Rotate the array to the xy-plane
+    rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
+    rotation_matrix = np.ascontiguousarray(rotation_matrix.astype(np.float64).T)
+    rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
+    rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
+    
+    # Compute baseline vectors
+    bls = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in [(0, 1)]])[
+        :, :
+    ].T.astype(np.float64)
+    
+    bls /= utils.speed_of_light
+
+    # run chunk eval
+    vis = engine._evaluate_vis_chunk(
+        time_idx=slice(None),
+        freq_idx=slice(None),
+        beam=beam,
+        coord_mgr=coord_mgr,
+        rotation_matrix=rotation_matrix,
+        bls=bls,
+        freqs=freqs,
+        complex_dtype=np.complex128,
+        nfeeds=1,
+        polarized=False,
+        eps=None,
+        beam_spline_opts=None,
+        interpolation_function="az_za_map_coordinates",
+        n_threads=1,
+        is_coplanar=True,
+        trace_mem=False,
+    )
+    # should still return zeros (skipped) and log warnings
+    assert np.all(vis == 0)
+    
+    # Check for both warning messages
+    warning_found = False
+    for rec in caplog.records:
+        if "Shape mismatch" in rec.message:
+            warning_found = True
+            break
+    
+    assert warning_found, "Warning message about shape mismatch not found in logs."

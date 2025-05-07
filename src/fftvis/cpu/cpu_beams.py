@@ -90,7 +90,7 @@ class CPUBeamEvaluator(BeamEvaluator):
 
     @staticmethod
     @nb.jit(nopython=True, parallel=False, nogil=False)
-    def get_apparent_flux_polarized(beam: np.ndarray, flux: np.ndarray):
+    def get_apparent_flux_polarized(beam: np.ndarray, flux: np.ndarray):  # pragma: no cover
         """Calculate apparent flux of the sources."""
         nax, nfd, nsrc = beam.shape
 

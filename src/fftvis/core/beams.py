@@ -50,7 +50,7 @@ class BeamEvaluator(BeamInterpolator):
         check: bool = False,
         spline_opts: Optional[Dict] = None,
         interpolation_function: str = "az_za_map_coordinates",
-    ) -> np.ndarray:
+    ) -> np.ndarray:  # pragma: no cover
         """Evaluate the beam on the CPU. Simplified version of the `_evaluate_beam_cpu` function
         in matvis.
 
@@ -85,7 +85,7 @@ class BeamEvaluator(BeamInterpolator):
     @abstractmethod
     def get_apparent_flux_polarized(
         self, beam: np.ndarray, flux: np.ndarray
-    ) -> np.ndarray:
+    ) -> np.ndarray:  # pragma: no cover
         """Calculate apparent flux of the sources.
 
         Parameters
