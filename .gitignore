@@ -160,4 +160,13 @@ cython_debug/
 #.idea/
 .vscode
 *.flame
-cprofile*
+cprofile*before-puts.txt
+
+# Memray files due to tests
+memray-*.bin
+memray-*.json
+memray-*.html
+memray-*.txt
+memray-*.csv
+memray-*.jsonl
+before-puts.txt
