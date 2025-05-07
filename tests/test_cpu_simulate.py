@@ -54,6 +54,7 @@ from fftvis.core.simulate import SimulationEngine
 @pytest.mark.parametrize("tilt_array", [True, False])
 @pytest.mark.parametrize("nprocesses", [1, 2])
 @pytest.mark.parametrize("backend", ["cpu"])  # Add GPU backend when implemented
+@pytest.mark.parametrize("force_use_ray", [False])  # Only run with force_use_ray=False
 def test_simulate(
     polarized: bool,
     precision: int,
@@ -61,6 +62,7 @@ def test_simulate(
     tilt_array: bool,
     nprocesses: int,
     backend: str,
+    force_use_ray: bool,
 ):
     """Test the simulation of interferometric visibilities with the CPU backend.
     
@@ -86,8 +88,10 @@ def test_simulate(
         Number of processes to use for parallelization
     backend : str
         Computation backend to use ('cpu' or 'gpu')
+    force_use_ray : bool
+        Whether to force the use of Ray for parallelization
     """
-    if sys.platform == "darwin" and nprocesses == 2:
+    if sys.platform == "darwin" and (nprocesses > 1 or force_use_ray):
         pytest.skip("Cannot use Ray multiprocessing on MacOS")
 
     params, *_ = get_standard_sim_params(
@@ -129,6 +133,7 @@ def test_simulate(
         beam=beam,
         times=times,
         backend=backend,
+        force_use_ray=force_use_ray,
         **params,
     )
 
@@ -142,6 +147,7 @@ def test_simulate(
         beam=beam,
         times=times,
         backend=backend,
+        force_use_ray=force_use_ray,
         **params,
     )
 
@@ -952,7 +958,7 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
     )
 
     # Ray remote invocation
-    ray.init(include_dashboard=False, num_cpus=1, object_store_memory=10**7)
+    ray.init(include_dashboard=False, num_cpus=1, object_store_memory=10**7, ignore_reinit_error=True)
     fut = _evaluate_vis_chunk_remote.remote(
         time_idx=slice(None),
         freq_idx=slice(None),
@@ -980,6 +986,7 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
 
 
 # Force Ray path in simulate()
+@pytest.mark.skipif(sys.platform == "darwin", reason="Ray can cause issues on macOS")
 def test_simulate_force_use_ray_single_proc(tmp_path, caplog):
     caplog.set_level(logging.INFO)
     # Very minimal sim parameters
