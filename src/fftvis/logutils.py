@@ -1,6 +1,5 @@
 """Utilities for logging / output during the simulation."""
 
-
 import datetime
 import logging
 import time
@@ -27,13 +26,14 @@ def human_readable_size(size, decimal_places=2, indicate_sign=False):
     else:
         return f"{size:.{decimal_places}f} {unit}"
 
-def printmem(pr: psutil.Process, msg: str=""):
+
+def printmem(pr: psutil.Process, msg: str = ""):
     """Print memory usage of the process."""
-    #if logger.isEnabledFor(logging.INFO):
+    # if logger.isEnabledFor(logging.INFO):
     info = pr.memory_info()
-    
+
     rss = info.rss
-    try:    
+    try:
         shm = info.shared
     except AttributeError:
         # On macos there is no shared memory
@@ -42,10 +42,11 @@ def printmem(pr: psutil.Process, msg: str=""):
 
     shm = human_readable_size(shm)
     used = human_readable_size(used)
-    
-    #logger.info(f"{msg} Memory Usage [{pr.pid}]: {used} internal, {shm} shared.")
+
+    # logger.info(f"{msg} Memory Usage [{pr.pid}]: {used} internal, {shm} shared.")
     print(f"{msg} Memory Usage [{pr.pid}]: {used} internal, {shm} shared.")
-    
+
+
 def memtrace(highest_peak) -> int:
     if logger.isEnabledFor(logging.INFO):
         cm, pm = tm.get_traced_memory()

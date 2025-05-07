@@ -1,8 +1,9 @@
 import numpy as np
 from scipy import linalg
+
 IDEALIZED_BL_TOL = 1e-8  # bl_error_tol for redcal.get_reds when using antenna positions calculated from reds
 speed_of_light = 299792458.0  # m/s
-import numba as nb
+
 
 def get_pos_reds(antpos, decimals=3, include_autos=True):
     """
@@ -69,7 +70,7 @@ def get_pos_reds(antpos, decimals=3, include_autos=True):
 
 def get_plane_to_xy_rotation_matrix(antvecs):
     """
-    Compute the rotation matrix that projects the antenna positions onto the xy-plane. 
+    Compute the rotation matrix that projects the antenna positions onto the xy-plane.
     This function is used to rotate the antenna positions so that they lie in the xy-plane.
 
     Parameters:
@@ -86,11 +87,11 @@ def get_plane_to_xy_rotation_matrix(antvecs):
     antx, anty, antz = antvecs.T
     basis = np.array([antx, anty, np.ones_like(antz)]).T
     plane, res, rank, s = linalg.lstsq(basis, antz)
-    
+
     # Project the antenna positions onto the plane
     slope_x, slope_y, z_offset = plane
 
-    # Plane is already approximately aligned with the xy-axes, 
+    # Plane is already approximately aligned with the xy-axes,
     # return identity rotation matrix
     if np.isclose(slope_x, 0) and np.isclose(slope_y, 0.0):
         return np.eye(3)
@@ -98,25 +99,28 @@ def get_plane_to_xy_rotation_matrix(antvecs):
     # Normalize the normal vector
     normal = np.array([slope_x, slope_y, -1])
     normal = normal / np.linalg.norm(normal)
-    
+
     # Compute the rotation axis
     axis = np.array([slope_y, -slope_x, 0])
     axis = axis / np.linalg.norm(axis)
-    
+
     # Compute the rotation angle
     theta = np.arccos(-normal[2])
-    
+
     # Compute the rotation matrix using Rodrigues' formula
-    K = np.array([[0, -axis[2], axis[1]],
-                  [axis[2], 0, -axis[0]],
-                  [-axis[1], axis[0], 0]])
+    K = np.array(
+        [[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]]
+    )
     rotation_matrix = np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * np.dot(K, K)
-    
+
     return rotation_matrix
 
-def get_task_chunks(nprocesses: int, nfreqs: int, ntimes: int) -> tuple[int, list[slice], list[slice]]:
+
+def get_task_chunks(
+    nprocesses: int, nfreqs: int, ntimes: int
+) -> tuple[int, list[slice], list[slice], int, int]:
     """Compute the optimal set of task chunks in time and frequency.
-    
+
     Prefer putting more frequencies in each chunk rather than times, but scale as
     necessary.
 
@@ -128,11 +132,11 @@ def get_task_chunks(nprocesses: int, nfreqs: int, ntimes: int) -> tuple[int, lis
         The number of frequency channels required.
     ntimes
         The number of time integrations required.
-        
+
     Returns
     -------
     nprocesses : int
-        The number of processes to actually use (typically the same as the input, 
+        The number of processes to actually use (typically the same as the input,
         but can be returned as 1 if sub-process threading is better)
     freq_chunks : list of slices
         A length-nprocesses list of lists of integers, where each sublist defines
@@ -140,48 +144,65 @@ def get_task_chunks(nprocesses: int, nfreqs: int, ntimes: int) -> tuple[int, lis
     time_chunks : list of slices
         A length-nprocesses list of lists of integers, where each sublist defines
         a set of time integrations to compute.
+    nf : int
+        The number of frequency channels per chunk.
+    nt : int
+        The number of time integrations per chunk.
     """
     ntasks = ntimes * nfreqs
 
-    if ntasks < 2*nprocesses:
+    if ntasks < 2 * nprocesses:
         # Prefer lower-latency parallelization of the component calculations
         return 1, [slice(None)], [slice(None)], nfreqs, ntimes
-        
-    
+
     if ntimes >= nprocesses:
-        freq_chunks = [list(range(nfreqs))]*nprocesses
-    
+        freq_chunks = [list(range(nfreqs))] * nprocesses
+
     nt = int(np.ceil(ntimes / nprocesses))
     nf = nfreqs
     nfc = 1
-    size = nf*nt
+    size = nf * nt
     sizes = [size]
-    
-    while nf > 1 and (nprocesses*size) > ntasks:
+
+    while nf > 1 and (nprocesses * size) > ntasks:
         nfc += 1
         nf = int(np.ceil(nfreqs / nfc))
-        nt = int(np.ceil(ntimes / (nprocesses/nfc)))
-        size = nf*nt
+        nt = int(np.ceil(ntimes / (nprocesses / nfc)))
+        size = nf * nt
         sizes.append(size)
-        
+
     idx = np.argmin(sizes)
     nfc = 1 + idx
     nf = int(np.ceil(nfreqs / nfc))
-    nt = int(np.ceil(ntimes / (nprocesses/nfc)))
-    
-    ntc = int(np.ceil(nprocesses/nfc))
-    freq_chunks = [slice(nf*i, min(nfreqs, (i + 1)*nf)) for i in range(nfc)]*ntc
-    time_chunks = sum(([slice(i*nt, min(ntimes, (i + 1)*nt))]*nfc for i in range(ntc)), start=[])
+    nt = int(np.ceil(ntimes / (nprocesses / nfc)))
+
+    ntc = int(np.ceil(nprocesses / nfc))
+    freq_chunks = [slice(nf * i, min(nfreqs, (i + 1) * nf)) for i in range(nfc)] * ntc
+    time_chunks = sum(
+        ([slice(i * nt, min(ntimes, (i + 1) * nt))] * nfc for i in range(ntc)), start=[]
+    )
     return nprocesses, freq_chunks, time_chunks, nf, nt
 
-@nb.jit(nopython=True)
-def inplace_rot(rot: np.ndarray, b: np.ndarray):  # pragma: no cover
-    """In-place rotation of coordinates."""
+
+def inplace_rot_base(rot, b):
+    """
+    Base implementation of in-place rotation of coordinates.
+    
+    This is a reference implementation that will be optimized by
+    CPU and GPU specific implementations.
+
+    Parameters:
+    ----------
+    rot : np.ndarray
+        3x3 rotation matrix
+    b : np.ndarray
+        Array of shape (3, n) containing coordinates to rotate
+    """
     nsrc = b.shape[1]
     out = np.zeros(3, dtype=b.dtype)
-    
+
     for n in range(nsrc):
-        out[0] = rot[0, 0]*b[0, n] + rot[0, 1]*b[1, n] + rot[0, 2]*b[2, n]
-        out[1] = rot[1, 0]*b[0, n] + rot[1, 1]*b[1, n] + rot[1, 2]*b[2, n]
-        out[2] = rot[2, 0]*b[0, n] + rot[2, 1]*b[1, n] + rot[2, 2]*b[2, n]
+        out[0] = rot[0, 0] * b[0, n] + rot[0, 1] * b[1, n] + rot[0, 2] * b[2, n]
+        out[1] = rot[1, 0] * b[0, n] + rot[1, 1] * b[1, n] + rot[1, 2] * b[2, n]
+        out[2] = rot[2, 0] * b[0, n] + rot[2, 1] * b[1, n] + rot[2, 2] * b[2, n]
         b[:, n] = out
