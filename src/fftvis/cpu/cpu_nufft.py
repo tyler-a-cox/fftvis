@@ -108,3 +108,52 @@ def cpu_nufft3d(
         nthreads=n_threads,
         showwarn=0,
     )
+
+def cpu_nufft2d_type1(
+    x: np.ndarray,
+    y: np.ndarray,
+    weights: np.ndarray,
+    n_modes: int,
+    index: np.ndarray,
+    eps: float,
+    n_threads: int = 1,
+) -> np.ndarray:
+    """
+    Perform a 2D non-uniform FFT of type 1 on the CPU.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        X coordinates of source positions.
+    y : np.ndarray
+        Y coordinates of source positions.
+    weights : np.ndarray
+        Weights of sources (typically beam-weighted fluxes).
+    n_modes : int
+        Number of modes in the transform.
+    index : np.ndarray
+        Indices of the modes.
+    eps : float
+        Desired accuracy of the transform.
+    n_threads : int
+        Number of threads to use.
+
+    Returns
+    -------
+    np.ndarray
+        Visibility data.
+    """
+    # Model is a 2D array of shape (n_modes, n_modes)
+    model = finufft.nufft2d1(
+        x,
+        y,
+        weights,
+        n_modes,
+        modeord=1,
+        eps=eps,
+        nthreads=n_threads,
+        showwarn=0,
+    )
+
+    # Select specific indices from the model
+    return model[..., index[0], index[1]]
