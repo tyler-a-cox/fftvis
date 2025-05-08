@@ -276,13 +276,13 @@ def test_check_array_griddability():
 
     # Check hexagonal grid
     antpos = {
-        0: np.array([-0.5      ,  0.8660254,  0.       ]),
-        1: np.array([0.5      , 0.8660254, 0.       ]),
+        0: np.array([-0.5,  np.sqrt(3) / 2,  0.]),
+        1: np.array([0.5, np.sqrt(3) / 2, 0.]),
         2: np.array([-1.,  0.,  0.]),
         3: np.array([0., 0., 0.]),
         4: np.array([1., 0., 0.]),
-        5: np.array([-0.5      , -0.8660254,  0.       ]),
-        6: np.array([ 0.5      , -0.8660254,  0.       ]),
+        5: np.array([-0.5, -np.sqrt(3) / 2,  0.]),
+        6: np.array([ 0.5, -np.sqrt(3) / 2,  0.]),
     }
     is_griddable, modified_antpos, _ = fftvis.utils.check_antpos_griddability(antpos,)
     assert is_griddable
