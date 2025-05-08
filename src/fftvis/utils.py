@@ -12,6 +12,7 @@ from .core.utils import (
     get_pos_reds,
     get_plane_to_xy_rotation_matrix,
     get_task_chunks,
+    check_antpos_griddability
 )
 
 
