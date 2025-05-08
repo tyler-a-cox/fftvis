@@ -293,7 +293,7 @@ def can_scale_to_int(
     return False, f
 
 
-def check_scaling(
+def check_antpos_griddability(
     antpos: Dict[Any, np.ndarray],
     tol: float = 1e-9,
     max_denominator: int = 10**6

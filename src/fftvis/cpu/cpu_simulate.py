@@ -26,8 +26,8 @@ from .. import utils
 
 # Import the CPU beam evaluator
 from .cpu_beams import CPUBeamEvaluator
-from .cpu_nufft import cpu_nufft2d, cpu_nufft3d
-
+from .cpu_nufft import cpu_nufft2d, cpu_nufft3d, cpu_nufft2d_type1
+from .cpu_utils import inplace_rot
 logger = logging.getLogger(__name__)
 
 # Create a global instance of CPUBeamEvaluator to use for beam evaluation
@@ -52,6 +52,9 @@ def _evaluate_vis_chunk_remote(
     interpolation_function: str = "az_za_map_coordinates",
     n_threads: int = 1,
     is_coplanar: bool = False,
+    use_type1: bool = False,
+    type1_coord_scalar: float = None,
+    type1_n_modes: int = None,
     trace_mem: bool = False,
 ):
     """Ray-compatible remote version of _evaluate_vis_chunk."""
@@ -74,6 +77,9 @@ def _evaluate_vis_chunk_remote(
         interpolation_function=interpolation_function,
         n_threads=n_threads,
         is_coplanar=is_coplanar,
+        use_type1=use_type1,
+        type1_coord_scalar=type1_coord_scalar,
+        type1_n_modes=type1_n_modes,
         trace_mem=trace_mem,
     )
 
@@ -155,6 +161,53 @@ class CPUSimulationEngine(SimulationEngine):
         # Flatten antenna positions
         antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
         antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
+
+        # Check if antenna positions are 2D
+        is_gridded, gridded_antpos, rotation_matrix = utils.check_antpos_griddability(ants,)
+
+        # Rotate antenna positions to XY plane if not gridded
+        if not is_gridded:
+            # Get the rotation matrix to rotate the array to the XY plane
+            rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
+            rotation_matrix = np.ascontiguousarray(rotation_matrix.astype(real_dtype).T)
+            rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
+            rotated_ants = {
+                ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants
+            }
+
+            # Compute baseline vectors and convert to speed of light units
+            bls = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
+                :, :
+            ].T.astype(real_dtype)
+            bls /= utils.speed_of_light
+
+            # Check if the array is flat within tolerance
+            is_coplanar = np.all(np.less_equal(np.abs(bls[2]), flat_array_tol))
+        else:
+            logger.info(
+                "Using gridded coordinates for the array. Type 1 transform will be used."
+            )
+            # Compute the baseline vectors in the gridded coordinate system
+            bls = np.array([
+                gridded_antpos[bl[1]] - gridded_antpos[bl[0]] 
+                for bl in baselines]
+            ).T
+            bls = np.round(bls).astype(int)
+            
+            # Find the maximum extent of the array in gridded coordinates
+            n_modes = 2 * int(np.round(np.max(np.abs(bls)))) + 1
+
+            # Get the maximum baseline length for proper coordinate scaling
+            max_baseline_coord_length = np.max(np.abs(
+               [
+                   ants[bl[1]] - ants[bl[0]]
+                   for bl in baselines
+               ]
+            ))
+            type1_coord_scalar = max_baseline_coord_length / utils.speed_of_light / (n_modes // 2)
+
+            # Assume the array is coplanar for gridded coordinates
+            is_coplanar = True
 
         # Rotate the array to the xy-plane
         rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
@@ -302,6 +355,9 @@ class CPUSimulationEngine(SimulationEngine):
                     interpolation_function=interpolation_function,
                     n_threads=nthi,
                     is_coplanar=is_coplanar,
+                    use_type1=is_gridded,
+                    type1_coord_scalar=type1_coord_scalar if is_gridded else None,
+                    type1_n_modes=n_modes if is_gridded else None,
                     trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem,
                 )
             )
@@ -348,6 +404,9 @@ class CPUSimulationEngine(SimulationEngine):
         interpolation_function: str = "az_za_map_coordinates",
         n_threads: int = 1,
         is_coplanar: bool = False,
+        use_type1: bool = False,
+        type1_coord_scalar: float = None,
+        type1_n_modes: int = None,
         trace_mem: bool = False,
     ) -> np.ndarray:
         """
@@ -391,12 +450,14 @@ class CPUSimulationEngine(SimulationEngine):
                 )
 
                 # Rotate source coordinates with rotation matrix.
-                utils.inplace_rot(rotation_matrix, topo)
+                inplace_rot(rotation_matrix, topo)
                 topo *= 2 * np.pi
 
                 for freqidx in range(nfreqs)[freq_idx]:
                     freq = freqs[freqidx]
-                    uvw = bls * freq
+
+                    if not use_type1:
+                        uvw = bls * freq
 
                     # Update beam evaluator for matvis compatibility
                     _cpu_beam_evaluator.beam_list = [beam]
@@ -451,28 +512,39 @@ class CPUSimulationEngine(SimulationEngine):
                         i_sky = i_sky.astype(complex_dtype)
 
                     # Compute visibilities w/ non-uniform FFT
-                    if is_coplanar:
-                        _vis_here = cpu_nufft2d(
-                            topo[0],
-                            topo[1],
+                    if use_type1:
+                        _vis_here = cpu_nufft2d_type1(
+                            topo[0] * type1_coord_scalar * freq,
+                            topo[1] * type1_coord_scalar * freq,
                             i_sky,
-                            uvw[0],
-                            uvw[1],
+                            n_modes=type1_n_modes,
+                            index=bls,
                             eps=eps,
                             n_threads=n_threads,
                         )
                     else:
-                        _vis_here = cpu_nufft3d(
-                            topo[0],
-                            topo[1],
-                            topo[2],
-                            i_sky,
-                            uvw[0],
-                            uvw[1],
-                            uvw[2],
-                            eps=eps,
-                            n_threads=n_threads,
-                        )
+                        if is_coplanar:
+                            _vis_here = cpu_nufft2d(
+                                topo[0],
+                                topo[1],
+                                i_sky,
+                                uvw[0],
+                                uvw[1],
+                                eps=eps,
+                                n_threads=n_threads,
+                            )
+                        else:
+                            _vis_here = cpu_nufft3d(
+                                topo[0],
+                                topo[1],
+                                topo[2],
+                                i_sky,
+                                uvw[0],
+                                uvw[1],
+                                uvw[2],
+                                eps=eps,
+                                n_threads=n_threads,
+                            )
 
                     vis[time_index, ..., freqidx] = np.swapaxes(
                         _vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0
