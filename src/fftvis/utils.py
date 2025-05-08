@@ -42,4 +42,5 @@ __all__ = [
     "get_plane_to_xy_rotation_matrix",
     "get_task_chunks",
     "inplace_rot",
+    "check_scaling",
 ]
