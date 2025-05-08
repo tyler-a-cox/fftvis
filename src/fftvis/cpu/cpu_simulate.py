@@ -163,7 +163,7 @@ class CPUSimulationEngine(SimulationEngine):
         antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
 
         # If the array is flat within tolerance, we can check for griddability
-        if np.abs(np.abs(antvecs[:, -1])).max() > flat_array_tol:
+        if np.abs(antvecs[:, -1]).max() > flat_array_tol:
             is_gridded = False
         else:
             is_gridded, gridded_antpos, rotation_matrix = utils.check_antpos_griddability(ants,)
@@ -211,22 +211,6 @@ class CPUSimulationEngine(SimulationEngine):
 
             # Assume the array is coplanar for gridded coordinates
             is_coplanar = True
-
-        # Rotate the array to the xy-plane
-        rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
-        rotation_matrix = np.ascontiguousarray(rotation_matrix.astype(real_dtype).T)
-        rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
-        rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
-
-        # Compute baseline vectors
-        bls = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
-            :, :
-        ].T.astype(real_dtype)
-
-        # Check if the array is flat within tolerance
-        is_coplanar = np.all(np.less_equal(np.abs(bls[2]), flat_array_tol))
-
-        bls /= utils.speed_of_light
 
         # Get number of processes for multiprocessing
         if nprocesses is None:
