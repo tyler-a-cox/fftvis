@@ -155,11 +155,6 @@ class CPUSimulationEngine(SimulationEngine):
         # Get number of baselines
         nbls = len(baselines)
 
-        if isinstance(beam, UVBeam):
-            # Only try to interpolate the beam if it has more than one frequency
-            if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
-                beam = beam.interp(freq_array=freqs, new_object=True, run_check=False) # pragma: no cover
-
         # Factor of 0.5 accounts for splitting Stokes between polarization channels
         Isky = 0.5 * fluxes
 

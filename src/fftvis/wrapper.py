@@ -3,6 +3,7 @@ import numpy as np
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
 from pyuvdata.beam_interface import BeamInterface
+from pyuvdata import UVBeam
 from matvis.core.beams import prepare_beam_unpolarized
 
 from .core.beams import BeamEvaluator
@@ -207,6 +208,15 @@ def simulate_vis(
 
     # Make sure antpos has the right format
     ants = {k: np.array(v) for k, v in ants.items()}
+
+    # Interpolate the beam to the desired frequencies to avoid redundant
+    # interpolation in the simulation engine
+    if isinstance(beam, UVBeam):
+        if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
+            beam = beam.interp(freq_array=freqs, new_object=True, run_check=False) # pragma: no cover
+    elif isinstance(beam, BeamInterface) and beam._isuvbeam:
+        if hasattr(beam.beam, "Nfreqs") and beam.beam.Nfreqs > 1:
+            beam.beam = beam.beam.interp(freq_array=freqs, new_object=True, run_check=False)
 
     beam = BeamInterface(beam)
 
