@@ -163,7 +163,7 @@ class CPUSimulationEngine(SimulationEngine):
         antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
 
         # If the array is flat within tolerance, we can check for griddability
-        if np.abs(np.abs(antvecs[-1])).max() > flat_array_tol:
+        if np.abs(np.abs(antvecs[:, -1])).max() > flat_array_tol:
             is_gridded = False
         else:
             is_gridded, gridded_antpos, rotation_matrix = utils.check_antpos_griddability(ants,)
