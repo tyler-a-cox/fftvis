@@ -162,9 +162,12 @@ class CPUSimulationEngine(SimulationEngine):
         antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
         antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
 
-        # Check if antenna positions are 2D
-        is_gridded, gridded_antpos, rotation_matrix = utils.check_antpos_griddability(ants,)
-
+        # If the array is flat within tolerance, we can check for griddability
+        if np.abs(np.abs(antvecs[-1])).max() > flat_array_tol:
+            is_gridded = False
+        else:
+            is_gridded, gridded_antpos, rotation_matrix = utils.check_antpos_griddability(ants,)
+                
         # Rotate antenna positions to XY plane if not gridded
         if not is_gridded:
             # Get the rotation matrix to rotate the array to the XY plane
