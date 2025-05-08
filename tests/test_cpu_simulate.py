@@ -55,6 +55,7 @@ from fftvis.core.simulate import SimulationEngine
 @pytest.mark.parametrize("nprocesses", [1, 2])
 @pytest.mark.parametrize("backend", ["cpu"])  # Add GPU backend when implemented
 @pytest.mark.parametrize("force_use_ray", [False])  # Only run with force_use_ray=False
+@pytest.mark.parametrize("force_use_type3", [False, True])
 def test_simulate(
     polarized: bool,
     precision: int,
@@ -63,6 +64,7 @@ def test_simulate(
     nprocesses: int,
     backend: str,
     force_use_ray: bool,
+    force_use_type3: bool,
 ):
     """Test the simulation of interferometric visibilities with the CPU backend.
     
@@ -97,7 +99,14 @@ def test_simulate(
     params, *_ = get_standard_sim_params(
         use_analytic_beam=use_analytic_beam, polarized=polarized
     )
-    ants = params.pop("ants")
+    params.pop("ants")
+    
+    # Create a simple array of antennas
+    ants = {
+        antnum: np.array([antnum * 14.6, 0.0, 0.0]) 
+        for antnum in range(3)
+    }
+
     if tilt_array:
         # Tilt the array
         ants = {
@@ -123,7 +132,7 @@ def test_simulate(
 
     # Use fftvis to simulate visibilities
     fvis = simulate_vis(
-        ants,
+        ants=ants,
         eps=1e-10 if precision == 2 else 6e-8,
         baselines=sim_baselines,
         precision=precision,
@@ -134,11 +143,12 @@ def test_simulate(
         times=times,
         backend=backend,
         force_use_ray=force_use_ray,
+        force_use_type3=force_use_type3,
         **params,
     )
 
     fvis_all_bls = simulate_vis(
-        ants,
+        ants=ants,
         eps=1e-10 if precision == 2 else 6e-8,
         precision=precision,
         nprocesses=nprocesses,
@@ -148,11 +158,12 @@ def test_simulate(
         times=times,
         backend=backend,
         force_use_ray=force_use_ray,
+        force_use_type3=force_use_type3,
         **params,
     )
 
     # Check shape of result when no baselines are specified
-    nbls = (len(ants) * (len(ants) - 1)) // 2 + 1
+    nbls = int((len(ants) * (len(ants) - 1)) / 2)
     freqs = params["freqs"]
 
     # Should have shape (nfreqs, ntimes, nants, nants)

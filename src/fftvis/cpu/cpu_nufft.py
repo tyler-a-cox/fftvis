@@ -132,7 +132,8 @@ def cpu_nufft2d_type1(
     n_modes : int
         Number of modes in the transform.
     index : np.ndarray
-        Indices of the modes.
+        2D array of indices to select specific modes from the 2D transform.
+        The shape of index should be (2, n_modes).
     eps : float
         Desired accuracy of the transform.
     n_threads : int

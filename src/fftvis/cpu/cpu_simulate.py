@@ -22,6 +22,7 @@ from matvis import coordinates
 from matvis.core.coords import CoordinateRotation
 
 from ..core.simulate import SimulationEngine, default_accuracy_dict
+from ..core.antenna_gridding import check_antpos_griddability
 from .. import utils
 
 # Import the CPU beam evaluator
@@ -110,7 +111,9 @@ class CPUSimulationEngine(SimulationEngine):
             "CoordinateRotationAstropy", "CoordinateRotationERFA"
         ] = "CoordinateRotationERFA",
         coord_method_params: dict | None = None,
+        skew_to_cartesian: np.ndarray | None = None,
         force_use_ray: bool = False,
+        force_use_type3: bool = False,
         trace_mem: bool = False,
         enable_memory_monitor: bool = False,
     ) -> np.ndarray:
@@ -163,10 +166,13 @@ class CPUSimulationEngine(SimulationEngine):
         antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
 
         # If the array is flat within tolerance, we can check for griddability
-        if np.abs(antvecs[:, -1]).max() > flat_array_tol:
+        if np.abs(antvecs[:, -1]).max() > flat_array_tol or force_use_type3:
             is_gridded = False
         else:
-            is_gridded, gridded_antpos, rotation_matrix = utils.check_antpos_griddability(ants,)
+            is_gridded, gridded_antpos, rotation_matrix = check_antpos_griddability(
+                ants, rotation_matrix=skew_to_cartesian
+            )
+            rotation_matrix = rotation_matrix.astype(real_dtype)
                 
         # Rotate antenna positions to XY plane if not gridded
         if not is_gridded:
@@ -207,7 +213,7 @@ class CPUSimulationEngine(SimulationEngine):
                    for bl in baselines
                ]
             ))
-            type1_coord_scalar = max_baseline_coord_length / utils.speed_of_light / (n_modes // 2)
+            type1_coord_scalar = real_dtype(max_baseline_coord_length / utils.speed_of_light / (n_modes // 2))
 
             # Assume the array is coplanar for gridded coordinates
             is_coplanar = True
@@ -437,7 +443,9 @@ class CPUSimulationEngine(SimulationEngine):
                 )
 
                 # Rotate source coordinates with rotation matrix.
-                inplace_rot(rotation_matrix, topo)
+                if not np.allclose(rotation_matrix, np.eye(3)):
+                    inplace_rot(rotation_matrix, topo)
+                    
                 topo *= 2 * np.pi
 
                 for freqidx in range(nfreqs)[freq_idx]:
