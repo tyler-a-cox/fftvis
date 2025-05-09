@@ -4,20 +4,6 @@ from fractions import Fraction
 from typing import Any, Dict, Tuple
 
 
-# Hexagonal grid rotation matrix
-def get_hex_rot_matrix():
-    """
-    Returns the rotation matrix for hexagonal grid.
-    The rotation matrix is used to rotate the antenna positions
-    to align with the hexagonal grid.
-    """
-    # Rotation matrix to grid a hexagonal array
-    return np.array([
-        [1.0, 0.0, 0.0],
-        [0.5, np.sqrt(3) / 2, 0.0],
-        [0.0, 0.0, 1.0]
-    ])
-
 def find_integer_multiplier(
     arr: np.ndarray,
     max_denominator: int = 10**6
@@ -181,7 +167,7 @@ def check_antpos_griddability(
 
     # Rotate the basis to align with the inferred grid
     modified_antvecs = np.linalg.solve(
-        basis,
+        basis.T,
         antvecs.T
     ).T
 
