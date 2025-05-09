@@ -54,7 +54,7 @@ def _evaluate_vis_chunk_remote(
     n_threads: int = 1,
     is_coplanar: bool = False,
     use_type1: bool = False,
-    type1_coord_scalar: float = None,
+    basis_matrix: np.ndarray = None,
     type1_n_modes: int = None,
     trace_mem: bool = False,
 ):
@@ -79,7 +79,7 @@ def _evaluate_vis_chunk_remote(
         n_threads=n_threads,
         is_coplanar=is_coplanar,
         use_type1=use_type1,
-        type1_coord_scalar=type1_coord_scalar,
+        basis_matrix=basis_matrix,
         type1_n_modes=type1_n_modes,
         trace_mem=trace_mem,
     )
@@ -111,7 +111,6 @@ class CPUSimulationEngine(SimulationEngine):
             "CoordinateRotationAstropy", "CoordinateRotationERFA"
         ] = "CoordinateRotationERFA",
         coord_method_params: dict | None = None,
-        skew_to_cartesian: np.ndarray | None = None,
         force_use_ray: bool = False,
         force_use_type3: bool = False,
         trace_mem: bool = False,
@@ -169,10 +168,8 @@ class CPUSimulationEngine(SimulationEngine):
         if np.abs(antvecs[:, -1]).max() > flat_array_tol or force_use_type3:
             is_gridded = False
         else:
-            is_gridded, gridded_antpos, rotation_matrix = check_antpos_griddability(
-                ants, rotation_matrix=skew_to_cartesian
-            )
-            rotation_matrix = rotation_matrix.astype(real_dtype)
+            is_gridded, gridded_antpos, basis_matrix = check_antpos_griddability(ants)
+            basis_matrix = basis_matrix.astype(real_dtype)
                 
         # Rotate antenna positions to XY plane if not gridded
         if not is_gridded:
@@ -207,16 +204,11 @@ class CPUSimulationEngine(SimulationEngine):
             n_modes = 2 * int(np.round(np.max(np.abs(bls)))) + 1
 
             # Get the maximum baseline length for proper coordinate scaling
-            max_baseline_coord_length = np.max(np.abs(
-               [
-                   ants[bl[1]] - ants[bl[0]]
-                   for bl in baselines
-               ]
-            ))
-            type1_coord_scalar = real_dtype(max_baseline_coord_length / utils.speed_of_light / (n_modes // 2))
+            basis_matrix *= 1 / utils.speed_of_light / (n_modes // 2)
 
             # Assume the array is coplanar for gridded coordinates
             is_coplanar = True
+            rotation_matrix = np.eye(3, dtype=real_dtype)
 
         # Get number of processes for multiprocessing
         if nprocesses is None:
@@ -349,7 +341,7 @@ class CPUSimulationEngine(SimulationEngine):
                     n_threads=nthi,
                     is_coplanar=is_coplanar,
                     use_type1=is_gridded,
-                    type1_coord_scalar=type1_coord_scalar if is_gridded else None,
+                    basis_matrix=basis_matrix if is_gridded else None,
                     type1_n_modes=n_modes if is_gridded else None,
                     trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem,
                 )
@@ -398,7 +390,7 @@ class CPUSimulationEngine(SimulationEngine):
         n_threads: int = 1,
         is_coplanar: bool = False,
         use_type1: bool = False,
-        type1_coord_scalar: float = None,
+        basis_matrix: float = None,
         type1_n_modes: int = None,
         trace_mem: bool = False,
     ) -> np.ndarray:
@@ -445,7 +437,12 @@ class CPUSimulationEngine(SimulationEngine):
                 # Rotate source coordinates with rotation matrix.
                 if not np.allclose(rotation_matrix, np.eye(3)):
                     inplace_rot(rotation_matrix, topo)
-                    
+                
+                # Rotate the basis matrix
+                if basis_matrix is not None:
+                    # Rotate the basis matrix to the XY plane
+                    inplace_rot(basis_matrix, topo)
+
                 topo *= 2 * np.pi
 
                 for freqidx in range(nfreqs)[freq_idx]:
@@ -509,8 +506,8 @@ class CPUSimulationEngine(SimulationEngine):
                     # Compute visibilities w/ non-uniform FFT
                     if use_type1:
                         _vis_here = cpu_nufft2d_type1(
-                            topo[0] * type1_coord_scalar * freq,
-                            topo[1] * type1_coord_scalar * freq,
+                            topo[0] * freq,
+                            topo[1] * freq,
                             i_sky,
                             n_modes=type1_n_modes,
                             index=bls,

@@ -13,8 +13,8 @@ def get_hex_rot_matrix():
     """
     # Rotation matrix to grid a hexagonal array
     return np.array([
-        [1.0, 0.5, 0.0],
-        [0.0, np.sqrt(3) / 2, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.5, np.sqrt(3) / 2, 0.0],
         [0.0, 0.0, 1.0]
     ])
 
@@ -85,12 +85,62 @@ def can_scale_to_int(
         return True, f
     return False, f
 
+def find_lattice_basis(
+    antpos: Dict[Any, np.ndarray],
+    tol: float = 1e-9,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Find the lattice basis for the antenna positions.
+
+    Parameters
+    ----------
+    antpos : dict
+        Dictionary of antenna positions in the form {ant_index: np.array([x,y,z])}.
+    tol : float
+        Tolerance for checking if values are close to integers.
+    max_denominator : int
+        Maximum denominator for the fractions.
+
+    Returns
+    -------
+    basis : np.ndarray
+        The lattice basis.
+    transform_matrix : np.ndarray
+        The transformation matrix.
+    """
+    antvecs = np.array([antpos[ant][:2] for ant in antpos], dtype=float)
+
+    # pairwise differences
+    blvec = np.reshape(antvecs[:, None, :] - antvecs[None, :, :], (-1, 2))
+
+    # filter out zeros
+    norms = np.linalg.norm(blvec, axis=1)
+    mask = norms > tol
+    blvec = blvec[mask]
+    norms = norms[mask]
+
+    # sort by ascending length
+    order = np.argsort(norms)
+    blvec = blvec[order]
+
+    # Pick the shortest non-zero baseline as a basis vector
+    basis_vec_1 = blvec[0]
+
+    # find second that’s not collinear (cross‑product ≠ 0)
+    for v in blvec[1:]:
+        if abs(np.cross(basis_vec_1, v)) > tol:
+            basis_vec_2 = v
+            break
+    else:
+        # If all are collinear, use the shortest baseline
+        return np.vstack([basis_vec_1, np.array([0, 1])])
+
+    return np.vstack([basis_vec_1, basis_vec_2])
 
 def check_antpos_griddability(
     antpos: Dict[Any, np.ndarray],
     tol: float = 1e-9,
     max_denominator: int = 10**6,
-    rotation_matrix: np.ndarray = None
 ) -> Tuple[bool, Dict[Any, np.ndarray], np.ndarray]:
     """
     Check if antenna positions lie on an integer grid (up to scaling)
@@ -104,79 +154,54 @@ def check_antpos_griddability(
         Tolerance for checking if values are close to integers.
     max_denominator : int
         Maximum denominator for the fractions.
-    rotation_matrix : np.ndarray
-        Rotation matrix to apply to the antenna positions.
 
-    Returns (is_griddable, modified_antpos, transform_matrix).
+    Returns:
+    -------
+    is_griddable : bool
+        True if the antenna positions can be gridded, False otherwise.
+    modified_antpos : dict
+        The modified antenna positions after scaling.
+    transform_matrix : np.ndarray
+        The transformation matrix used to scale the antenna positions.
+        This is a 3x3 matrix that transforms the original coordinates
+        to the grid coordinates.
     """
     # Map antenna keys to index and stack positions
     antkey_to_idx = dict(zip(antpos.keys(), range(len(antpos))))
     antvecs = np.array([antpos[ant] for ant in antpos], dtype=float)
 
-    # Compute all baselines and their magnitudes
-    blvec = np.array([
-        antpos[j] - antpos[i]
-        for i in antpos for j in antpos
-    ])
-    blmag = np.linalg.norm(blvec, axis=-1)
-    nonzero = blmag[blmag > 0]
-    minimum_bl_spacing = nonzero.min()
-    max_bl_spacing = nonzero.max()
+    # Infer the 2D lattice basis from the antenna positions
+    basis_2D = find_lattice_basis(
+        antpos,
+        tol=tol,
+    )
+    basis = np.zeros((3, 3))
+    basis[:2, :2] = basis_2D
+    basis[2, 2] = 1.0
 
-    # Normalize antenna vectors
-    antvecs -= antvecs[0]
-    antvecs /= minimum_bl_spacing
+    # Rotate the basis to align with the inferred grid
+    modified_antvecs = np.linalg.solve(
+        basis,
+        antvecs.T
+    ).T
 
-    # If requested, rotate the antenna positions 
-    if rotation_matrix is not None:
-        antvecs_rot = (rotation_matrix @ antvecs.T).T
-        
-        is_griddable, factor = can_scale_to_int(
-            np.ravel(antvecs_rot),
-            tol=tol,
-            max_denominator=max_denominator,
-            max_factor=int(max_bl_spacing)
-        )
-        if not is_griddable:
-            raise ValueError(
-                "Antenna positions are not griddable in the rotated basis."
-            )
-        else:   
-            modified_antpos = {
-                key: antvecs_rot[idx] * factor
-                for key, idx in antkey_to_idx.items()
-            }
-            return True, modified_antpos, np.linalg.inv(M_hex)
-
-    # Try native grid
+    # Scale the inferred lattice basis to integers
     is_griddable, factor = can_scale_to_int(
-        np.ravel(antvecs),
+        np.ravel(modified_antvecs),
         tol=tol,
         max_denominator=max_denominator,
-        max_factor=int(max_bl_spacing)
+        max_factor=1000, # TODO: make this a parameter
     )
-    if is_griddable:
-        modified_antpos = {
-            key: antvecs[idx] * factor
-            for key, idx in antkey_to_idx.items()
-        }
-        return True, modified_antpos, np.eye(antvecs.shape[-1])
 
-    # Try hexagonal grid
-    M_hex = get_hex_rot_matrix()
-    antvecs_rot = (M_hex.T @ antvecs.T).T
-    is_griddable, factor = can_scale_to_int(
-        np.ravel(antvecs_rot),
-        tol=tol,
-        max_denominator=max_denominator,
-        max_factor=int(max_bl_spacing)
-    )
     if is_griddable:
-        modified_antpos = {
-            key: antvecs_rot[idx] * factor
-            for key, idx in antkey_to_idx.items()
+        # Scale the antenna positions, rounding to integers
+        antpos = {
+            ant: np.round(
+                factor * modified_antvecs[antkey_to_idx[ant]]
+            ).astype(int)
+            for ant in antpos
         }
-        return True, modified_antpos, np.linalg.inv(M_hex)
-
-    # Not griddable
-    return False, antpos, np.eye(antvecs.shape[-1])
+        return True, antpos, basis
+    else:
+        # If not griddable, check 
+        return False, antpos, np.eye(antvecs.shape[-1])

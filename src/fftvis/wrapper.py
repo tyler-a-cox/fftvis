@@ -103,7 +103,6 @@ def simulate_vis(
         "CoordinateRotationAstropy", "CoordinateRotationERFA"
     ] = "CoordinateRotationERFA",
     coord_method_params: dict | None = None,
-    skew_to_cartesian: np.ndarray | None = None,
     force_use_type3: bool = False,
     force_use_ray: bool = False,
     trace_mem: bool = False,
@@ -176,15 +175,9 @@ def simulate_vis(
         for the CoordinateRotationERFA method, there is the parameter ``update_bcrs_every``,
         which should be a time in seconds, for which larger values speed up the computation.
         See the documentation for the CoordinateRotation classes in matvis for more information.
-    skew_to_cartesian : np.ndarray, default = None
-        Linear change of basis matrix that maps antenna positions expressed in a skewed/oblique grid 
-        into the standard Cartesian frame. This is used to convert the antenna positions from the skewed grid
-        to a Cartesian grid that is compatible with a more efficient NUFFT algorithm. By default fftvis checks
-        if the antenna positions are on a regular or hexagonal grid, but other grid types are not automatically
-        supported. The matrix should be of shape (3, 3).
     force_use_type3: bool, default = False
         Whether to force the use of type 3 NUFFT. If False, type 3 will only be used
-        if the array can be defined in a regular grid.
+        if the array cannot be defined in a regular grid.
     force_use_ray: bool, default = False
         Whether to force the use of Ray for parallelization. If False, Ray will only be used
         if nprocesses > 1.
@@ -239,7 +232,6 @@ def simulate_vis(
         nthreads=nthreads,
         coord_method=coord_method,
         coord_method_params=coord_method_params,
-        skew_to_cartesian=skew_to_cartesian,
         force_use_type3=force_use_type3,
         force_use_ray=force_use_ray,
         trace_mem=trace_mem,
