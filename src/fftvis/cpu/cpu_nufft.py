@@ -16,6 +16,7 @@ def cpu_nufft2d(
     v: np.ndarray,
     eps: float,
     n_threads: int = 1,
+    upsampfac: int = 2,
 ) -> np.ndarray:
     """
     Perform a 2D non-uniform FFT on the CPU.
@@ -52,6 +53,7 @@ def cpu_nufft2d(
         eps=eps,
         nthreads=n_threads,
         showwarn=0,
+        upsampfac=upsampfac,
     )
 
 
@@ -64,6 +66,7 @@ def cpu_nufft3d(
     v: np.ndarray,
     w: np.ndarray,
     eps: float,
+    upsampfac: int = 2,
     n_threads: int = 1,
 ) -> np.ndarray:
     """
@@ -107,6 +110,7 @@ def cpu_nufft3d(
         eps=eps,
         nthreads=n_threads,
         showwarn=0,
+        upsampfac=upsampfac,
     )
 
 def cpu_nufft2d_type1(
@@ -116,6 +120,7 @@ def cpu_nufft2d_type1(
     n_modes: int,
     index: np.ndarray,
     eps: float,
+    upsampfac: int = 2,
     n_threads: int = 1,
 ) -> np.ndarray:
     """
@@ -154,6 +159,7 @@ def cpu_nufft2d_type1(
         eps=eps,
         nthreads=n_threads,
         showwarn=0,
+        upsampfac=upsampfac,
     )
 
     # Select specific indices from the model

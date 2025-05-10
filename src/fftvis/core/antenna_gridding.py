@@ -121,7 +121,7 @@ def find_lattice_basis(
         # If all are collinear, use the shortest baseline
         return np.vstack([basis_vec_1, np.array([0, 1])])
 
-    return np.vstack([basis_vec_1, basis_vec_2])
+    return np.column_stack([basis_vec_1, basis_vec_2])
 
 def check_antpos_griddability(
     antpos: Dict[Any, np.ndarray],
@@ -167,8 +167,8 @@ def check_antpos_griddability(
 
     # Rotate the basis to align with the inferred grid
     modified_antvecs = np.linalg.solve(
-        basis.T,
-        antvecs.T
+        basis,
+        (antvecs - antvecs[0]).T
     ).T
 
     # Scale the inferred lattice basis to integers
@@ -187,7 +187,8 @@ def check_antpos_griddability(
             ).astype(int)
             for ant in antpos
         }
-        return True, antpos, basis
+        print (factor)
+        return True, antpos, basis / factor
     else:
         # If not griddable, check 
         return False, antpos, np.eye(antvecs.shape[-1])

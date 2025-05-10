@@ -49,6 +49,7 @@ def _evaluate_vis_chunk_remote(
     nfeeds: int,
     polarized: bool = False,
     eps: float = None,
+    upsampfac: int = 2,
     beam_spline_opts: dict = None,
     interpolation_function: str = "az_za_map_coordinates",
     n_threads: int = 1,
@@ -74,6 +75,7 @@ def _evaluate_vis_chunk_remote(
         nfeeds=nfeeds,
         polarized=polarized,
         eps=eps,
+        upsampfac=upsampfac,
         beam_spline_opts=beam_spline_opts,
         interpolation_function=interpolation_function,
         n_threads=n_threads,
@@ -102,6 +104,7 @@ class CPUSimulationEngine(SimulationEngine):
         precision: int = 2,
         polarized: bool = False,
         eps: float = None,
+        upsampfac: int = 2,
         beam_spline_opts: dict = None,
         flat_array_tol: float = 0.0,
         interpolation_function: str = "az_za_map_coordinates",
@@ -169,23 +172,24 @@ class CPUSimulationEngine(SimulationEngine):
             is_gridded = False
         else:
             is_gridded, gridded_antpos, basis_matrix = check_antpos_griddability(ants)
-            basis_matrix = basis_matrix.astype(real_dtype)
                 
         # Rotate antenna positions to XY plane if not gridded
         if not is_gridded:
             # Get the rotation matrix to rotate the array to the XY plane
             rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
-            rotation_matrix = np.ascontiguousarray(rotation_matrix.astype(real_dtype).T)
+            rotation_matrix = np.ascontiguousarray(rotation_matrix.T)
             rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
             rotated_ants = {
                 ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants
             }
-
+            rotation_matrix = rotation_matrix.astype(real_dtype)
+        
             # Compute baseline vectors and convert to speed of light units
             bls = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
                 :, :
-            ].T.astype(real_dtype)
+            ].T
             bls /= utils.speed_of_light
+            bls = bls.astype(real_dtype)
 
             # Check if the array is flat within tolerance
             is_coplanar = np.all(np.less_equal(np.abs(bls[2]), flat_array_tol))
@@ -204,7 +208,8 @@ class CPUSimulationEngine(SimulationEngine):
             n_modes = 2 * int(np.round(np.max(np.abs(bls)))) + 1
 
             # Get the maximum baseline length for proper coordinate scaling
-            basis_matrix *= 1 / utils.speed_of_light / (n_modes // 2)
+            basis_matrix *= 1 / utils.speed_of_light
+            basis_matrix = basis_matrix.astype(real_dtype)
 
             # Assume the array is coplanar for gridded coordinates
             is_coplanar = True
@@ -336,6 +341,7 @@ class CPUSimulationEngine(SimulationEngine):
                     nfeeds=nfeeds,
                     polarized=polarized,
                     eps=eps,
+                    upsampfac=upsampfac,
                     beam_spline_opts=beam_spline_opts,
                     interpolation_function=interpolation_function,
                     n_threads=nthi,
@@ -385,6 +391,7 @@ class CPUSimulationEngine(SimulationEngine):
         nfeeds: int,
         polarized: bool = False,
         eps: float = None,
+        upsampfac: int = 2,
         beam_spline_opts: dict = None,
         interpolation_function: str = "az_za_map_coordinates",
         n_threads: int = 1,
@@ -441,7 +448,7 @@ class CPUSimulationEngine(SimulationEngine):
                 # Rotate the basis matrix
                 if basis_matrix is not None:
                     # Rotate the basis matrix to the XY plane
-                    inplace_rot(basis_matrix, topo)
+                    inplace_rot(basis_matrix.T, topo)
 
                 topo *= 2 * np.pi
 
@@ -513,6 +520,7 @@ class CPUSimulationEngine(SimulationEngine):
                             index=bls,
                             eps=eps,
                             n_threads=n_threads,
+                            upsampfac=upsampfac,
                         )
                     else:
                         if is_coplanar:
@@ -524,6 +532,7 @@ class CPUSimulationEngine(SimulationEngine):
                                 uvw[1],
                                 eps=eps,
                                 n_threads=n_threads,
+                                upsampfac=upsampfac,
                             )
                         else:
                             _vis_here = cpu_nufft3d(
@@ -536,6 +545,7 @@ class CPUSimulationEngine(SimulationEngine):
                                 uvw[2],
                                 eps=eps,
                                 n_threads=n_threads,
+                                upsampfac=upsampfac,
                             )
 
                     vis[time_index, ..., freqidx] = np.swapaxes(
