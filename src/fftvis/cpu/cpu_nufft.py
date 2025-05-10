@@ -35,6 +35,8 @@ def cpu_nufft2d(
         V coordinates for baselines.
     eps : float
         Desired accuracy of the transform.
+    upsampfac : int
+        Upsampling factor for the non-uniform FFT.
     n_threads : int
         Number of threads to use.
 
@@ -90,6 +92,8 @@ def cpu_nufft3d(
         W coordinates for baselines.
     eps : float
         Desired accuracy of the transform.
+    upsampfac : int
+        Upsampling factor for the non-uniform FFT.
     n_threads : int
         Number of threads to use.
 
@@ -141,6 +145,8 @@ def cpu_nufft2d_type1(
         The shape of index should be (2, n_modes).
     eps : float
         Desired accuracy of the transform.
+    upsampfac : int
+        Upsampling factor for the non-uniform FFT.
     n_threads : int
         Number of threads to use.
 
