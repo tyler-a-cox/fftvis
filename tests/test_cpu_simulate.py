@@ -12,7 +12,7 @@ from pyuvdata.data import DATA_PATH
 from matvis.core.coords import CoordinateRotation
 
 from fftvis.core.simulate import SimulationEngine
-from fftvis.cpu.simulate import CPUSimulationEngine, _evaluate_vis_chunk_remote
+from fftvis.cpu.cpu_simulate import CPUSimulationEngine, _evaluate_vis_chunk_remote
 from fftvis.wrapper import simulate_vis
 from fftvis import utils
 
@@ -34,7 +34,7 @@ from matvis._test_utils import get_standard_sim_params
 from fftvis.wrapper import simulate_vis
 
 from fftvis.core.utils import get_plane_to_xy_rotation_matrix
-from fftvis.cpu.simulate import CPUSimulationEngine
+from fftvis.cpu.cpu_simulate import CPUSimulationEngine
 from fftvis import utils
 from fftvis.wrapper import create_simulation_engine
 

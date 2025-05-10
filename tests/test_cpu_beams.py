@@ -313,7 +313,7 @@ def test_wrapper_simulation_engine_creation():
     3. Invalid backends throw appropriate errors
     """
     from fftvis.wrapper import create_simulation_engine
-    from fftvis.cpu.simulate import CPUSimulationEngine
+    from fftvis.cpu.cpu_simulate import CPUSimulationEngine
     
     # Create a CPU simulation engine
     cpu_engine = create_simulation_engine(backend="cpu")

@@ -7,7 +7,7 @@ from .wrapper import create_beam_evaluator
 
 # Import simulation functionality
 from .core.simulate import SimulationEngine
-from .cpu.simulate import CPUSimulationEngine
+from .cpu.cpu_simulate import CPUSimulationEngine
 from .wrapper import create_simulation_engine, simulate_vis
 
 # Import utility modules

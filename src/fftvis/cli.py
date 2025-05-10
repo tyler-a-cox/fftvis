@@ -17,7 +17,7 @@ from hera_sim.antpos import hex_array
 
 # Import from the new structure
 from .wrapper import simulate_vis
-from .cpu.simulate import CPUSimulationEngine
+from .cpu.cpu_simulate import CPUSimulationEngine
 
 cns = Console()
 
