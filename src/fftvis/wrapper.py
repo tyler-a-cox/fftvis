@@ -6,9 +6,9 @@ from pyuvdata.beam_interface import BeamInterface
 from matvis.core.beams import prepare_beam_unpolarized
 
 from .core.beams import BeamEvaluator
-from .cpu.cpu_beams import CPUBeamEvaluator
+from .cpu.beams import CPUBeamEvaluator
 from .core.simulate import SimulationEngine, default_accuracy_dict
-from .cpu.cpu_simulate import CPUSimulationEngine
+from .cpu.simulate import CPUSimulationEngine
 
 
 def create_beam_evaluator(
@@ -73,7 +73,7 @@ def create_simulation_engine(
     if backend == "cpu":
         return CPUSimulationEngine(**kwargs)
     elif backend == "gpu":
-        from .gpu.gpu_simulate import GPUSimulationEngine
+        from .gpu.simulate import GPUSimulationEngine
 
         return GPUSimulationEngine(**kwargs)
     else:

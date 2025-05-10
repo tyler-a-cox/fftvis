@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
-from fftvis.gpu.gpu_nufft import gpu_nufft2d, gpu_nufft3d
-from fftvis.gpu.gpu_simulate import GPUSimulationEngine
+from fftvis.gpu.nufft import gpu_nufft2d, gpu_nufft3d
+from fftvis.gpu.simulate import GPUSimulationEngine
 
 
 def test_gpu_nufft2d_not_implemented():

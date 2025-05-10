@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from fftvis.cpu.cpu_beams import CPUBeamEvaluator
+from fftvis.cpu.beams import CPUBeamEvaluator
 from fftvis.core.beams import BeamEvaluator
 
 from pathlib import Path
@@ -199,7 +199,7 @@ def test_beam_evaluator_interp_branches():
     2. The conversion from tx/ty to az/za works properly
     3. All code paths in the interp method are exercised
     """
-    from fftvis.cpu.cpu_beams import CPUBeamEvaluator
+    from fftvis.cpu.beams import CPUBeamEvaluator
     import numpy as np
     from pyuvdata import UVBeam
     from pyuvdata.beam_interface import BeamInterface
@@ -271,7 +271,7 @@ def test_beam_evaluator_interp_polarized_branches():
     1. The interp method correctly handles polarized beams with beam_values.ndim == 3
     2. The missing branch in the interp method is exercised
     """
-    from fftvis.cpu.cpu_beams import CPUBeamEvaluator
+    from fftvis.cpu.beams import CPUBeamEvaluator
     import numpy as np
     from unittest.mock import patch, MagicMock
     

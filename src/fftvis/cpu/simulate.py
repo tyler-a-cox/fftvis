@@ -26,9 +26,9 @@ from ..core.antenna_gridding import check_antpos_griddability
 from .. import utils
 
 # Import the CPU beam evaluator
-from .cpu_beams import CPUBeamEvaluator
-from .cpu_nufft import cpu_nufft2d, cpu_nufft3d, cpu_nufft2d_type1
-from .cpu_utils import inplace_rot
+from .beams import CPUBeamEvaluator
+from .nufft import cpu_nufft2d, cpu_nufft3d, cpu_nufft2d_type1
+from .utils import inplace_rot
 logger = logging.getLogger(__name__)
 
 # Create a global instance of CPUBeamEvaluator to use for beam evaluation

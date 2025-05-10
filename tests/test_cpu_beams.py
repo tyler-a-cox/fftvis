@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from fftvis.cpu.cpu_beams import CPUBeamEvaluator
+from fftvis.cpu.beams import CPUBeamEvaluator
 from fftvis.core.beams import BeamEvaluator
 
 from pathlib import Path
@@ -313,7 +313,7 @@ def test_wrapper_simulation_engine_creation():
     3. Invalid backends throw appropriate errors
     """
     from fftvis.wrapper import create_simulation_engine
-    from fftvis.cpu.cpu_simulate import CPUSimulationEngine
+    from fftvis.cpu.simulate import CPUSimulationEngine
     
     # Create a CPU simulation engine
     cpu_engine = create_simulation_engine(backend="cpu")
