@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
-from fftvis.gpu.gpu_beams import GPUBeamEvaluator
-from fftvis.gpu.gpu_utils import inplace_rot
+from fftvis.gpu.beams import GPUBeamEvaluator
+from fftvis.gpu.utils import inplace_rot
 
 
 def test_gpu_beam_evaluator_init():

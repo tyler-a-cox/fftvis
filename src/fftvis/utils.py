@@ -31,9 +31,9 @@ def _use_gpu():
 
 # Import implementation-specific functions
 if _use_gpu():
-    from .gpu.gpu_utils import inplace_rot
+    from .gpu.utils import inplace_rot
 else:
-    from .cpu.cpu_utils import inplace_rot
+    from .cpu.utils import inplace_rot
 
 __all__ = [
     "IDEALIZED_BL_TOL",

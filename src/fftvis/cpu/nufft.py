@@ -16,6 +16,7 @@ def cpu_nufft2d(
     v: np.ndarray,
     eps: float,
     n_threads: int = 1,
+    upsampfac: int = 2,
 ) -> np.ndarray:
     """
     Perform a 2D non-uniform FFT on the CPU.
@@ -34,6 +35,8 @@ def cpu_nufft2d(
         V coordinates for baselines.
     eps : float
         Desired accuracy of the transform.
+    upsampfac : int
+        Upsampling factor for the non-uniform FFT.
     n_threads : int
         Number of threads to use.
 
@@ -52,6 +55,7 @@ def cpu_nufft2d(
         eps=eps,
         nthreads=n_threads,
         showwarn=0,
+        upsampfac=upsampfac,
     )
 
 
@@ -64,6 +68,7 @@ def cpu_nufft3d(
     v: np.ndarray,
     w: np.ndarray,
     eps: float,
+    upsampfac: int = 2,
     n_threads: int = 1,
 ) -> np.ndarray:
     """
@@ -87,6 +92,8 @@ def cpu_nufft3d(
         W coordinates for baselines.
     eps : float
         Desired accuracy of the transform.
+    upsampfac : int
+        Upsampling factor for the non-uniform FFT.
     n_threads : int
         Number of threads to use.
 
@@ -107,4 +114,59 @@ def cpu_nufft3d(
         eps=eps,
         nthreads=n_threads,
         showwarn=0,
+        upsampfac=upsampfac,
     )
+
+def cpu_nufft2d_type1(
+    x: np.ndarray,
+    y: np.ndarray,
+    weights: np.ndarray,
+    n_modes: int,
+    index: np.ndarray,
+    eps: float,
+    upsampfac: int = 2,
+    n_threads: int = 1,
+) -> np.ndarray:
+    """
+    Perform a 2D non-uniform FFT of type 1 on the CPU.
+
+    Parameters
+    ----------
+    x : np.ndarray
+        X coordinates of source positions.
+    y : np.ndarray
+        Y coordinates of source positions.
+    weights : np.ndarray
+        Weights of sources (typically beam-weighted fluxes).
+    n_modes : int
+        Number of modes in the transform.
+    index : np.ndarray
+        2D array of indices to select specific modes from the 2D transform.
+        The shape of index should be (2, n_modes).
+    eps : float
+        Desired accuracy of the transform.
+    upsampfac : int
+        Upsampling factor for the non-uniform FFT.
+    n_threads : int
+        Number of threads to use.
+
+    Returns
+    -------
+    np.ndarray
+        Visibility data.
+    """
+    # Model is a 2D array of shape (n_modes, n_modes)
+    model = finufft.nufft2d1(
+        x,
+        y,
+        weights,
+        n_modes,
+        modeord=1,
+        eps=eps,
+        nthreads=n_threads,
+        showwarn=0,
+        upsampfac=upsampfac,
+    )
+
+    # Select specific indices from the model
+    return model[..., index[0], index[1]]

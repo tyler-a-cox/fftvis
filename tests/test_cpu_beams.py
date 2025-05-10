@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from fftvis.cpu.cpu_beams import CPUBeamEvaluator
+from fftvis.cpu.beams import CPUBeamEvaluator
 from fftvis.core.beams import BeamEvaluator
 
 from pathlib import Path
