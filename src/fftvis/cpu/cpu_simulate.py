@@ -28,7 +28,7 @@ from .. import utils
 # Import the CPU beam evaluator
 from .beams import CPUBeamEvaluator
 from .nufft import cpu_nufft2d, cpu_nufft3d, cpu_nufft2d_type1
-from .utils import inplace_rot
+from . import utils as cpu_utils
 logger = logging.getLogger(__name__)
 
 # Create a global instance of CPUBeamEvaluator to use for beam evaluation
@@ -441,12 +441,12 @@ class CPUSimulationEngine(SimulationEngine):
 
                 # Rotate source coordinates with rotation matrix.
                 if not is_rotation_identity:
-                    inplace_rot(rotation_matrix, topo)
+                    cpu_utils.inplace_rot(rotation_matrix, topo)
                 
                 # Rotate the basis matrix
                 if basis_matrix is not None:
                     # Rotate antenna positions with basis matrix
-                    inplace_rot(basis_matrix.T, topo)
+                    cpu_utils.inplace_rot(basis_matrix.T, topo)
 
                 topo *= 2 * np.pi
 

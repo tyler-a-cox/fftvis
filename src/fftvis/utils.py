@@ -29,12 +29,6 @@ def _use_gpu():
         return False
 
 
-# Import implementation-specific functions
-if _use_gpu():
-    from .gpu.utils import inplace_rot
-else:
-    from .cpu.utils import inplace_rot
-
 __all__ = [
     "IDEALIZED_BL_TOL",
     "speed_of_light",
