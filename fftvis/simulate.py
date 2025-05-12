@@ -70,7 +70,7 @@ def simulate_vis(
         The Stokes I intensity will be split equally between the two linear polarization channels, 
         resulting in a factor of 0.5 from the value inputted here. This is done even if only one 
         polarization channel is simulated. If an array of size (nsources, nfreqs, 4) is provided,
-        it will be used to be the full set of stokes paraeters (I, Q, U, and V). Full stokes input
+        it will be used to be the full set of stokes parameters (I, Q, U, and V). Full stokes input
         is only accepted if polarized=True.
     ra, dec : array_like
         Arrays of source RA and Dec positions in radians. RA goes from [0, 2 pi]
