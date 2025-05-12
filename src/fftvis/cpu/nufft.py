@@ -55,7 +55,7 @@ def cpu_nufft2d(
         eps=eps,
         nthreads=n_threads,
         showwarn=0,
-        upsample_factor=upsample_factor,
+        upsampfac=upsample_factor,
     )
 
 

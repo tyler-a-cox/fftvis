@@ -248,7 +248,7 @@ def test_simulate_gridded_type1_vs_type3(polarized, precision, shear_array, rota
         **params,
     )
 
-    # Use fftvis type 3 s
+    # Use fftvis type 3
     fvis_type3 = simulate_vis(
         ants=ants,
         eps=1e-10 if precision == 2 else 6e-8,
