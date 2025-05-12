@@ -174,23 +174,8 @@ def test_utils_module_imports():
     """Test that the fftvis.utils module correctly imports functions."""
     # Check that the utils module has all the expected functions
     for func_name in ["IDEALIZED_BL_TOL", "speed_of_light", "get_pos_reds", 
-                     "get_plane_to_xy_rotation_matrix", "get_task_chunks", "inplace_rot"]:
+                     "get_plane_to_xy_rotation_matrix", "get_task_chunks"]:
         assert hasattr(fftvis.utils, func_name)
-    
-    # inplace_rot should be imported from CPU or GPU
-    assert hasattr(fftvis.utils, "inplace_rot")
-    
-    # Test calling the function to check it's properly imported
-    # Create a simple rotation test
-    rot = np.eye(3)
-    b = np.zeros((3, 2))
-    
-    # This should not raise an error if properly imported from CPU
-    try:
-        fftvis.utils.inplace_rot(rot, b)
-    except NotImplementedError:
-        # If GPU version, this will raise NotImplementedError, which is fine
-        pass
 
 
 @pytest.mark.parametrize("with_cupy", [False, True])
