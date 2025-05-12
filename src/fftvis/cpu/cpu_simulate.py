@@ -49,7 +49,7 @@ def _evaluate_vis_chunk_remote(
     nfeeds: int,
     polarized: bool = False,
     eps: float = None,
-    upsampfac: int = 2,
+    upsample_factor: Literal[1.25, 2] = 2,
     beam_spline_opts: dict = None,
     interpolation_function: str = "az_za_map_coordinates",
     n_threads: int = 1,
@@ -75,7 +75,7 @@ def _evaluate_vis_chunk_remote(
         nfeeds=nfeeds,
         polarized=polarized,
         eps=eps,
-        upsampfac=upsampfac,
+        upsample_factor=upsample_factor,
         beam_spline_opts=beam_spline_opts,
         interpolation_function=interpolation_function,
         n_threads=n_threads,
@@ -104,7 +104,7 @@ class CPUSimulationEngine(SimulationEngine):
         precision: int = 2,
         polarized: bool = False,
         eps: float = None,
-        upsampfac: int = 2,
+        upsample_factor: Literal[1.25, 2] = 2,
         beam_spline_opts: dict = None,
         flat_array_tol: float = 0.0,
         interpolation_function: str = "az_za_map_coordinates",
@@ -336,7 +336,7 @@ class CPUSimulationEngine(SimulationEngine):
                     nfeeds=nfeeds,
                     polarized=polarized,
                     eps=eps,
-                    upsampfac=upsampfac,
+                    upsample_factor=upsample_factor,
                     beam_spline_opts=beam_spline_opts,
                     interpolation_function=interpolation_function,
                     n_threads=nthi,
@@ -386,7 +386,7 @@ class CPUSimulationEngine(SimulationEngine):
         nfeeds: int,
         polarized: bool = False,
         eps: float = None,
-        upsampfac: int = 2,
+        upsample_factor: Literal[1.25, 2] = 2,
         beam_spline_opts: dict = None,
         interpolation_function: str = "az_za_map_coordinates",
         n_threads: int = 1,
@@ -419,6 +419,9 @@ class CPUSimulationEngine(SimulationEngine):
 
         coord_mgr.setup()
 
+        # Check to see if the rotation matrix is an identity matrix
+        is_rotation_identity = np.allclose(rotation_matrix, np.eye(3))
+
         with threadpool_limits(limits=n_threads, user_api="blas"):
             for time_index, ti in enumerate(range(ntimes)[time_idx]):
                 coord_mgr.rotate(ti)
@@ -437,12 +440,12 @@ class CPUSimulationEngine(SimulationEngine):
                 )
 
                 # Rotate source coordinates with rotation matrix.
-                if not np.allclose(rotation_matrix, np.eye(3)):
+                if not is_rotation_identity:
                     inplace_rot(rotation_matrix, topo)
                 
                 # Rotate the basis matrix
                 if basis_matrix is not None:
-                    # Rotate the basis matrix to the XY plane
+                    # Rotate antenna positions with basis matrix
                     inplace_rot(basis_matrix.T, topo)
 
                 topo *= 2 * np.pi
@@ -515,7 +518,7 @@ class CPUSimulationEngine(SimulationEngine):
                             index=bls,
                             eps=eps,
                             n_threads=n_threads,
-                            upsampfac=upsampfac,
+                            upsample_factor=upsample_factor,
                         )
                     else:
                         if is_coplanar:
@@ -527,7 +530,7 @@ class CPUSimulationEngine(SimulationEngine):
                                 uvw[1],
                                 eps=eps,
                                 n_threads=n_threads,
-                                upsampfac=upsampfac,
+                                upsample_factor=upsample_factor,
                             )
                         else:
                             _vis_here = cpu_nufft3d(
@@ -540,7 +543,7 @@ class CPUSimulationEngine(SimulationEngine):
                                 uvw[2],
                                 eps=eps,
                                 n_threads=n_threads,
-                                upsampfac=upsampfac,
+                                upsample_factor=upsample_factor,
                             )
 
                     vis[time_index, ..., freqidx] = np.swapaxes(

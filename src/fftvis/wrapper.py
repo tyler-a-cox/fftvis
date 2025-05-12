@@ -94,7 +94,7 @@ def simulate_vis(
     precision: int = 2,
     polarized: bool = False,
     eps: float = None,
-    upsampfac: int = 2,
+    upsample_factor: Literal[1.25, 2] = 2,
     beam_spline_opts: dict = None,
     use_feed: str = "x",
     flat_array_tol: float = 0.0,
@@ -148,7 +148,7 @@ def simulate_vis(
         Desired accuracy of the non-uniform fast fourier transform. If None, the default accuracy
         for the given precision will be used. For precision 1, the default accuracy is 6e-8, and for
         precision 2, the default accuracy is 1e-12.
-    upsampfac : int, default = 2
+    upsample_factor : int, default = 2
         Upsampling factor for the non-uniform fast fourier transform. This is the factor by which the
         intermediate grid is upsampled. Only values of 1.25 or 2 are allowed. Can be useful for decreasing
         the computation time and memory requirement for large arrays at the expensive of some accuracy. 
@@ -241,7 +241,7 @@ def simulate_vis(
         precision=precision,
         polarized=polarized,
         eps=eps,
-        upsampfac=upsampfac,
+        upsample_factor=upsample_factor,
         beam_spline_opts=beam_spline_opts,
         flat_array_tol=flat_array_tol,
         interpolation_function=interpolation_function,

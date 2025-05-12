@@ -50,7 +50,7 @@ def can_scale_to_int(
     arr : np.ndarray
         Array of values to check.
     tol : float
-        Tolerance for checking if values are close to integers.
+        Tolerance for checking if values are close to integers in units of meters.
     max_denominator : int
         Maximum denominator for the fractions.
     max_factor : int
@@ -76,14 +76,20 @@ def find_lattice_basis(
     tol: float = 1e-9,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Find the lattice basis for the antenna positions.
+    Find the lattice basis for the antenna positions. This function assumes that 
+    the antenna positions are in a 2D plane (x, y) and that the z-coordinate is
+    not relevant for the basis calculation. The function computes the pairwise
+    differences between the antenna positions and selects two non-collinear
+    vectors to form the basis. If all vectors are collinear, it returns a default
+    basis.
 
     Parameters
     ----------
     antpos : dict
-        Dictionary of antenna positions in the form {ant_index: np.array([x,y,z])}.
+        Dictionary of antenna positions in the form {ant_index: np.array([x,y,z])}
+        where the antenna positinons are in units of meters.
     tol : float
-        Tolerance for checking if values are close to integers.
+        Tolerance for checking if values are close to integers in units of meters.
     max_denominator : int
         Maximum denominator for the fractions.
 
@@ -127,19 +133,28 @@ def check_antpos_griddability(
     antpos: Dict[Any, np.ndarray],
     tol: float = 1e-9,
     max_denominator: int = 10**6,
+    max_factor: int = 1000,
 ) -> Tuple[bool, Dict[Any, np.ndarray], np.ndarray]:
     """
-    Check if antenna positions lie on an integer grid (up to scaling)
-    in native or hex-rotated basis.
+    Check if the antenna positions can be gridded. This function checks if the
+    antenna positions can be scaled to integers using a linear transformation.
+    It first infers the 2D lattice basis from the antenna positions, then checks
+    if the positions can be scaled to integers. If they can, it returns the
+    modified antenna positions and the transformation matrix. If not, it returns
+    the original antenna positions and an identity transformation matrix.
 
     Parameters
     ----------
     antpos : dict
-        Dictionary of antenna positions in the form {ant_index: np.array([x,y,z])}.
+        Dictionary of antenna positions in the form {ant_index: np.array([x,y,z])}
+        where the antenna positinons are in units of meters.
     tol : float
-        Tolerance for checking if values are close to integers.
+        Tolerance for checking if values are close to integers in units of meters.
     max_denominator : int
         Maximum denominator for the fractions.
+    max_factor : int
+        Maximum allowed factor for scaling. If the factor exceeds this value,
+        the function will return False.
 
     Returns:
     -------
@@ -176,7 +191,7 @@ def check_antpos_griddability(
         np.ravel(modified_antvecs),
         tol=tol,
         max_denominator=max_denominator,
-        max_factor=1000, # TODO: make this a parameter
+        max_factor=max_factor,
     )
 
     if is_griddable:
