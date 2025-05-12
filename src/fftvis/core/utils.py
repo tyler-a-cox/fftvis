@@ -4,7 +4,6 @@ from scipy import linalg
 IDEALIZED_BL_TOL = 1e-8  # bl_error_tol for redcal.get_reds when using antenna positions calculated from reds
 speed_of_light = 299792458.0  # m/s
 
-
 def get_pos_reds(antpos, decimals=3, include_autos=True):
     """
     Figure out and return list of lists of redundant baseline pairs. This function is a modified version of the

@@ -47,6 +47,26 @@ from matvis.core.coords import CoordinateRotation
 
 from fftvis.core.simulate import SimulationEngine
 
+def _hex_grid():
+    return {
+        0: np.array([-0.5,  np.sqrt(3) / 2,  0.0]),
+        1: np.array([ 0.5,  np.sqrt(3) / 2,  0.0]),
+        2: np.array([-1.0,  0.0,             0.0]),
+        3: np.array([ 0.0,  0.0,             0.0]),
+        4: np.array([ 1.0,  0.0,             0.0]),
+        5: np.array([-0.5, -np.sqrt(3) / 2,  0.0]),
+        6: np.array([ 0.5, -np.sqrt(3) / 2,  0.0]),
+    }
+
+def _square_grid(n_side=3, spacing=10.0):
+    """Full n×n Cartesian grid of antennas in the xy‑plane."""
+    antpos = {}
+    idx = 0
+    for i in range(n_side):
+        for j in range(n_side):
+            antpos[idx] = spacing * np.array([i, j, 0.0])
+            idx += 1
+    return antpos
 
 @pytest.mark.parametrize("polarized", [False, True])
 @pytest.mark.parametrize("precision", [2, 1])
@@ -98,6 +118,7 @@ def test_simulate(
         use_analytic_beam=use_analytic_beam, polarized=polarized
     )
     ants = params.pop("ants")
+
     if tilt_array:
         # Tilt the array
         ants = {
@@ -123,7 +144,7 @@ def test_simulate(
 
     # Use fftvis to simulate visibilities
     fvis = simulate_vis(
-        ants,
+        ants=ants,
         eps=1e-10 if precision == 2 else 6e-8,
         baselines=sim_baselines,
         precision=precision,
@@ -138,7 +159,7 @@ def test_simulate(
     )
 
     fvis_all_bls = simulate_vis(
-        ants,
+        ants=ants,
         eps=1e-10 if precision == 2 else 6e-8,
         precision=precision,
         nprocesses=nprocesses,
@@ -170,6 +191,80 @@ def test_simulate(
             fvis[..., bi], mvis[:, :, bi], atol=1e-5 if precision == 2 else 1e-4
         )
 
+
+@pytest.mark.parametrize("polarized", [False, True])
+@pytest.mark.parametrize("precision", [2, 1])
+@pytest.mark.parametrize("shear_array", [True, False])
+@pytest.mark.parametrize("rotate_array", [True, False])
+@pytest.mark.parametrize("remove_antennas", [True, False])
+@pytest.mark.parametrize("ants", [_hex_grid(), _square_grid()])
+def test_simulate_gridded_type1_vs_type3(polarized, precision, shear_array, rotate_array, remove_antennas, ants):
+    rng = np.random.default_rng(42)
+
+    params, *_ = get_standard_sim_params(
+        use_analytic_beam=True, polarized=polarized
+    )
+    params.pop("ants")
+
+    # Remove antennas randomly
+    if remove_antennas:
+        ants = {k: ants[k] for k in ants if rng.uniform(0, 1) > 0.25}
+        ants = {ki: ants[k] for ki, k in enumerate(ants)}
+
+    # Rigidly rotate antenna layout
+    if rotate_array:
+        theta = np.pi / 2
+        rotation_matrix = np.array([[np.cos(theta), -np.sin(theta), 0], [np.sin(theta), np.cos(theta), 0], [0, 0, 1]])
+        # Rotate the array
+        ants = {
+            ant: np.dot(rotation_matrix, ants[ant])
+            for ai, ant in enumerate(ants)
+        }
+    if shear_array:
+        shear_matrix = np.array([[1, 0.5, 0], [0, 1, 0], [0, 0, 1]])
+        # shear the array
+        ants = {
+            ant: np.dot(shear_matrix, ants[ant])
+            for ai, ant in enumerate(ants)
+        }
+
+    # List of baselines
+    baselines = [(i, j) for i in ants for j in ants if j >= i]
+
+    # Get the beam
+    beam = params.pop("beams")[0]
+    times = params.pop("times").jd
+
+    # Use fftvis type 1
+    fvis_type1 = simulate_vis(
+        ants=ants,
+        eps=1e-10 if precision == 2 else 6e-8,
+        precision=precision,
+        coord_method_params={"source_buffer": 0.75},
+        beam=beam,
+        times=times,
+        force_use_type3=False,
+        baselines=baselines,
+        **params,
+    )
+
+    # Use fftvis type 3
+    fvis_type3 = simulate_vis(
+        ants=ants,
+        eps=1e-10 if precision == 2 else 6e-8,
+        precision=precision,
+        coord_method_params={"source_buffer": 0.75},
+        beam=beam,
+        times=times,
+        force_use_type3=True,
+        baselines=baselines,
+        **params,
+    )
+
+    # Compare the results of type 1 and type 3
+    np.testing.assert_allclose(
+        fvis_type1, fvis_type3, atol=1e-5 if precision == 2 else 1e-4
+    )
 
 def test_cpu_simulation_engine_init():
     """Test that the CPUSimulationEngine initializes correctly."""

@@ -7,7 +7,7 @@ from pyuvdata import UVBeam
 from matvis.core.beams import prepare_beam_unpolarized
 
 from .core.beams import BeamEvaluator
-from .cpu.cpu_beams import CPUBeamEvaluator
+from .cpu.beams import CPUBeamEvaluator
 from .core.simulate import SimulationEngine, default_accuracy_dict
 from .cpu.cpu_simulate import CPUSimulationEngine
 
@@ -94,6 +94,7 @@ def simulate_vis(
     precision: int = 2,
     polarized: bool = False,
     eps: float = None,
+    upsample_factor: Literal[1.25, 2] = 2,
     beam_spline_opts: dict = None,
     use_feed: str = "x",
     flat_array_tol: float = 0.0,
@@ -104,6 +105,7 @@ def simulate_vis(
         "CoordinateRotationAstropy", "CoordinateRotationERFA"
     ] = "CoordinateRotationERFA",
     coord_method_params: dict | None = None,
+    force_use_type3: bool = False,
     force_use_ray: bool = False,
     trace_mem: bool = False,
     backend: Literal["cpu", "gpu"] = "cpu",
@@ -146,6 +148,11 @@ def simulate_vis(
         Desired accuracy of the non-uniform fast fourier transform. If None, the default accuracy
         for the given precision will be used. For precision 1, the default accuracy is 6e-8, and for
         precision 2, the default accuracy is 1e-12.
+    upsample_factor : int, default = 2
+        Upsampling factor for the non-uniform fast fourier transform. This is the factor by which the
+        intermediate grid is upsampled. Only values of 1.25 or 2 are allowed. Can be useful for decreasing
+        the computation time and memory requirement for large arrays at the expensive of some accuracy. 
+        The default value is 2.
     beam_spline_opts : dict, optional
         Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
     use_feed : str, default = "x"
@@ -175,6 +182,9 @@ def simulate_vis(
         for the CoordinateRotationERFA method, there is the parameter ``update_bcrs_every``,
         which should be a time in seconds, for which larger values speed up the computation.
         See the documentation for the CoordinateRotation classes in matvis for more information.
+    force_use_type3: bool, default = False
+        Whether to force the use of type 3 NUFFT. If False, type 3 will only be used
+        if the array cannot be defined in a regular grid.
     force_use_ray: bool, default = False
         Whether to force the use of Ray for parallelization. If False, Ray will only be used
         if nprocesses > 1.
@@ -231,6 +241,7 @@ def simulate_vis(
         precision=precision,
         polarized=polarized,
         eps=eps,
+        upsample_factor=upsample_factor,
         beam_spline_opts=beam_spline_opts,
         flat_array_tol=flat_array_tol,
         interpolation_function=interpolation_function,
@@ -238,6 +249,7 @@ def simulate_vis(
         nthreads=nthreads,
         coord_method=coord_method,
         coord_method_params=coord_method_params,
+        force_use_type3=force_use_type3,
         force_use_ray=force_use_ray,
         trace_mem=trace_mem,
     )
