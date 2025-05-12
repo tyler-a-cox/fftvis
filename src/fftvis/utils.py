@@ -14,18 +14,26 @@ from .core.utils import (
     get_task_chunks,
 )
 
+# Cache the GPU availability to avoid repeated checks
+_cached_use_gpu = None
 
-# This is a simple check to determine which implementation to use
-# This could be enhanced to check for actual CUDA availability
+
 def _use_gpu():
     """Check if GPU implementation should be used."""
-    # This is a placeholder. In a real implementation,
-    # you might check for CUDA availability or a config setting
-    try:
-        import cupy
+    global _cached_use_gpu
+    if _cached_use_gpu is not None:
+        return _cached_use_gpu
 
-        return True
+    try:
+        import cupy as cp
+
+        # Check if a CUDA device is actually available
+        _cached_use_gpu = cp.cuda.is_available()
+        if not _cached_use_gpu:
+            print("CuPy installed but no CUDA device found. Using CPU backend.")
+        return _cached_use_gpu
     except ImportError:
+        _cached_use_gpu = False
         return False
 
 

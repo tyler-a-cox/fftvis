@@ -9,10 +9,10 @@ name = "fftvis"
 description = "An FFT-based visibility simulator"
 readme = "README.md"
 authors = [
-    {name="Tyler Cox", email='tyler.a.cox@berkeley.edu'},
-    {name="Steven Murray", email="steven.murray@sns.it"}
+    { name = "Tyler Cox", email = 'tyler.a.cox@berkeley.edu' },
+    { name = "Steven Murray", email = "steven.murray@sns.it" },
 ]
-license = {text="MIT"}
+license = { text = "MIT" }
 requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -40,7 +40,7 @@ dependencies = [
     "ray",
     "threadpoolctl",
     "numba",
-    "memray"
+    "memray",
 ]
 dynamic = ["version"]
 
@@ -54,11 +54,12 @@ dev = [
     "pytest-xdist",
     "pyradiosky",
     "pyuvsim[sim]",
-    "hera_sim"
+    "hera_sim",
 ]
+gpu = ["cupy", "cufinufft"]
 
 [project.scripts]
 fftvis = "fftvis.cli:app"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
