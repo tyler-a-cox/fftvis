@@ -155,8 +155,10 @@ class CPUSimulationEngine(SimulationEngine):
         # Get number of baselines
         nbls = len(baselines)
 
-        # Factor of 0.5 accounts for splitting Stokes between polarization channels
-        Isky = 0.5 * fluxes
+        # Prepare source catalog for the given fluxes
+        coherency, polarized_sky_model = cpu_utils.prepare_source_catalog(
+            fluxes, polarized_beam=polarized
+        )
 
         # Flatten antenna positions
         antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
@@ -221,7 +223,7 @@ class CPUSimulationEngine(SimulationEngine):
         coord_method = CoordinateRotation._methods[coord_method]
         coord_method_params = coord_method_params or {}
         coord_mgr = coord_method(
-            flux=Isky,
+            flux=coherency,
             times=times,
             telescope_loc=telescope_loc,
             skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs"),
@@ -335,6 +337,7 @@ class CPUSimulationEngine(SimulationEngine):
                     complex_dtype=complex_dtype,
                     nfeeds=nfeeds,
                     polarized=polarized,
+                    polarized_sky_model=polarized_sky_model,
                     eps=eps,
                     upsample_factor=upsample_factor,
                     beam_spline_opts=beam_spline_opts,
@@ -385,6 +388,7 @@ class CPUSimulationEngine(SimulationEngine):
         complex_dtype: np.dtype,
         nfeeds: int,
         polarized: bool = False,
+        polarized_sky_model: bool = False,
         eps: float = None,
         upsample_factor: Literal[1.25, 2] = 2,
         beam_spline_opts: dict = None,
@@ -462,7 +466,7 @@ class CPUSimulationEngine(SimulationEngine):
                     _cpu_beam_evaluator.polarized = polarized
                     _cpu_beam_evaluator.freq = freq
 
-                    A_s = _cpu_beam_evaluator.evaluate_beam(
+                    apparent_coherency = _cpu_beam_evaluator.evaluate_beam(
                         beam,
                         az,
                         za,
@@ -472,48 +476,48 @@ class CPUSimulationEngine(SimulationEngine):
                         interpolation_function=interpolation_function,
                     ).astype(complex_dtype)
 
-                    if polarized:
+                    if polarized and polarized_sky_model:
                         _cpu_beam_evaluator.get_apparent_flux_polarized(
-                            A_s, flux[:nsim_sources, freqidx] if flux.ndim > 1 else flux[:nsim_sources]
+                            apparent_coherency, flux[:nsim_sources, freqidx]
+                        )
+                    elif polarized:
+                        _cpu_beam_evaluator.get_apparent_flux_polarized_beam(
+                            apparent_coherency, flux[:nsim_sources, freqidx]
                         )
                     else:
-                        # Check if flux is 1D or 2D
-                        if flux.ndim > 1:
-                            A_s *= flux[:nsim_sources, freqidx]
-                        else:
-                            A_s *= flux[:nsim_sources]
+                        apparent_coherency *= flux[:nsim_sources, freqidx]
+
 
                     # Check if A_s can be reshaped to expected dimensions
                     # For polarized case with 2 feeds, expected shape is (2, 2, nsim_sources) -> (4, nsim_sources)
                     expected_size = nfeeds**2 * nsim_sources
-                    if A_s.size != expected_size: # pragma: no cover
+                    if apparent_coherency.size != expected_size: # pragma: no cover
                         # Log the shape mismatch and try to adapt
-                        logger.warning(f"Shape mismatch: A_s size {A_s.size} != expected size {expected_size}") # pragma: no cover
-                        logger.warning(f"A_s shape: {A_s.shape}, nfeeds: {nfeeds}, nsim_sources: {nsim_sources}") # pragma: no cover
+                        logger.warning(f"Shape mismatch: A_s size {apparent_coherency.size} != expected size {expected_size}") # pragma: no cover
+                        logger.warning(f"A_s shape: {apparent_coherency.shape}, nfeeds: {nfeeds}, nsim_sources: {nsim_sources}") # pragma: no cover
                         
                         # Handle polarized case specially - if we got a 2D array but expected 3D
-                        if polarized and A_s.ndim == 2: # pragma: no cover
+                        if polarized and apparent_coherency.ndim == 2: # pragma: no cover
                             # Just skip this time/freq, or could try to expand the array
                             continue # pragma: no cover
                     
                     # Try to reshape safely
                     try:
-                        A_s.shape = (nfeeds**2, nsim_sources)
+                        apparent_coherency.shape = (nfeeds**2, nsim_sources)
                     except ValueError: # pragma: no cover
-                        logger.error(f"Cannot reshape A_s with shape {A_s.shape} to {(nfeeds**2, nsim_sources)}") # pragma: no cover
+                        logger.error(f"Cannot reshape A_s with shape {apparent_coherency.shape} to {(nfeeds**2, nsim_sources)}") # pragma: no cover
                         continue # pragma: no cover
                     
-                    i_sky = A_s
-
-                    if i_sky.dtype != complex_dtype:
-                        i_sky = i_sky.astype(complex_dtype)
+                    # Check if the dtype is complex
+                    if apparent_coherency.dtype != complex_dtype:
+                        apparent_coherency = apparent_coherency.astype(complex_dtype)
 
                     # Compute visibilities w/ non-uniform FFT
                     if use_type1:
                         _vis_here = cpu_nufft2d_type1(
                             topo[0] * freq,
                             topo[1] * freq,
-                            i_sky,
+                            apparent_coherency,
                             n_modes=type1_n_modes,
                             index=bls,
                             eps=eps,
@@ -525,7 +529,7 @@ class CPUSimulationEngine(SimulationEngine):
                             _vis_here = cpu_nufft2d(
                                 topo[0],
                                 topo[1],
-                                i_sky,
+                                apparent_coherency,
                                 uvw[0],
                                 uvw[1],
                                 eps=eps,
@@ -537,7 +541,7 @@ class CPUSimulationEngine(SimulationEngine):
                                 topo[0],
                                 topo[1],
                                 topo[2],
-                                i_sky,
+                                apparent_coherency,
                                 uvw[0],
                                 uvw[1],
                                 uvw[2],

@@ -90,8 +90,13 @@ class CPUBeamEvaluator(BeamEvaluator):
 
     @staticmethod
     @nb.jit(nopython=True, parallel=False, nogil=False)
-    def get_apparent_flux_polarized(beam: np.ndarray, flux: np.ndarray):  # pragma: no cover
-        """Calculate apparent flux of the sources."""
+    def get_apparent_flux_polarized_beam(beam: np.ndarray, flux: np.ndarray):  # pragma: no cover
+        """
+        Calculate apparent flux of the sources. Here we assume that the
+        beam is a 2x2 matrix for each source, and the flux is a 1D array
+        of the same length as the number of sources. The beam is modified
+        in place to store the apparent flux.
+        """
         nax, nfd, nsrc = beam.shape
 
         for isrc in range(nsrc):
@@ -105,3 +110,55 @@ class CPUBeamEvaluator(BeamEvaluator):
             beam[0, 1, isrc] = i01 * flux[isrc]
             beam[1, 0, isrc] = np.conj(i01) * flux[isrc]
             beam[1, 1, isrc] = i11 * flux[isrc]
+
+    @staticmethod
+    @nb.jit(nopython=True, parallel=False, nogil=False)
+    def get_apparent_flux_polarized(beam1, coherency, beam2):
+        """
+        Calculate the apparent flux of the sources using the beam and coherency matrices.
+        This function computes the product of the conjugate transpose of beam1 and
+        the coherency matrix, and then multiplies it with beam2. The result is stored
+        back in beam1.
+        
+        Parameters
+        ----------
+        beam1 : np.ndarray
+            A 3D array of shape (2, 2, Nsources) where each A[:,:,i] is a 2x2 matrix.
+        coherency : np.ndarray
+            A 3D array of shape (2, 2, Nsources) where each C[:,:,i] is a 2x2 matrix.
+        beam2 : np.ndarray
+            A 3D array of shape (2, 2, Nsources) where each B[:,:,i] is a 2x2 matrix.
+        """
+        nsources = beam1.shape[2]
+        
+        for i in range(nsources):
+            # Unpack elements of A for the i-th slice.
+            a00 = beam1[0, 0, i]
+            a01 = beam1[0, 1, i]
+            a10 = beam1[1, 0, i]
+            a11 = beam1[1, 1, i]
+            
+            # Unpack elements of C for the i-th slice.
+            c00 = coherency[0, 0, i]
+            c01 = coherency[0, 1, i]
+            c10 = coherency[1, 0, i]
+            c11 = coherency[1, 1, i]
+            
+            # Unpack elements of B for the i-th slice.
+            b00 = beam2[0, 0, i]
+            b01 = beam2[0, 1, i]
+            b10 = beam2[1, 0, i]
+            b11 = beam2[1, 1, i]
+            
+            # Compute the intermediate product: T = A^H * C.
+            # A^H is the conjugate transpose of A.
+            t00 = np.conj(a00) * c00 + np.conj(a10) * c10
+            t01 = np.conj(a00) * c01 + np.conj(a10) * c11
+            t10 = np.conj(a01) * c00 + np.conj(a11) * c10
+            t11 = np.conj(a01) * c01 + np.conj(a11) * c11
+            
+            # Compute the final product: out = T * B = A^H * C * B.
+            beam1[0, 0, i] = t00 * b00 + t01 * b10
+            beam1[0, 1, i] = t00 * b01 + t01 * b11
+            beam1[1, 0, i] = t10 * b00 + t11 * b10
+            beam1[1, 1, i] = t10 * b01 + t11 * b11
