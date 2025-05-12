@@ -23,46 +23,51 @@ def inplace_rot(rot: np.ndarray, b: np.ndarray):  # pragma: no cover
         out[2] = rot[2, 0] * b[0, n] + rot[2, 1] * b[1, n] + rot[2, 2] * b[2, n]
         b[:, n] = out
 
-def prepare_source_catalog(sky_model: np.ndarray, polarized_beam: bool) -> np.ndarray:
+def prepare_source_catalog(sky_model: np.ndarray, polarized_beam: bool) -> tuple[np.ndarray, bool]:
     """
-    Prepare the source catalog for the given sky model. The function checks the shape of the sky model and
-    converts it to a coherency matrix if necessary. It also returns a boolean indicating whether the sky model
-    is polarized or not. 
+    Prepare the source catalog for the given sky model by building its coherency matrix.
 
     Parameters
     ----------
     sky_model : np.ndarray
-        Stokes parameters of the sky model. If polarized is True, it should have shape (nsources, nfreqs, 4).
-        If polarized is False, it should have shape (nsources, nfreqs).
-    polarized : bool
+        - Unpolarized: shape (nsources, nfreqs)
+        - Polarized:   shape (nsources, nfreqs, 4)
+    polarized_beam : bool
+        If True, you may pass either a 2D unpolarized sky_model or
+        a 3D polarized array with last axis length 4.
+        If False, only 2D unpolarized sky_models are allowed.
 
-    
     Returns
     -------
     coherency : np.ndarray
-        Coherency matrix.
+        - If input was 2D: shape (nsources, nfreqs) (monopole)
+        - If input was 3D: shape (nsources, nfreqs, 2, 2) (full coherency matrix)
     is_sky_model_polarized : bool
-        True if the sky model is polarized, False otherwise.
+        True if you passed a 3D, 4pol cube; False otherwise.
     """
-    # Sky model should either be unpolarized or have shape (nsources, nfreqs, 4)
-    if polarized_beam:
-        if sky_model.ndim != 3 or sky_model.shape[-1] != 4:
-            raise ValueError(
-                f"polarized_beam=True requires sky_model.ndim==3 and "
-                f"sky_model.shape[-1]==4, but got ndim={sky_model.ndim}, "
-                f"shape={sky_model.shape}"
-            )
+    # 1) Shape validation
+    if sky_model.ndim == 2:
+        # always OK
+        polarized_sky_model = False
+    elif polarized_beam and sky_model.ndim == 3 and sky_model.shape[-1] == 4:
+        polarized_sky_model = True
     else:
-        if sky_model.ndim != 2:
+        if polarized_beam:
             raise ValueError(
-                f"polarized_beam=False requires sky_model.ndim==2, "
-                f"but got ndim={sky_model.ndim}, shape={sky_model.shape}"
+                f"polarized_beam=True requires sky_model to be either:\n"
+                f"  2D unpolarized, or\n"
+                f"  3D with last axis of length 4; "
+                f"got ndim={sky_model.ndim}, shape={sky_model.shape}"
+            )
+        else:
+            raise ValueError(
+                f"polarized_beam=False requires sky_model to be 2D; "
+                f"got ndim={sky_model.ndim}, shape={sky_model.shape}"
             )
     
     # If the shape is (nsources, nfreqs), we assume it's unpolarized
-    if coherency.ndim == 2:
+    if not polarized_sky_model:
         coherency = 0.5 * sky_model
-        polarized_sky_model = False
     else:
         coherency = 0.5 * np.array(
             [
@@ -71,7 +76,6 @@ def prepare_source_catalog(sky_model: np.ndarray, polarized_beam: bool) -> np.nd
             ]
         )
         coherency = np.transpose(coherency, (2, 3, 0, 1))
-        polarized_sky_model = True
 
     
     return coherency, polarized_sky_model

@@ -43,7 +43,7 @@ def test_simulate_vis_basic():
     # Create sources in a grid
     ra = np.linspace(0, 0.1, nsrcs)
     dec = np.linspace(-0.05, 0.05, nsrcs)
-    fluxes = np.ones(nsrcs)  # 1D array of fluxes
+    fluxes = np.ones((nsrcs, nfreqs))
     
     # Create frequencies and times - use array of times
     # Use the same frequency as in the beam to avoid interpolation errors
@@ -148,7 +148,7 @@ def test_simulate_vis_all_baselines():
     # Create sources in a grid
     ra = np.linspace(0, 0.1, nsrcs)
     dec = np.linspace(-0.05, 0.05, nsrcs)
-    fluxes = np.ones(nsrcs)
+    fluxes = np.ones((nsrcs, nfreqs))
     
     # Create frequencies and times
     freqs = np.array([150e6])
@@ -231,7 +231,7 @@ def test_simulate_vis_precision():
     # Create sources
     ra = np.linspace(0, 0.1, nsrcs)
     dec = np.linspace(-0.05, 0.05, nsrcs)
-    fluxes = np.ones(nsrcs)
+    fluxes = np.ones((nsrcs, nfreqs))
     
     # Create frequencies and times
     freqs = np.array([150e6])

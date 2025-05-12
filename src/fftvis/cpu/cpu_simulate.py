@@ -48,6 +48,7 @@ def _evaluate_vis_chunk_remote(
     complex_dtype: np.dtype,
     nfeeds: int,
     polarized: bool = False,
+    polarized_sky_model: bool = False,
     eps: float = None,
     upsample_factor: Literal[1.25, 2] = 2,
     beam_spline_opts: dict = None,
@@ -74,6 +75,7 @@ def _evaluate_vis_chunk_remote(
         complex_dtype=complex_dtype,
         nfeeds=nfeeds,
         polarized=polarized,
+        polarized_sky_model=polarized_sky_model,
         eps=eps,
         upsample_factor=upsample_factor,
         beam_spline_opts=beam_spline_opts,
@@ -478,7 +480,7 @@ class CPUSimulationEngine(SimulationEngine):
 
                     if polarized and polarized_sky_model:
                         _cpu_beam_evaluator.get_apparent_flux_polarized(
-                            apparent_coherency, flux[:nsim_sources, freqidx]
+                            apparent_coherency, np.transpose(flux[:nsim_sources, freqidx], (1, 2, 0))
                         )
                     elif polarized:
                         _cpu_beam_evaluator.get_apparent_flux_polarized_beam(

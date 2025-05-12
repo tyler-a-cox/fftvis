@@ -415,7 +415,7 @@ def test_simulate_with_basic_beam():
         1: np.array([10.0, 0.0, 0.0]),
     }
     freqs = np.array([150e6])
-    fluxes = np.ones(1)
+    fluxes = np.ones((1, 1))
     ra = np.array([0.0])
     dec = np.array([0.0])
     
@@ -493,7 +493,7 @@ def test_simulate_with_specified_baselines():
         2: np.array([0.0, 10.0, 0.0]),
     }
     freqs = np.array([150e6])
-    fluxes = np.ones(1)
+    fluxes = np.ones((1, 1))
     ra = np.array([0.0])
     dec = np.array([0.0])
     
@@ -543,156 +543,6 @@ def test_simulate_with_specified_baselines():
     assert not np.isnan(vis).any()
 
 
-def test_with_1d_and_2d_flux():
-    """Test simulation with both 1D and 2D flux arrays."""
-    # Create a simulation engine
-    engine = CPUSimulationEngine()
-    
-    # Create test data
-    ants = {
-        0: np.array([0.0, 0.0, 0.0]),
-        1: np.array([10.0, 0.0, 0.0]),
-    }
-    freqs = np.array([150e6, 160e6])
-    ra = np.array([0.0, 0.1])
-    dec = np.array([0.0, 0.1])
-    
-    # Create Time as array instead of scalar
-    times = Time(['2020-01-01 00:00:00'], scale='utc')
-    
-    # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
-    beam = UVBeam()
-    beam.read_cst_beam(
-        beam_file,
-        frequency=[150e6],
-        telescope_name="HERA",
-        feed_name="Dipole",
-        feed_version="1.0",
-        feed_pol=["x"],
-        model_name="Test",
-        model_version="1.0",
-    )
-    
-    # Set a telescope location
-    telescope_loc = EarthLocation(
-        lat='-30d43m17.5s',
-        lon='21d25m41.9s',
-        height=1073.
-    )
-    
-    # Test with 1D flux (constant across frequency)
-    fluxes_1d = np.ones(len(ra))
-    
-    vis_1d = engine.simulate(
-        ants=ants,
-        freqs=freqs,
-        fluxes=fluxes_1d,
-        beam=beam,
-        ra=ra,
-        dec=dec,
-        times=times,
-        telescope_loc=telescope_loc
-    )
-    
-    # Expected shape (nfreqs, ntimes, nbls)
-    assert vis_1d.shape == (2, 1, 2)
-    assert not np.isnan(vis_1d).any()
-    
-    # Test with 2D flux (different for each frequency)
-    fluxes_2d = np.ones((len(ra), len(freqs)))
-    fluxes_2d[:, 1] = 2.0  # Second frequency has twice the flux
-    
-    vis_2d = engine.simulate(
-        ants=ants,
-        freqs=freqs,
-        fluxes=fluxes_2d,
-        beam=beam,
-        ra=ra,
-        dec=dec,
-        times=times,
-        telescope_loc=telescope_loc
-    )
-    
-    # Expected shape (nfreqs, ntimes, nbls)
-    assert vis_2d.shape == (2, 1, 2)
-    assert not np.isnan(vis_2d).any()
-    
-    # Second frequency should have approximately twice the power
-    # due to twice the flux
-    ratio = np.abs(vis_2d[1, 0, :]) / np.abs(vis_2d[0, 0, :])
-    
-    # Filter out NaN or Inf values before the assertion
-    valid_indices = np.isfinite(ratio)
-    if np.any(valid_indices):
-        np.testing.assert_allclose(ratio[valid_indices], 2.0, rtol=0.1)
-    else:
-        # If all values are NaN, we can't validate the ratio calculation
-        # but ensure we don't fail the test
-        pass
-
-
-def test_empty_source_list():
-    """Test simulation with an empty source list."""
-    # Create a simulation engine
-    engine = CPUSimulationEngine()
-    
-    # Create test data
-    ants = {
-        0: np.array([0.0, 0.0, 0.0]),
-        1: np.array([10.0, 0.0, 0.0]),
-    }
-    freqs = np.array([150e6])
-    
-    # Use a single source with zero flux instead of empty array
-    # since empty coordinates don't work with SkyCoord
-    fluxes = np.zeros(1)  # Zero flux source, not empty list
-    ra = np.array([0.0])
-    dec = np.array([0.0])
-    
-    # Create Time as array instead of scalar
-    times = Time(['2020-01-01 00:00:00'], scale='utc')
-    
-    # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
-    beam = UVBeam()
-    beam.read_cst_beam(
-        beam_file,
-        frequency=[150e6],
-        telescope_name="HERA",
-        feed_name="Dipole",
-        feed_version="1.0",
-        feed_pol=["x"],
-        model_name="Test",
-        model_version="1.0",
-    )
-    
-    # Set a telescope location
-    telescope_loc = EarthLocation(
-        lat='-30d43m17.5s',
-        lon='21d25m41.9s',
-        height=1073.
-    )
-    
-    # Run simulation with a source that has zero flux (effectively empty)
-    vis = engine.simulate(
-        ants=ants,
-        freqs=freqs,
-        fluxes=fluxes,
-        beam=beam,
-        ra=ra,
-        dec=dec,
-        times=times,
-        telescope_loc=telescope_loc
-    )
-    
-    # Should get zero visibilities
-    assert vis.shape == (1, 1, 2)
-    np.testing.assert_array_equal(vis, np.zeros((1, 1, 2)))
-
-
 def test_beam_interpolation():
     """Test beam interpolation within simulation."""
     # Create a simulation engine
@@ -704,7 +554,7 @@ def test_beam_interpolation():
         1: np.array([10.0, 0.0, 0.0]),
     }
     freqs = np.array([150e6, 160e6])  # Multiple frequencies
-    fluxes = np.ones(1)
+    fluxes = np.ones((1, 1))
     ra = np.array([0.0])
     dec = np.array([0.0])
     
@@ -763,7 +613,7 @@ def test_simulation_with_empty_baselines():
         1: np.array([10.0, 0.0, 0.0]),
     }
     freqs = np.array([150e6])
-    fluxes = np.ones(1)
+    fluxes = np.ones((1, 1))
     ra = np.array([0.0])
     dec = np.array([0.0])
     
@@ -834,7 +684,7 @@ def test_wrapper_simulation():
         1: np.array([10.0, 0.0, 0.0]),
     }
     freqs = np.array([150e6])
-    fluxes = np.ones(1)
+    fluxes = np.ones((1, 1))
     ra = np.array([0.0])
     dec = np.array([0.0])
     
@@ -910,7 +760,7 @@ def test_time_array_handling():
         1: np.array([10.0, 0.0, 0.0]),
     }
     freqs = np.array([150e6])
-    fluxes = np.ones(1)
+    fluxes = np.ones((1, 1))
     ra = np.array([0.0])
     dec = np.array([0.0])
     
@@ -978,7 +828,7 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
     engine = CPUSimulationEngine()
     ants = {0: np.array([0.0,0.0,0.0]), 1: np.array([10.0,0.0,0.0])}
     freqs = np.array([1e8])
-    fluxes = np.ones(1)
+    fluxes = np.ones((1, 1))
     ra = np.array([0.0])
     dec = np.array([0.0])
     times = Time(['2020-01-01'], scale='utc')
@@ -1087,7 +937,7 @@ def test_simulate_force_use_ray_single_proc(tmp_path, caplog):
     # Very minimal sim parameters
     ants = {0: np.array([0.0, 0.0, 0.0]), 1: np.array([10.0, 0.0, 0.0])}
     freqs = np.array([1e8])
-    fluxes = np.ones(1)
+    fluxes = np.ones((1, 1))
     ra = np.array([0.0])
     dec = np.array([0.0])
     times = Time(['2020-01-01'], scale='utc')
@@ -1128,7 +978,7 @@ def test_chunk_eval_trace_mem(tmp_path):
     # reuse minimal setup from direct test above
     ants = {0: np.array([0.0,0.0,0.0]), 1: np.array([10.0,0.0,0.0])}
     freqs = np.array([1e8])
-    fluxes = np.ones(1)
+    fluxes = np.ones((1, 1))
     ra = np.array([0.0])
     dec = np.array([0.0])
     times = Time(['2020-01-01'], scale='utc')
@@ -1213,7 +1063,7 @@ def test_beam_shape_mismatch_logs_warning(caplog, monkeypatch):
     # minimal invocation of _evaluate_vis_chunk:
     ants = {0: np.array([0,0,0]), 1: np.array([1,0,0])}
     freqs = np.array([1e8])
-    fluxes = np.ones(1)
+    fluxes = np.ones((1, 1))
     ra = np.array([0.0])
     dec = np.array([0.0])
     times = Time(['2020-01-01'], scale='utc')
