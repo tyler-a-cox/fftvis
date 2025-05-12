@@ -1,98 +1,134 @@
 """
 GPU-specific non-uniform FFT implementation for fftvis.
 
-This module will provide GPU-specific NUFFT functionality.
-Currently it contains stub implementations.
+This module provides GPU-specific NUFFT functionality using the cufinufft library.
 """
 
-import numpy as np
+import cupy as cp
+import cufinufft
+import numpy as np  # Keep numpy import for type hinting if needed
 
 
 def gpu_nufft2d(
-    x: np.ndarray,
-    y: np.ndarray,
-    weights: np.ndarray,
-    u: np.ndarray,
-    v: np.ndarray,
+    x: cp.ndarray,
+    y: cp.ndarray,
+    weights: cp.ndarray,
+    u: cp.ndarray,
+    v: cp.ndarray,
     eps: float,
-    n_threads: int = 1,
-) -> np.ndarray:
+    n_threads: int = 1,  # n_threads is not used by cufinufft, but keep for consistent signature
+) -> cp.ndarray:
     """
-    Perform a 2D non-uniform FFT on the GPU.
+    Perform a 2D non-uniform FFT on the GPU using cufinufft.
 
     Parameters
     ----------
-    x : np.ndarray
-        X coordinates of source positions.
-    y : np.ndarray
-        Y coordinates of source positions.
-    weights : np.ndarray
-        Weights of sources (typically beam-weighted fluxes).
-    u : np.ndarray
-        U coordinates for baselines.
-    v : np.ndarray
-        V coordinates for baselines.
+    x : cp.ndarray
+        X coordinates of source positions (on GPU).
+    y : cp.ndarray
+        Y coordinates of source positions (on GPU).
+    weights : cp.ndarray
+        Weights of sources (typically beam-weighted fluxes) (on GPU).
+    u : cp.ndarray
+        U coordinates for baselines (on GPU).
+    v : cp.ndarray
+        V coordinates for baselines (on GPU).
     eps : float
         Desired accuracy of the transform.
     n_threads : int
-        Number of threads to use (not used in GPU implementation).
+        Number of threads to use (ignored by cufinufft).
 
     Returns
     -------
-    np.ndarray
-        Visibility data.
-
-    Raises
-    ------
-    NotImplementedError
-        This function is not yet implemented.
+    cp.ndarray
+        Visibility data (on GPU).
     """
-    raise NotImplementedError("GPU NUFFT2D not yet implemented")
+    # Note: In fftvis, we need type 3 transform (non-uniform to non-uniform)
+    # The cufinufft API v2.2+ doesn't have simple nufft*d3 functions like finufft
+    # We need to use the Plan interface for type 3 transforms
+
+    # Determine an appropriate grid size for the intermediate uniform grid
+    # This is a heuristic based on the maximum frequencies
+    N1 = 2 * int(cp.max(cp.abs(u))) + 5
+    N2 = 2 * int(cp.max(cp.abs(v))) + 5
+
+    # Create plan for type 3 transform
+    plan = cufinufft.Plan(
+        nufft_type=3,  # Type 3: non-uniform to non-uniform
+        n_modes=(N1, N2),  # Size of intermediate grid
+        n_trans=weights.shape[0] if weights.ndim > 1 else 1,
+        eps=eps,
+        isign=-1,  # Match finufft sign convention
+    )
+
+    # Set source and target points
+    plan.setpts(x=x, y=y, s=u, t=v)
+
+    # Execute the transform
+    return plan.execute(weights)
 
 
 def gpu_nufft3d(
-    x: np.ndarray,
-    y: np.ndarray,
-    z: np.ndarray,
-    weights: np.ndarray,
-    u: np.ndarray,
-    v: np.ndarray,
-    w: np.ndarray,
+    x: cp.ndarray,
+    y: cp.ndarray,
+    z: cp.ndarray,
+    weights: cp.ndarray,
+    u: cp.ndarray,
+    v: cp.ndarray,
+    w: cp.ndarray,
     eps: float,
-    n_threads: int = 1,
-) -> np.ndarray:
+    n_threads: int = 1,  # n_threads is not used by cufinufft, but keep for consistent signature
+) -> cp.ndarray:
     """
-    Perform a 3D non-uniform FFT on the GPU.
+    Perform a 3D non-uniform FFT on the GPU using cufinufft.
 
     Parameters
     ----------
-    x : np.ndarray
-        X coordinates of source positions.
-    y : np.ndarray
-        Y coordinates of source positions.
-    z : np.ndarray
-        Z coordinates of source positions.
-    weights : np.ndarray
-        Weights of sources (typically beam-weighted fluxes).
-    u : np.ndarray
-        U coordinates for baselines.
-    v : np.ndarray
-        V coordinates for baselines.
-    w : np.ndarray
-        W coordinates for baselines.
+    x : cp.ndarray
+        X coordinates of source positions (on GPU).
+    y : cp.ndarray
+        Y coordinates of source positions (on GPU).
+    z : cp.ndarray
+        Z coordinates of source positions (on GPU).
+    weights : cp.ndarray
+        Weights of sources (typically beam-weighted fluxes) (on GPU).
+    u : cp.ndarray
+        U coordinates for baselines (on GPU).
+    v : cp.ndarray
+        V coordinates for baselines (on GPU).
+    w : cp.ndarray
+        W coordinates for baselines (on GPU).
     eps : float
         Desired accuracy of the transform.
     n_threads : int
-        Number of threads to use (not used in GPU implementation).
+        Number of threads to use (ignored by cufinufft).
 
     Returns
     -------
-    np.ndarray
-        Visibility data.
-
-    Raises
-    ------
-    NotImplementedError
-        This function is not yet implemented.
+    cp.ndarray
+        Visibility data (on GPU).
     """
-    raise NotImplementedError("GPU NUFFT3D not yet implemented")
+    # Note: In fftvis, we need type 3 transform (non-uniform to non-uniform)
+    # The cufinufft API v2.2+ doesn't have simple nufft*d3 functions like finufft
+    # We need to use the Plan interface for type 3 transforms
+
+    # Determine an appropriate grid size for the intermediate uniform grid
+    # This is a heuristic based on the maximum frequencies
+    N1 = 2 * int(cp.max(cp.abs(u))) + 5
+    N2 = 2 * int(cp.max(cp.abs(v))) + 5
+    N3 = 2 * int(cp.max(cp.abs(w))) + 5
+
+    # Create plan for type 3 transform
+    plan = cufinufft.Plan(
+        nufft_type=3,  # Type 3: non-uniform to non-uniform
+        n_modes=(N1, N2, N3),  # Size of intermediate grid
+        n_trans=weights.shape[0] if weights.ndim > 1 else 1,
+        eps=eps,
+        isign=-1,  # Match finufft sign convention
+    )
+
+    # Set source and target points
+    plan.setpts(x=x, y=y, z=z, s=u, t=v, u=w)
+
+    # Execute the transform
+    return plan.execute(weights)
