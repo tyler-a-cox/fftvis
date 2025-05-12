@@ -120,7 +120,9 @@ def find_lattice_basis(
 
     # find second that’s not collinear (cross‑product ≠ 0)
     for v in blvec[1:]:
-        if abs(np.cross(basis_vec_1, v)) > tol:
+        # Compute the cross product of the x and y components
+        cross_x = basis_vec_1[0]*v[1] - basis_vec_1[1]*v[0]
+        if np.abs(cross_x) > tol:
             basis_vec_2 = v
             break
     else:
@@ -202,7 +204,6 @@ def check_antpos_griddability(
             ).astype(int)
             for ant in antpos
         }
-        print (factor)
         return True, antpos, basis / factor
     else:
         # If not griddable, check 
