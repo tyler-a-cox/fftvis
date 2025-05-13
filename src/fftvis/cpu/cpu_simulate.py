@@ -161,6 +161,8 @@ class CPUSimulationEngine(SimulationEngine):
         coherency, polarized_sky_model = cpu_utils.prepare_source_catalog(
             fluxes, polarized_beam=polarized
         )
+        if coherency.dtype != complex_dtype:
+            coherency = coherency.astype(complex_dtype)
 
         # Flatten antenna positions
         antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
@@ -488,20 +490,6 @@ class CPUSimulationEngine(SimulationEngine):
                         )
                     else:
                         apparent_coherency *= flux[:nsim_sources, freqidx]
-
-
-                    # Check if A_s can be reshaped to expected dimensions
-                    # For polarized case with 2 feeds, expected shape is (2, 2, nsim_sources) -> (4, nsim_sources)
-                    expected_size = nfeeds**2 * nsim_sources
-                    if apparent_coherency.size != expected_size: # pragma: no cover
-                        # Log the shape mismatch and try to adapt
-                        logger.warning(f"Shape mismatch: A_s size {apparent_coherency.size} != expected size {expected_size}") # pragma: no cover
-                        logger.warning(f"A_s shape: {apparent_coherency.shape}, nfeeds: {nfeeds}, nsim_sources: {nsim_sources}") # pragma: no cover
-                        
-                        # Handle polarized case specially - if we got a 2D array but expected 3D
-                        if polarized and apparent_coherency.ndim == 2: # pragma: no cover
-                            # Just skip this time/freq, or could try to expand the array
-                            continue # pragma: no cover
                     
                     # Try to reshape safely
                     try:

@@ -91,12 +91,7 @@ class CPUBeamEvaluator(BeamEvaluator):
     @staticmethod
     @nb.jit(nopython=True, parallel=False, nogil=False)
     def get_apparent_flux_polarized_beam(beam: np.ndarray, flux: np.ndarray):  # pragma: no cover
-        """
-        Calculate apparent flux of the sources. Here we assume that the
-        beam is a 2x2 matrix for each source, and the flux is a 1D array
-        of the same length as the number of sources. The beam is modified
-        in place to store the apparent flux.
-        """
+        """Calculate apparent flux of the sources. """
         nax, nfd, nsrc = beam.shape
 
         for isrc in range(nsrc):
@@ -116,6 +111,7 @@ class CPUBeamEvaluator(BeamEvaluator):
     def get_apparent_flux_polarized(beam, coherency):
         """
         Calculate the apparent flux of the sources using the beam and coherency matrices.
+        
         This function computes the product of the conjugate transpose of beam and
         the coherency matrix, and then multiplies it with beam.
         

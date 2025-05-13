@@ -33,14 +33,14 @@ def prepare_source_catalog(sky_model: np.ndarray, polarized_beam: bool) -> tuple
         - Unpolarized: shape (nsources, nfreqs)
         - Polarized:   shape (nsources, nfreqs, 4)
     polarized_beam : bool
-        If True, you may pass either a 2D unpolarized sky_model or
-        a 3D polarized array with last axis length 4.
+        If True, you may pass either a 2D unpolarized sky_model (nsources, nfreqs) or
+        a 3D polarized array (nsources, nfreqs, Nstokes) with last axis length 4.
         If False, only 2D unpolarized sky_models are allowed.
 
     Returns
     -------
     coherency : np.ndarray
-        - If input was 2D: shape (nsources, nfreqs) (monopole)
+        - If input was 2D: shape (nsources, nfreqs) (unpolarized)
         - If input was 3D: shape (nsources, nfreqs, 2, 2) (full coherency matrix)
     is_sky_model_polarized : bool
         True if you passed a 3D, 4pol cube; False otherwise.
