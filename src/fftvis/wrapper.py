@@ -97,7 +97,7 @@ def simulate_vis(
     upsample_factor: Literal[1.25, 2] = 2,
     beam_spline_opts: dict = None,
     use_feed: str = "x",
-    flat_array_tol: float = 0.0,
+    flat_array_tol: float = 1e-6,
     interpolation_function: str = "az_za_map_coordinates",
     nprocesses: int | None = 1,
     nthreads: int | None = None,
@@ -157,10 +157,10 @@ def simulate_vis(
         Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
     use_feed : str, default = "x"
         Feed to use for unpolarized simulations.
-    flat_array_tol : float, default = 0.0
+    flat_array_tol : float, default = 1e-6
         Tolerance for checking if the array is flat in units of meters. If the
         z-coordinate of all baseline vectors is within this tolerance, the array
-        is considered flat and the z-coordinate is set to zero. Default is 0.0.
+        is considered flat and the z-coordinate is set to zero. Default is 1e-6.
     interpolation_function : str, default = "az_za_simple"
         The interpolation function to use when interpolating the beam. Can be either be
         'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
