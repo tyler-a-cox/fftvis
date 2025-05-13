@@ -578,6 +578,34 @@ def test_get_apparent_flux_polarized_beam_different_shapes():
     expected = np.einsum("bas,s,bcs->acs", beam_zeros.conj(), flux, beam_zeros)
     np.testing.assert_allclose(beam_copy, expected)
 
+def test_get_apparent_flux_polarized_different_shapes():
+    """Test the get_apparent_flux_polarized method with different shapes and values.
+    
+    This test verifies that:
+    1. The method handles different array shapes correctly
+    2. Edge cases in the calculations are properly handled
+    """
+    # Create a CPU beam evaluator
+    cpu_evaluator = CPUBeamEvaluator()
+    
+    # Test with complex beam patterns (complex numbers with non-zero imaginary parts)
+    beam_complex = np.array([
+        [[1+2j, 3+4j], [5+6j, 7+8j]],
+        [[9+10j, 11+12j], [13+14j, 15+16j]]
+    ]).transpose(1, 2, 0)  # Shape becomes (2, 2, 2)
+    
+    flux = np.array([
+        [[2+1j, 4+3j], [6+5j, 8+7j]],
+        [[10+9j, 12+11j], [14+13j, 16+15j]]
+    ]).transpose(1, 2, 0)
+    
+    beam_copy = beam_complex.copy()
+    cpu_evaluator.get_apparent_flux_polarized(beam_copy, flux)
+    
+    # Verify results using einsum for reference calculation
+    expected = np.einsum('kin,kmn,mjn->ijn', np.conj(beam_complex), flux, beam_complex)
+    np.testing.assert_allclose(beam_copy, expected)
+
 
 def test_evaluate_beam_additional_paths():
     """Test additional code paths in the evaluate_beam method.

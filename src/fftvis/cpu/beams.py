@@ -123,23 +123,20 @@ class CPUBeamEvaluator(BeamEvaluator):
             A 3D array of shape (2, 2, Nsources) where each C[:,:,i] is a 2x2 matrix.
         """
         nsources = beam.shape[2]
-        
         for i in range(nsources):
-            # Unpack elements of A from the i-th slice.
-            a00 = beam[0, 0, i]
-            a01 = beam[0, 1, i]
-            a10 = beam[1, 0, i]
-            a11 = beam[1, 1, i]
-            
-            # First multiplication: Compute tmp = A * C.
-            tmp00 = np.conj(a00) * coherency[0, 0, i] + np.conj(a01) * coherency[1, 0, i]
-            tmp01 = np.conj(a00) * coherency[0, 1, i] + np.conj(a10) * coherency[1, 1, i]
-            tmp10 = np.conj(a01) * coherency[0, 0, i] + np.conj(a11) * coherency[1, 0, i]
-            tmp11 = np.conj(a01) * coherency[0, 1, i] + np.conj(a11) * coherency[1, 1, i]
-            
-            # Second multiplication: Multiply tmp by A^H.
-            # A^H is the conjugate transpose of A.
-            beam[0, 0, i] = tmp00 * a00 + tmp01 * a10
-            beam[0, 1, i] = tmp00 * a01 + tmp01 * a11
-            beam[1, 0, i] = tmp10 * a00 + tmp11 * a10
-            beam[1, 1, i] = tmp10 * a01 + tmp11 * a11
+            a00 = beam[0,0,i]
+            a01 = beam[0,1,i]
+            a10 = beam[1,0,i]
+            a11 = beam[1,1,i]
+
+            # A^H @ C
+            tmp00 = np.conj(a00) * coherency[0,0,i] + np.conj(a10) * coherency[1,0,i]
+            tmp01 = np.conj(a00) * coherency[0,1,i] + np.conj(a10) * coherency[1,1,i]
+            tmp10 = np.conj(a01) * coherency[0,0,i] + np.conj(a11) * coherency[1,0,i]
+            tmp11 = np.conj(a01) * coherency[0,1,i] + np.conj(a11) * coherency[1,1,i]
+
+            # (A^H C) @ A
+            beam[0,0,i] = tmp00*a00 + tmp01*a10
+            beam[0,1,i] = tmp00*a01 + tmp01*a11
+            beam[1,0,i] = tmp10*a00 + tmp11*a10
+            beam[1,1,i] = tmp10*a01 + tmp11*a11
