@@ -35,7 +35,7 @@ class GPUSimulationEngine(SimulationEngine):
         polarized: bool = False,
         eps: float = None,
         beam_spline_opts: dict = None,
-        flat_array_tol: float = 0.0,
+        flat_array_tol: float = 1e-6,
         interpolation_function: str = "az_za_map_coordinates",
         nprocesses: int | None = 1,
         nthreads: int | None = None,
