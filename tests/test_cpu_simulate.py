@@ -5,8 +5,9 @@ import os
 import logging
 import numpy as np
 from astropy.time import Time
-from astropy.coordinates import EarthLocation, SkyCoord
+from astropy.coordinates import EarthLocation, SkyCoord, Latitude, Longitude
 from astropy import units as un
+from astropy.units import Quantity
 from pyuvdata import UVBeam
 from pyuvdata.data import DATA_PATH
 from matvis.core.coords import CoordinateRotation
@@ -14,6 +15,8 @@ from matvis.core.coords import CoordinateRotation
 from fftvis.core.simulate import SimulationEngine
 from fftvis.cpu.cpu_simulate import CPUSimulationEngine, _evaluate_vis_chunk_remote
 from fftvis.wrapper import simulate_vis
+from pyradiosky import SkyModel
+from pyuvsim import simsetup, uvsim
 from fftvis import utils
 
 # Monkey patch pyuvdata.telescopes before importing matvis
@@ -264,6 +267,63 @@ def test_simulate_gridded_type1_vs_type3(polarized, precision, shear_array, rota
     # Compare the results of type 1 and type 3
     np.testing.assert_allclose(
         fvis_type1, fvis_type3, atol=1e-5 if precision == 2 else 1e-4
+    )
+
+@pytest.mark.parametrize("use_analytic_beam", [True, False])
+def test_sim_polarized_sky(use_analytic_beam):
+    """
+    """
+    params, _, uvbeams, bmdict, uvdata = get_standard_sim_params(
+        use_analytic_beam=use_analytic_beam, polarized=True, nants=2, ntime=5
+    )
+    ants = params.pop("ants")
+
+    # Create polarized sky model
+    stokes = np.random.uniform(0, 1, (4, 1, params['ra'].shape[0]))
+    reference_frequency = np.full(len(params['ra']), 100e6)
+
+    # Set up sky model
+    sky_model = SkyModel(
+        name=[str(i) for i in range(len(params['ra']))],
+        ra=Longitude(params['ra'], unit='rad'),
+        dec=Latitude(params['dec'], unit='rad'),
+        spectral_type="spectral_index",
+        spectral_index=np.zeros_like(reference_frequency),
+        stokes=stokes * un.Jy,
+        reference_frequency=Quantity(reference_frequency, "Hz"),
+        frame="icrs",
+    )
+
+    # Simulate w/ pyuvsim
+    uvd = uvsim.run_uvdata_uvsim(
+        uvdata,
+        uvbeams,
+        beam_dict=bmdict,
+        catalog=simsetup.SkyModelData(sky_model),
+    )
+
+    sim_baselines = np.array([[0, 1]])
+
+    fvis = simulate_vis(
+        ants=ants,
+        fluxes=np.transpose(sky_model.stokes.value, (2, 1, 0)),
+        eps=1e-12,
+        baselines=[(0, 1)],
+        ra=sky_model.skycoord.ra.rad,
+        dec=sky_model.skycoord.dec.rad,
+        telescope_loc=params['telescope_loc'],
+        coord_method='CoordinateRotationAstropy',
+        beam=uvbeams.beam_list[0],
+        times=params['times'],
+        freqs=params['freqs'],
+        polarized=True,
+    )
+    ntimes = len(params['times'])
+
+    # Compare the results of the polarized sims
+    np.testing.assert_allclose(
+        uvd.get_data(sim_baselines[0])[:, 0, :], 
+        fvis[0, ..., 0].reshape(ntimes, 4)
     )
 
 def test_cpu_simulation_engine_init():

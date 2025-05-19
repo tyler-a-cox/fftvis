@@ -31,7 +31,7 @@ def prepare_source_catalog(sky_model: np.ndarray, polarized_beam: bool) -> tuple
     ----------
     sky_model : np.ndarray
         - Unpolarized: shape (nsources, nfreqs)
-        - Polarized:   shape (nsources, nfreqs, 4)
+        - Polarized:   shape (nsources, nfreqs, 4) (I, Q, U, V)
     polarized_beam : bool
         If True, you may pass either a 2D unpolarized sky_model (nsources, nfreqs) or
         a 3D polarized array (nsources, nfreqs, Nstokes) with last axis length 4.
@@ -71,8 +71,8 @@ def prepare_source_catalog(sky_model: np.ndarray, polarized_beam: bool) -> tuple
     else:
         coherency = 0.5 * np.array(
             [
-                [sky_model[..., 0] + sky_model[..., 3], sky_model[..., 1] + 1j * sky_model[..., 2]],
-                [sky_model[..., 1] - 1j * sky_model[..., 2], sky_model[..., 0] - sky_model[..., 3]]
+                [sky_model[..., 0] + sky_model[..., 1], sky_model[..., 2] + 1j * sky_model[..., 3]],
+                [sky_model[..., 2] - 1j * sky_model[..., 3], sky_model[..., 0] - sky_model[..., 1]]
             ]
         )
         coherency = np.transpose(coherency, (2, 3, 0, 1))
