@@ -384,6 +384,9 @@ class GPUSimulationEngine(SimulationEngine):
         # Use the global GPU beam evaluator instance
         beam_evaluator = _gpu_beam_evaluator
 
+        # Initialize the coordinate manager
+        coord_mgr.setup()
+
         # Loop over time samples in this chunk
         for time_chunk_idx, time_total_idx in enumerate(range(ntimes_total)[time_idx]):
             # Rotate coordinates for the current time
