@@ -108,6 +108,11 @@ def find_lattice_basis(
     # filter out zeros
     norms = np.linalg.norm(blvec, axis=1)
     mask = norms > tol
+    
+    if not np.any(mask):
+        # There are only autos, break early.
+        return None
+    
     blvec = blvec[mask]
     norms = norms[mask]
 
@@ -178,6 +183,10 @@ def check_antpos_griddability(
         antpos,
         tol=tol,
     )
+    if basis_2D is None:
+        # If all antennas are autos, return the original positions
+        return False, antpos, np.eye(antvecs.shape[-1])
+    
     basis = np.zeros((3, 3))
     basis[:2, :2] = basis_2D
     basis[2, 2] = 1.0
