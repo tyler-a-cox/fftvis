@@ -7,6 +7,10 @@ from fftvis.core.antenna_gridding import check_antpos_griddability
 # ------------------------------------------------------------------
 # helpers / fixtures
 # ------------------------------------------------------------------
+def _only_autos(n=1):
+    """Only auto-correlations, no baselines."""
+    return {i: np.array([0.0, 0.0, 0.0]) for i in range(n)}
+
 def _linear_array(n=10, spacing=1.5):
     return {i: np.array([i * spacing, 0.0, 0.0]) for i in range(n)}
 
@@ -61,6 +65,8 @@ def _hex_grid():
         pytest.param(_square_grid_with_holes(), True, id="square-holey"),
         pytest.param(_hex_grid(), True, id="hex-grid"),
         pytest.param(_scattered_xy(), False, id="non‑griddable"),
+        pytest.param(_only_autos(), False, id="autos-only"),
+        pytest.param(_only_autos(2), False, id="autos-only-2"),
     ],
 )
 def test_check_antpos_griddability(antpos, expected_griddable):
