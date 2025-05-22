@@ -86,24 +86,30 @@ class GPUBeamEvaluator(BeamEvaluator):
         if beam_key not in self._gpu_beam_data:
             # Get beam data from the beam object
             # Convert from CPU to GPU
-            if hasattr(beam, "interp"):
-                # This is for UVBeam objects
-                # Get CPU data from beam, then transfer to GPU
-                # For CPU, freq_idx is handled within beam.interp
-                beam_data_cpu = beam.interp(
-                    np.asarray(cp.asnumpy(az)),
-                    np.asarray(cp.asnumpy(za)),
-                    freq,
-                    polarized=polarized,
-                    spline_opts=spline_opts,
-                )
-                beam_data_gpu = cp.asarray(beam_data_cpu)
-                self._gpu_beam_data[beam_key] = beam_data_gpu
+            # Use the same method as CPU implementation for consistency
+            kw = {
+                "reuse_spline": True,
+                "check_azza_domain": False,
+                "spline_opts": spline_opts,
+                "interpolation_function": interpolation_function,
+            }
+
+            beam_data_cpu = beam.compute_response(
+                az_array=np.asarray(cp.asnumpy(az)),
+                za_array=np.asarray(cp.asnumpy(za)),
+                freq_array=np.atleast_1d(freq),
+                **kw,
+            )
+
+            if polarized:
+                beam_data_cpu = beam_data_cpu[:, :, 0, :]
             else:
-                # Non-UVBeam object - not currently supported on GPU
-                raise ValueError(
-                    "GPU beam evaluation only supports UVBeam objects with interp method"
-                )
+                # Here we have already asserted that the beam is a power beam and
+                # has only one polarization, so we just evaluate that one.
+                beam_data_cpu = beam_data_cpu[0, 0, 0, :]
+
+            beam_data_gpu = cp.asarray(beam_data_cpu)
+            self._gpu_beam_data[beam_key] = beam_data_gpu
 
         # Get cached beam data or use what was just created
         beam_data = self._gpu_beam_data.get(beam_key)
@@ -111,13 +117,27 @@ class GPUBeamEvaluator(BeamEvaluator):
         # If the beam evaluation used different az/za coordinates, we need to re-evaluate
         if beam_data is None or beam_data.shape[-1] != self.nsrc:
             # Previous cached data won't work - re-evaluate
-            beam_data_cpu = beam.interp(
-                np.asarray(cp.asnumpy(az)),
-                np.asarray(cp.asnumpy(za)),
-                freq,
-                polarized=polarized,
-                spline_opts=spline_opts,
+            kw = {
+                "reuse_spline": True,
+                "check_azza_domain": False,
+                "spline_opts": spline_opts,
+                "interpolation_function": interpolation_function,
+            }
+
+            beam_data_cpu = beam.compute_response(
+                az_array=np.asarray(cp.asnumpy(az)),
+                za_array=np.asarray(cp.asnumpy(za)),
+                freq_array=np.atleast_1d(freq),
+                **kw,
             )
+
+            if polarized:
+                beam_data_cpu = beam_data_cpu[:, :, 0, :]
+            else:
+                # Here we have already asserted that the beam is a power beam and
+                # has only one polarization, so we just evaluate that one.
+                beam_data_cpu = beam_data_cpu[0, 0, 0, :]
+
             beam_data = cp.asarray(beam_data_cpu)
             self._gpu_beam_data[beam_key] = beam_data
 

@@ -13,6 +13,16 @@ from .wrapper import create_simulation_engine, simulate_vis
 # Import utility modules
 from . import utils, logutils
 
+# Try to import GPU implementations if available
+try:
+    from .gpu.gpu_beams import GPUBeamEvaluator
+    from .gpu.gpu_simulate import GPUSimulationEngine
+    _gpu_available = True
+except ImportError:
+    _gpu_available = False
+    GPUBeamEvaluator = None
+    GPUSimulationEngine = None
+
 __all__ = [
     # Beam-related exports
     "BeamEvaluator",
@@ -24,3 +34,10 @@ __all__ = [
     "create_simulation_engine",
     "simulate_vis",
 ]
+
+# Add GPU exports if available
+if _gpu_available:
+    __all__.extend([
+        "GPUBeamEvaluator",
+        "GPUSimulationEngine",
+    ])

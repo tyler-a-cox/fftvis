@@ -49,8 +49,9 @@ def gpu_nufft2d(
 
     # Determine an appropriate grid size for the intermediate uniform grid
     # This is a heuristic based on the maximum frequencies
-    N1 = 2 * int(cp.max(cp.abs(u))) + 5
-    N2 = 2 * int(cp.max(cp.abs(v))) + 5
+    # Ensure minimum grid size and handle edge cases
+    N1 = max(16, 2 * int(cp.max(cp.abs(u)).get()) + 5) if len(u) > 0 else 16
+    N2 = max(16, 2 * int(cp.max(cp.abs(v)).get()) + 5) if len(v) > 0 else 16
 
     # Create plan for type 3 transform
     plan = cufinufft.Plan(
@@ -114,9 +115,10 @@ def gpu_nufft3d(
 
     # Determine an appropriate grid size for the intermediate uniform grid
     # This is a heuristic based on the maximum frequencies
-    N1 = 2 * int(cp.max(cp.abs(u))) + 5
-    N2 = 2 * int(cp.max(cp.abs(v))) + 5
-    N3 = 2 * int(cp.max(cp.abs(w))) + 5
+    # Ensure minimum grid size and handle edge cases
+    N1 = max(16, 2 * int(cp.max(cp.abs(u)).get()) + 5) if len(u) > 0 else 16
+    N2 = max(16, 2 * int(cp.max(cp.abs(v)).get()) + 5) if len(v) > 0 else 16
+    N3 = max(16, 2 * int(cp.max(cp.abs(w)).get()) + 5) if len(w) > 0 else 16
 
     # Create plan for type 3 transform
     plan = cufinufft.Plan(

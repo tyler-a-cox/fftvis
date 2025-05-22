@@ -61,8 +61,7 @@ def create_simulation_engine(
     ----------
     backend
         The backend to use for simulation.
-        Currently supported: "cpu".
-        "gpu" is defined but not yet implemented.
+        Currently supported: "cpu", "gpu".
     **kwargs
         Additional keyword arguments to pass to the simulation engine constructor.
 
