@@ -513,6 +513,9 @@ class CPUSimulationEngine(SimulationEngine):
                             frame_coherency, 
                             coherency_rotator,
                         )
+                        # Flip to match the expected order
+                        apparent_coherency = np.flip(apparent_coherency, axis=0)
+
                         # Compute the polarized apparent flux
                         _cpu_beam_evaluator.get_apparent_flux_polarized(
                             apparent_coherency, local_coherency
@@ -534,7 +537,10 @@ class CPUSimulationEngine(SimulationEngine):
                     
                     # Try to reshape safely
                     try:
-                        apparent_coherency.shape = (nfeeds**2, nsim_sources)
+                        apparent_coherency = np.reshape(
+                            apparent_coherency, (nfeeds**2, nsim_sources)
+                        )
+                        pass
                     except ValueError: # pragma: no cover
                         logger.error(f"Cannot reshape A_s with shape {apparent_coherency.shape} to {(nfeeds**2, nsim_sources)}") # pragma: no cover
                         continue # pragma: no cover
@@ -580,7 +586,6 @@ class CPUSimulationEngine(SimulationEngine):
                                 n_threads=n_threads,
                                 upsample_factor=upsample_factor,
                             )
-
                     vis[time_index, ..., freqidx] = np.swapaxes(
                         _vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0
                     )

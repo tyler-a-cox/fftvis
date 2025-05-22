@@ -302,7 +302,7 @@ def test_sim_polarized_sky(use_analytic_beam):
         catalog=simsetup.SkyModelData(sky_model),
     )
 
-    sim_baselines = np.array([[0, 1]])
+    sim_baselines = [(0, 1)]
 
     fvis = simulate_vis(
         ants=ants,
@@ -312,19 +312,25 @@ def test_sim_polarized_sky(use_analytic_beam):
         ra=sky_model.skycoord.ra.rad,
         dec=sky_model.skycoord.dec.rad,
         telescope_loc=params['telescope_loc'],
-        coord_method='CoordinateRotationAstropy',
+        coord_method='CoordinateRotationAstropy', # To match pyuvsim
         beam=uvbeams.beam_list[0],
         times=params['times'],
         freqs=params['freqs'],
         polarized=True,
+        interpolation_function='az_za_simple' # To match pyuvsim
     )
-    ntimes = len(params['times'])
 
     # Compare the results of the polarized sims
-    np.testing.assert_allclose(
-        uvd.get_data(sim_baselines[0])[:, 0, :], 
-        fvis[0, ..., 0].reshape(ntimes, 4)
-    )
+    for pol, (i, j) in zip(
+        ['xx', 'xy', 'yx', 'yy'], 
+        [(0, 0), (0, 1), (1, 0), (1, 1)]
+    ):
+        pyuvsim_data = uvd.get_data(sim_baselines[0] + (pol,))
+        fftvis_data = fvis[0, :, i, j]
+        np.testing.assert_allclose(
+            pyuvsim_data, 
+            fftvis_data,
+        )
 
 def test_cpu_simulation_engine_init():
     """Test that the CPUSimulationEngine initializes correctly."""
