@@ -433,7 +433,7 @@ class CPUSimulationEngine(SimulationEngine):
         with threadpool_limits(limits=n_threads, user_api="blas"):
             for time_index, ti in enumerate(range(ntimes)[time_idx]):
                 coord_mgr.rotate(ti)
-                topo, flux, nsim_sources = coord_mgr.select_chunk(0)
+                topo, flux, nsim_sources = coord_mgr.select_chunk(0, ti)
 
                 # truncate to nsim_sources
                 topo = topo[:, :nsim_sources]
@@ -446,26 +446,6 @@ class CPUSimulationEngine(SimulationEngine):
                 az, za = coordinates.enu_to_az_za(
                     enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
                 )
-
-                if polarized_sky_model:
-                    # Get the proper coordinates for the rotation matrix
-                    above_horizon = coord_mgr.all_coords_topo[2] > 0.0
-                    n = len(above_horizon)
-                    ra_here = np.zeros_like(az)
-                    dec_here = np.zeros_like(za)
-                    ra_here[:n] = coord_mgr.skycoords.ra[above_horizon].rad
-                    dec_here[:n] = coord_mgr.skycoords.dec[above_horizon].rad
-                    az_here = (np.pi / 2.0 - az) % (2 * np.pi) # correct azimuth
-                    za_here = np.pi / 2.0 - za
-                    # Compute the rotation matrix for the source coordinates
-                    coherency_rotator = coordinates.calc_coherency_rotation(
-                        ra=ra_here,
-                        dec=dec_here,
-                        az=az_here,
-                        alt=za_here,
-                        time=coord_mgr.times[time_index],
-                        location=coord_mgr.telescope_loc,
-                    )
 
                 # Rotate source coordinates with rotation matrix.
                 if not is_rotation_identity:
@@ -505,20 +485,12 @@ class CPUSimulationEngine(SimulationEngine):
                             "Using polarized sky model. "
                             "Computing apparent flux for polarized sources."
                         )
-                        # Rotate the coherency matrix
-                        frame_coherency = np.transpose(flux[:nsim_sources, freqidx], (1, 2, 0))
-                        local_coherency = np.einsum(
-                            "ip...,ij...,jq...->pq...", 
-                            coherency_rotator, 
-                            frame_coherency, 
-                            coherency_rotator,
-                        )
                         # Flip to match the expected order
                         apparent_coherency = np.flip(apparent_coherency, axis=0)
-
+            
                         # Compute the polarized apparent flux
                         _cpu_beam_evaluator.get_apparent_flux_polarized(
-                            apparent_coherency, local_coherency
+                            apparent_coherency, np.transpose(flux[:nsim_sources, freqidx], (1, 2, 0))
                         )
                     elif polarized:
                         logger.info(

@@ -274,7 +274,10 @@ def test_sim_polarized_sky(use_analytic_beam):
     """
     """
     params, _, uvbeams, bmdict, uvdata = get_standard_sim_params(
-        use_analytic_beam=use_analytic_beam, polarized=True, nants=2, ntime=5
+        use_analytic_beam=use_analytic_beam, 
+        polarized=True, 
+        nants=2, 
+        ntime=5
     )
     ants = params.pop("ants")
 
