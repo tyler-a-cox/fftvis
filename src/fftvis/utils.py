@@ -5,6 +5,8 @@ This module provides access to common utility functions used throughout FFTVis.
 It imports from core, CPU, and GPU implementation modules.
 """
 
+import logging
+
 # Import common utilities from core
 from .core.utils import (
     IDEALIZED_BL_TOL,
@@ -30,7 +32,7 @@ def _use_gpu():
         # Check if a CUDA device is actually available
         _cached_use_gpu = cp.cuda.is_available()
         if not _cached_use_gpu:
-            print("CuPy installed but no CUDA device found. Using CPU backend.")
+            logging.warning("CuPy installed but no CUDA device found. Using CPU backend.")
         return _cached_use_gpu
     except ImportError:
         _cached_use_gpu = False
