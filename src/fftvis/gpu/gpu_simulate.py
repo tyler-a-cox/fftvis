@@ -373,8 +373,14 @@ class GPUSimulationEngine(SimulationEngine):
         ntimes_total = len(coord_mgr.times)  # Total number of times
         nfreqs_total = len(freqs)  # Total number of frequencies
 
-        nt_here = time_idx.stop - time_idx.start  # Number of times in this chunk
-        nf_here = freq_idx.stop - freq_idx.start  # Number of frequencies in this chunk
+        # Handle slice(None) case - when start/stop are None, use full range
+        time_start = time_idx.start if time_idx.start is not None else 0
+        time_stop = time_idx.stop if time_idx.stop is not None else ntimes_total
+        freq_start = freq_idx.start if freq_idx.start is not None else 0
+        freq_stop = freq_idx.stop if freq_idx.stop is not None else nfreqs_total
+        
+        nt_here = time_stop - time_start  # Number of times in this chunk
+        nf_here = freq_stop - freq_start  # Number of frequencies in this chunk
 
         # Allocate output visibility array for this chunk on the GPU
         vis_chunk_gpu = cp.zeros(
@@ -394,54 +400,55 @@ class GPUSimulationEngine(SimulationEngine):
                 time_total_idx
             )  # This updates coord_mgr's internal coordinates
 
-            # Loop over source chunks (within the time loop)
-            n_source_chunks = coord_mgr.nsrc // coord_mgr.chunk_size + (
-                coord_mgr.nsrc % coord_mgr.chunk_size > 0
-            )
-
-            # Allocate temporary array for visibilities from source chunks for this time/freq chunk
-            vis_time_freq_chunk_gpu = cp.zeros(
-                dtype=complex_dtype, shape=(nbls, nfeeds, nfeeds)
-            )
-
-            for source_chunk_idx in range(n_source_chunks):
-                # Select a chunk of sources above the horizon
-                topo, flux_sqrt, nsim_sources = coord_mgr.select_chunk(source_chunk_idx)
-
-                # Ensure topo and flux_sqrt are on GPU
-                if not isinstance(topo, cp.ndarray):
-                    topo = cp.asarray(topo)
-                if not isinstance(flux_sqrt, cp.ndarray):
-                    flux_sqrt = cp.asarray(flux_sqrt)
-
-                if nsim_sources == 0:
-                    continue  # Skip if no sources in this chunk are above horizon
-
-                # Truncate arrays to actual number of sources above horizon
-                topo = topo[:, :nsim_sources]
-                flux_sqrt = flux_sqrt[:nsim_sources]
-
-                # Compute azimuth and zenith angles (on GPU)
-                az, za = coordinates.enu_to_az_za(
-                    enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
+            # Loop over frequency indices in this chunk
+            for freq_chunk_idx, freq_total_idx in enumerate(
+                range(nfreqs_total)[freq_idx]
+            ):
+                # Allocate temporary array for visibilities from source chunks for this time/freq chunk
+                vis_time_freq_chunk_gpu = cp.zeros(
+                    dtype=complex_dtype, shape=(nbls, nfeeds, nfeeds)
+                )
+                
+                # Loop over source chunks (within the time and freq loops)
+                n_source_chunks = coord_mgr.nsrc // coord_mgr.chunk_size + (
+                    coord_mgr.nsrc % coord_mgr.chunk_size > 0
                 )
 
-                # Ensure az and za are on GPU
-                if not isinstance(az, cp.ndarray):
-                    az = cp.asarray(az)
-                if not isinstance(za, cp.ndarray):
-                    za = cp.asarray(za)
+                for source_chunk_idx in range(n_source_chunks):
+                    # Select a chunk of sources above the horizon
+                    topo, flux_sqrt, nsim_sources = coord_mgr.select_chunk(source_chunk_idx)
 
-                # Rotate source coordinates with rotation matrix (on GPU)
-                utils.inplace_rot(rotation_matrix, topo)
+                    # Ensure topo and flux_sqrt are on GPU
+                    if not isinstance(topo, cp.ndarray):
+                        topo = cp.asarray(topo)
+                    if not isinstance(flux_sqrt, cp.ndarray):
+                        flux_sqrt = cp.asarray(flux_sqrt)
 
-                # Scale topo by 2*pi (on GPU)
-                topo *= 2 * np.pi
+                    if nsim_sources == 0:
+                        continue  # Skip if no sources in this chunk are above horizon
 
-                # Loop over frequency indices in this chunk
-                for freq_chunk_idx, freq_total_idx in enumerate(
-                    range(nfreqs_total)[freq_idx]
-                ):
+                    # Truncate arrays to actual number of sources above horizon
+                    topo = topo[:, :nsim_sources]
+                    flux_sqrt = flux_sqrt[:nsim_sources]
+
+                    # Compute azimuth and zenith angles (on GPU)
+                    az, za = coordinates.enu_to_az_za(
+                        enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
+                    )
+
+                    # Ensure az and za are on GPU
+                    if not isinstance(az, cp.ndarray):
+                        az = cp.asarray(az)
+                    if not isinstance(za, cp.ndarray):
+                        za = cp.asarray(za)
+
+                    # Rotate source coordinates with rotation matrix (on GPU)
+                    utils.inplace_rot(rotation_matrix, topo)
+
+                    # Scale topo by 2*pi (on GPU)
+                    topo *= 2 * np.pi
+
+                    # Get frequency value
                     freq = freqs[freq_chunk_idx]  # Get frequency value (on GPU)
 
                     # Compute uvw coordinates (on GPU)
@@ -545,8 +552,8 @@ class GPUSimulationEngine(SimulationEngine):
                     # Add contribution from this source chunk to the total for this time/freq chunk
                     vis_time_freq_chunk_gpu += _vis_here
 
-            # Store the summed visibility for this time/freq chunk in the main output array
-            vis_chunk_gpu[time_chunk_idx, :, :, :, freq_chunk_idx] = vis_time_freq_chunk_gpu
+                # Store the summed visibility for this time/freq chunk in the main output array
+                vis_chunk_gpu[time_chunk_idx, :, :, :, freq_chunk_idx] = vis_time_freq_chunk_gpu
 
         # Return the chunk of visibility data (on GPU)
         return vis_chunk_gpu
