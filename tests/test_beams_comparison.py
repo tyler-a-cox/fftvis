@@ -311,5 +311,287 @@ class TestBeamComparison:
         )
 
 
+    def test_airy_beam_direct_gpu(self):
+        """Test AiryBeam evaluation directly on GPU without conversion to UVBeam."""
+        from pyuvdata.analytic_beam import AiryBeam
+        from pyuvdata.beam_interface import BeamInterface
+        
+        # Create AiryBeam
+        diameter = 14.0
+        airy_beam = AiryBeam(diameter=diameter)
+        beam_interface = BeamInterface(airy_beam)
+        
+        # Generate test positions
+        az = np.random.uniform(0, 2 * np.pi, self.n_sources)
+        za = np.random.uniform(0, np.pi / 4, self.n_sources)
+        
+        # CPU evaluation (AiryBeam works natively on CPU)
+        cpu_result = self.cpu_evaluator.evaluate_beam(
+            beam_interface, az, za,
+            polarized=False,
+            freq=self.freq
+        )
+        
+        # GPU evaluation (should use new GPU implementation)
+        gpu_result = self.gpu_evaluator.evaluate_beam(
+            beam_interface, cp.asarray(az), cp.asarray(za),
+            polarized=False,
+            freq=self.freq
+        )
+        
+        # Compare results
+        gpu_result_cpu = cp.asnumpy(gpu_result)
+        np.testing.assert_allclose(
+            cpu_result, gpu_result_cpu,
+            rtol=1e-6, atol=1e-8,
+            err_msg="AiryBeam direct GPU: CPU and GPU results differ"
+        )
+        
+    def test_airy_beam_direct_gpu_polarized(self):
+        """Test polarized AiryBeam evaluation directly on GPU."""
+        from pyuvdata.analytic_beam import AiryBeam
+        from pyuvdata.beam_interface import BeamInterface
+        
+        # Create AiryBeam
+        diameter = 14.0
+        airy_beam = AiryBeam(diameter=diameter)
+        beam_interface = BeamInterface(airy_beam)
+        
+        # Generate test positions
+        az = np.random.uniform(0, 2 * np.pi, 50)
+        za = np.random.uniform(0, np.pi / 6, 50)
+        
+        # CPU evaluation
+        cpu_result = self.cpu_evaluator.evaluate_beam(
+            beam_interface, az, za,
+            polarized=True,
+            freq=self.freq
+        )
+        
+        # GPU evaluation
+        gpu_result = self.gpu_evaluator.evaluate_beam(
+            beam_interface, cp.asarray(az), cp.asarray(za),
+            polarized=True,
+            freq=self.freq
+        )
+        
+        # Compare results
+        gpu_result_cpu = cp.asnumpy(gpu_result)
+        np.testing.assert_allclose(
+            cpu_result, gpu_result_cpu,
+            rtol=1e-6, atol=1e-8,
+            err_msg="AiryBeam direct GPU polarized: CPU and GPU results differ"
+        )
+        
+        # Check shape
+        assert cpu_result.shape == (2, 2, 50), "CPU polarized AiryBeam shape incorrect"
+        assert gpu_result_cpu.shape == (2, 2, 50), "GPU polarized AiryBeam shape incorrect"
+        
+    def test_airy_beam_performance_comparison(self):
+        """Test and benchmark AiryBeam GPU vs CPU performance."""
+        import time
+        from pyuvdata.analytic_beam import AiryBeam
+        from pyuvdata.beam_interface import BeamInterface
+        
+        # Create AiryBeam
+        diameter = 14.0
+        airy_beam = AiryBeam(diameter=diameter)
+        beam_interface = BeamInterface(airy_beam)
+        
+        # Test with different numbers of sources
+        n_sources_list = [100, 1000, 10000]
+        
+        print("\n" + "="*60)
+        print("AiryBeam GPU vs CPU Performance Comparison")
+        print("="*60)
+        
+        for n_sources in n_sources_list:
+            # Generate coordinates
+            np.random.seed(42)
+            az = np.random.uniform(0, 2*np.pi, n_sources)
+            za = np.random.uniform(0, np.pi/2, n_sources)
+            
+            # CPU timing
+            start = time.perf_counter()
+            cpu_result = self.cpu_evaluator.evaluate_beam(
+                beam_interface, az, za,
+                polarized=False,
+                freq=self.freq
+            )
+            cpu_time = time.perf_counter() - start
+            
+            # GPU timing
+            az_gpu = cp.asarray(az)
+            za_gpu = cp.asarray(za)
+            
+            # Warm up
+            _ = self.gpu_evaluator.evaluate_beam(
+                beam_interface, az_gpu, za_gpu,
+                polarized=False,
+                freq=self.freq
+            )
+            
+            cp.cuda.Stream.null.synchronize()
+            start = time.perf_counter()
+            gpu_result = self.gpu_evaluator.evaluate_beam(
+                beam_interface, az_gpu, za_gpu,
+                polarized=False,
+                freq=self.freq
+            )
+            cp.cuda.Stream.null.synchronize()
+            gpu_time = time.perf_counter() - start
+            
+            # Verify results match
+            gpu_result_cpu = cp.asnumpy(gpu_result)
+            np.testing.assert_allclose(
+                cpu_result, gpu_result_cpu,
+                rtol=1e-5, atol=1e-7,
+                err_msg=f"Results don't match for n_sources={n_sources}"
+            )
+            
+            speedup = cpu_time / gpu_time
+            print(f"n_sources={n_sources:6d}: CPU={cpu_time:.4f}s, GPU={gpu_time:.4f}s, Speedup={speedup:.1f}x")
+        
+        # Compare with UVBeam approach
+        print("\nComparing direct AiryBeam vs UVBeam conversion on GPU:")
+        
+        # Convert to UVBeam
+        uvbeam = airy_beam.to_uvbeam(
+            freq_array=np.array([self.freq]),
+            axis1_array=np.linspace(0, 2 * np.pi, 361)[:-1],
+            axis2_array=np.linspace(0, np.pi, 181),
+        )
+        uvbeam_interface = BeamInterface(uvbeam)
+        
+        n_sources = 10000
+        az = np.random.uniform(0, 2*np.pi, n_sources)
+        za = np.random.uniform(0, np.pi/2, n_sources)
+        az_gpu = cp.asarray(az)
+        za_gpu = cp.asarray(za)
+        
+        # Time direct AiryBeam
+        cp.cuda.Stream.null.synchronize()
+        start = time.perf_counter()
+        gpu_airy = self.gpu_evaluator.evaluate_beam(
+            beam_interface, az_gpu, za_gpu,
+            polarized=False,
+            freq=self.freq
+        )
+        cp.cuda.Stream.null.synchronize()
+        airy_time = time.perf_counter() - start
+        
+        # Time UVBeam
+        cp.cuda.Stream.null.synchronize()
+        start = time.perf_counter()
+        gpu_uvbeam = self.gpu_evaluator.evaluate_beam(
+            uvbeam_interface, az_gpu, za_gpu,
+            polarized=False,
+            freq=self.freq
+        )
+        cp.cuda.Stream.null.synchronize()
+        uvbeam_time = time.perf_counter() - start
+        
+        print(f"Direct AiryBeam: {airy_time:.4f}s")
+        print(f"UVBeam conversion: {uvbeam_time:.4f}s")
+        print(f"Direct AiryBeam is {uvbeam_time/airy_time:.1f}x faster!")
+        print("="*60)
+            
+    def test_uvbeam_gpu_interpolation(self):
+        """Test that UVBeam GPU interpolation produces correct results."""
+        # The setup already created a UVBeam from AiryBeam
+        # self.beam is a BeamInterface wrapping a UVBeam
+        
+        # Generate test positions
+        n_test = 500
+        az = np.random.uniform(0, 2 * np.pi, n_test)
+        za = np.random.uniform(0, np.pi / 4, n_test)
+        
+        # CPU evaluation
+        cpu_result = self.cpu_evaluator.evaluate_beam(
+            self.beam, az, za,
+            polarized=False,
+            freq=self.freq,
+            spline_opts={'order': 1},
+            interpolation_function='az_za_map_coordinates'
+        )
+        
+        # GPU evaluation (should use new GPU interpolation)
+        gpu_result = self.gpu_evaluator.evaluate_beam(
+            self.beam, cp.asarray(az), cp.asarray(za),
+            polarized=False,
+            freq=self.freq,
+            spline_opts={'order': 1},
+            interpolation_function='az_za_map_coordinates'
+        )
+        
+        # Compare results
+        gpu_result_cpu = cp.asnumpy(gpu_result)
+        np.testing.assert_allclose(
+            cpu_result, gpu_result_cpu,
+            rtol=1e-5, atol=1e-7,
+            err_msg="UVBeam GPU interpolation: CPU and GPU results differ"
+        )
+        
+        print("\n✅ UVBeam GPU interpolation test passed!")
+        
+    def test_uvbeam_gpu_performance(self):
+        """Benchmark UVBeam GPU interpolation performance."""
+        import time
+        
+        print("\n" + "="*60)
+        print("UVBeam GPU Interpolation Performance Test")
+        print("="*60)
+        
+        # Test with larger number of sources
+        n_sources_list = [1000, 10000, 50000]
+        
+        for n_sources in n_sources_list:
+            az = np.random.uniform(0, 2*np.pi, n_sources)
+            za = np.random.uniform(0, np.pi/2, n_sources)
+            
+            # CPU timing
+            start = time.perf_counter()
+            cpu_result = self.cpu_evaluator.evaluate_beam(
+                self.beam, az, za,
+                polarized=False,
+                freq=self.freq,
+                interpolation_function='az_za_map_coordinates'
+            )
+            cpu_time = time.perf_counter() - start
+            
+            # GPU timing with new implementation
+            az_gpu = cp.asarray(az)
+            za_gpu = cp.asarray(za)
+            
+            # Warm up
+            _ = self.gpu_evaluator.evaluate_beam(
+                self.beam, az_gpu, za_gpu,
+                polarized=False,
+                freq=self.freq,
+                interpolation_function='az_za_map_coordinates'
+            )
+            
+            cp.cuda.Stream.null.synchronize()
+            start = time.perf_counter()
+            gpu_result = self.gpu_evaluator.evaluate_beam(
+                self.beam, az_gpu, za_gpu,
+                polarized=False,
+                freq=self.freq,
+                interpolation_function='az_za_map_coordinates'
+            )
+            cp.cuda.Stream.null.synchronize()
+            gpu_time = time.perf_counter() - start
+            
+            # Verify results match
+            gpu_result_cpu = cp.asnumpy(gpu_result)
+            matches = np.allclose(cpu_result, gpu_result_cpu, rtol=1e-5)
+            
+            speedup = cpu_time / gpu_time
+            print(f"n_sources={n_sources:6d}: CPU={cpu_time:.4f}s, GPU={gpu_time:.4f}s, "
+                  f"Speedup={speedup:.1f}x, Match={matches}")
+        
+        print("="*60)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
