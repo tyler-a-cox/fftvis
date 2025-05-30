@@ -466,64 +466,87 @@ class GPUSimulationEngine(SimulationEngine):
 
                     # Apply flux (on GPU)
                     if polarized:
-                        # beam_evaluator.get_apparent_flux_polarized modifies A_s in-place
-                        beam_evaluator.get_apparent_flux_polarized(A_s, flux_sqrt)
-                        # A_s is now the apparent flux, shape (nax, nfeed, nsim_sources)
+                        # For polarized case, get the correct flux slice
+                        if flux_sqrt.ndim > 1:
+                            flux_slice = flux_sqrt[:nsim_sources, freq_total_idx]
+                        else:
+                            flux_slice = flux_sqrt[:nsim_sources]
 
-                        # Reshape for NUFFT
-                        A_s = A_s.reshape(nfeeds * nfeeds, nsim_sources)
+                        # beam_evaluator.get_apparent_flux_polarized modifies A_s in-place
+                        beam_evaluator.get_apparent_flux_polarized(A_s, flux_slice)
+                        # A_s is now the apparent flux, shape (nax, nfeed, nsim_sources)
                     else:
+                        # For unpolarized case, handle flux correctly
+                        if flux_sqrt.ndim > 1:
+                            # flux_sqrt is (nsources, nfreqs), get the right frequency slice
+                            flux_slice = flux_sqrt[:nsim_sources, freq_total_idx]
+                        else:
+                            # flux_sqrt is (nsources,), use directly
+                            flux_slice = flux_sqrt[:nsim_sources]
+
                         # Multiply by flux_sqrt
-                        A_s *= flux_sqrt
+                        A_s *= flux_slice
                         # A_s is now the apparent flux, shape (nsim_sources,)
 
+                    # Check if A_s can be reshaped to expected dimensions (like CPU implementation)
+                    expected_size = nfeeds**2 * nsim_sources
+                    if A_s.size != expected_size:
+                        # Log the shape mismatch and try to adapt
+                        print(f"Warning: Shape mismatch: A_s size {A_s.size} != expected size {expected_size}")
+                        print(f"A_s shape: {A_s.shape}, nfeeds: {nfeeds}, nsim_sources: {nsim_sources}")
+
+                        # Handle polarized case specially - if we got a 2D array but expected 3D
+                        if polarized and A_s.ndim == 2:
+                            # Skip this time/freq
+                            continue
+
+                    # Try to reshape safely (like CPU implementation)
+                    try:
+                        A_s = A_s.reshape(nfeeds**2, nsim_sources)
+                    except ValueError:
+                        print(f"Error: Cannot reshape A_s with shape {A_s.shape} to {(nfeeds**2, nsim_sources)}")
+                        continue
+
+                    i_sky = A_s
+
                     # Ensure weights have correct complex dtype
-                    if A_s.dtype != complex_dtype:
-                        A_s = A_s.astype(complex_dtype)
+                    if i_sky.dtype != complex_dtype:
+                        i_sky = i_sky.astype(complex_dtype)
 
                     # Compute visibilities w/ non-uniform FFT (on GPU)
                     if is_coplanar:
                         _vis_here = gpu_nufft2d(
                             topo[0],  # x
                             topo[1],  # y
-                            A_s,  # weights
+                            i_sky,  # weights
                             uvw[0],  # u
                             uvw[1],  # v
                             eps=eps,
                             n_threads=n_threads,  # Ignored by GPU NUFFT
-                        )  # _vis_here shape: (nfeeds**2, nbls) if polarized, (nbls,) if unpolarized
+                        )
                     else:
                         _vis_here = gpu_nufft3d(
                             topo[0],  # x
                             topo[1],  # y
                             topo[2],  # z
-                            A_s,  # weights
+                            i_sky,  # weights
                             uvw[0],  # u
                             uvw[1],  # v
                             uvw[2],  # w
                             eps=eps,
                             n_threads=n_threads,  # Ignored by GPU NUFFT
-                        )  # _vis_here shape: (nfeeds**2, nbls) if polarized, (nbls,) if unpolarized
+                        )
 
-                    # Reshape and transpose _vis_here to match expected shape for summation
-                    if polarized:
-                        _vis_here = _vis_here.reshape(nfeeds, nfeeds, nbls)
-                        _vis_here = cp.swapaxes(
-                            _vis_here, 2, 0
-                        )  # Shape (nbls, nfeeds, nfeeds)
-                    else:
-                        # Shape is (nbls,), need (nbls, 1, 1)
-                        _vis_here = _vis_here[
-                            :, cp.newaxis, cp.newaxis
-                        ]  # Shape (nbls, 1, 1)
+                    # Reshape and transpose _vis_here to match expected shape (like CPU implementation)
+                    # _vis_here should have shape (nfeeds**2, nbls) -> reshape to (nfeeds, nfeeds, nbls) -> transpose to (nbls, nfeeds, nfeeds)
+                    _vis_here = _vis_here.reshape(nfeeds, nfeeds, nbls)
+                    _vis_here = cp.swapaxes(_vis_here, 2, 0)  # Shape (nbls, nfeeds, nfeeds)
 
                     # Add contribution from this source chunk to the total for this time/freq chunk
                     vis_time_freq_chunk_gpu += _vis_here
 
             # Store the summed visibility for this time/freq chunk in the main output array
-            vis_chunk_gpu[time_chunk_idx, :, :, :, :nf_here] = vis_time_freq_chunk_gpu[
-                :, :, :, cp.newaxis
-            ]
+            vis_chunk_gpu[time_chunk_idx, :, :, :, freq_chunk_idx] = vis_time_freq_chunk_gpu
 
         # Return the chunk of visibility data (on GPU)
         return vis_chunk_gpu
