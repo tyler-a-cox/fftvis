@@ -22,12 +22,13 @@ from matvis import coordinates
 from matvis.core.coords import CoordinateRotation
 
 from ..core.simulate import SimulationEngine, default_accuracy_dict
+from ..core.antenna_gridding import check_antpos_griddability
 from .. import utils
 
 # Import the CPU beam evaluator
-from .cpu_beams import CPUBeamEvaluator
-from .cpu_nufft import cpu_nufft2d, cpu_nufft3d
-
+from .beams import CPUBeamEvaluator
+from .nufft import cpu_nufft2d, cpu_nufft3d, cpu_nufft2d_type1
+from . import utils as cpu_utils
 logger = logging.getLogger(__name__)
 
 # Create a global instance of CPUBeamEvaluator to use for beam evaluation
@@ -47,11 +48,16 @@ def _evaluate_vis_chunk_remote(
     complex_dtype: np.dtype,
     nfeeds: int,
     polarized: bool = False,
+    polarized_sky_model: bool = False,
     eps: float = None,
+    upsample_factor: Literal[1.25, 2] = 2,
     beam_spline_opts: dict = None,
     interpolation_function: str = "az_za_map_coordinates",
     n_threads: int = 1,
     is_coplanar: bool = False,
+    use_type1: bool = False,
+    basis_matrix: np.ndarray = None,
+    type1_n_modes: int = None,
     trace_mem: bool = False,
 ):
     """Ray-compatible remote version of _evaluate_vis_chunk."""
@@ -69,11 +75,16 @@ def _evaluate_vis_chunk_remote(
         complex_dtype=complex_dtype,
         nfeeds=nfeeds,
         polarized=polarized,
+        polarized_sky_model=polarized_sky_model,
         eps=eps,
+        upsample_factor=upsample_factor,
         beam_spline_opts=beam_spline_opts,
         interpolation_function=interpolation_function,
         n_threads=n_threads,
         is_coplanar=is_coplanar,
+        use_type1=use_type1,
+        basis_matrix=basis_matrix,
+        type1_n_modes=type1_n_modes,
         trace_mem=trace_mem,
     )
 
@@ -95,8 +106,9 @@ class CPUSimulationEngine(SimulationEngine):
         precision: int = 2,
         polarized: bool = False,
         eps: float = None,
+        upsample_factor: Literal[1.25, 2] = 2,
         beam_spline_opts: dict = None,
-        flat_array_tol: float = 0.0,
+        flat_array_tol: float = 1e-6,
         interpolation_function: str = "az_za_map_coordinates",
         nprocesses: int | None = 1,
         nthreads: int | None = None,
@@ -105,6 +117,7 @@ class CPUSimulationEngine(SimulationEngine):
         ] = "CoordinateRotationERFA",
         coord_method_params: dict | None = None,
         force_use_ray: bool = False,
+        force_use_type3: bool = False,
         trace_mem: bool = False,
         enable_memory_monitor: bool = False,
     ) -> np.ndarray:
@@ -144,33 +157,64 @@ class CPUSimulationEngine(SimulationEngine):
         # Get number of baselines
         nbls = len(baselines)
 
-        if isinstance(beam, UVBeam):
-            # Only try to interpolate the beam if it has more than one frequency
-            if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
-                beam = beam.interp(freq_array=freqs, new_object=True, run_check=False) # pragma: no cover
-
-        # Factor of 0.5 accounts for splitting Stokes between polarization channels
-        Isky = 0.5 * fluxes
+        # Prepare source catalog for the given fluxes
+        coherency, polarized_sky_model = cpu_utils.prepare_source_catalog(
+            fluxes, polarized_beam=polarized
+        )
+        if coherency.dtype != complex_dtype:
+            coherency = coherency.astype(complex_dtype)
 
         # Flatten antenna positions
         antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
         antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
 
-        # Rotate the array to the xy-plane
-        rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
-        rotation_matrix = np.ascontiguousarray(rotation_matrix.astype(real_dtype).T)
-        rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
-        rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
+        # If the array is flat within tolerance, we can check for griddability
+        if np.abs(antvecs[:, -1]).max() > flat_array_tol or force_use_type3:
+            is_gridded = False
+        else:
+            is_gridded, gridded_antpos, basis_matrix = check_antpos_griddability(ants)
+                
+        # Rotate antenna positions to XY plane if not gridded
+        if not is_gridded:
+            # Get the rotation matrix to rotate the array to the XY plane
+            rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
+            rotation_matrix = np.ascontiguousarray(rotation_matrix.T)
+            rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
+            rotated_ants = {
+                ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants
+            }
+            rotation_matrix = rotation_matrix.astype(real_dtype)
+        
+            # Compute baseline vectors and convert to speed of light units
+            bls = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
+                :, :
+            ].T
+            bls /= utils.speed_of_light
+            bls = bls.astype(real_dtype)
 
-        # Compute baseline vectors
-        bls = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
-            :, :
-        ].T.astype(real_dtype)
+            # Check if the array is flat within tolerance
+            is_coplanar = np.all(np.less_equal(np.abs(bls[2]), flat_array_tol))
+        else:
+            logger.info(
+                "Using gridded coordinates for the array. Type 1 transform will be used."
+            )
+            # Compute the baseline vectors in the gridded coordinate system
+            bls = np.array([
+                gridded_antpos[bl[1]] - gridded_antpos[bl[0]] 
+                for bl in baselines]
+            ).T
+            bls = np.round(bls).astype(int)
+            
+            # Find the maximum extent of the array in gridded coordinates
+            n_modes = 2 * int(np.round(np.max(np.abs(bls)))) + 1
 
-        # Check if the array is flat within tolerance
-        is_coplanar = np.all(np.less_equal(np.abs(bls[2]), flat_array_tol))
+            # Get the maximum baseline length for proper coordinate scaling
+            basis_matrix *= 1 / utils.speed_of_light
+            basis_matrix = basis_matrix.astype(real_dtype)
 
-        bls /= utils.speed_of_light
+            # Assume the array is coplanar for gridded coordinates
+            is_coplanar = True
+            rotation_matrix = np.eye(3, dtype=real_dtype)
 
         # Get number of processes for multiprocessing
         if nprocesses is None:
@@ -183,7 +227,7 @@ class CPUSimulationEngine(SimulationEngine):
         coord_method = CoordinateRotation._methods[coord_method]
         coord_method_params = coord_method_params or {}
         coord_mgr = coord_method(
-            flux=Isky,
+            flux=coherency,
             times=times,
             telescope_loc=telescope_loc,
             skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs"),
@@ -297,11 +341,16 @@ class CPUSimulationEngine(SimulationEngine):
                     complex_dtype=complex_dtype,
                     nfeeds=nfeeds,
                     polarized=polarized,
+                    polarized_sky_model=polarized_sky_model,
                     eps=eps,
+                    upsample_factor=upsample_factor,
                     beam_spline_opts=beam_spline_opts,
                     interpolation_function=interpolation_function,
                     n_threads=nthi,
                     is_coplanar=is_coplanar,
+                    use_type1=is_gridded,
+                    basis_matrix=basis_matrix if is_gridded else None,
+                    type1_n_modes=n_modes if is_gridded else None,
                     trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem,
                 )
             )
@@ -343,11 +392,16 @@ class CPUSimulationEngine(SimulationEngine):
         complex_dtype: np.dtype,
         nfeeds: int,
         polarized: bool = False,
+        polarized_sky_model: bool = False,
         eps: float = None,
+        upsample_factor: Literal[1.25, 2] = 2,
         beam_spline_opts: dict = None,
         interpolation_function: str = "az_za_map_coordinates",
         n_threads: int = 1,
         is_coplanar: bool = False,
+        use_type1: bool = False,
+        basis_matrix: float = None,
+        type1_n_modes: int = None,
         trace_mem: bool = False,
     ) -> np.ndarray:
         """
@@ -373,10 +427,13 @@ class CPUSimulationEngine(SimulationEngine):
 
         coord_mgr.setup()
 
+        # Check to see if the rotation matrix is an identity matrix
+        is_rotation_identity = np.allclose(rotation_matrix, np.eye(3))
+
         with threadpool_limits(limits=n_threads, user_api="blas"):
             for time_index, ti in enumerate(range(ntimes)[time_idx]):
                 coord_mgr.rotate(ti)
-                topo, flux, nsim_sources = coord_mgr.select_chunk(0)
+                topo, flux, nsim_sources = coord_mgr.select_chunk(0, ti)
 
                 # truncate to nsim_sources
                 topo = topo[:, :nsim_sources]
@@ -391,12 +448,21 @@ class CPUSimulationEngine(SimulationEngine):
                 )
 
                 # Rotate source coordinates with rotation matrix.
-                utils.inplace_rot(rotation_matrix, topo)
+                if not is_rotation_identity:
+                    cpu_utils.inplace_rot(rotation_matrix, topo)
+                
+                # Rotate the basis matrix
+                if basis_matrix is not None:
+                    # Rotate antenna positions with basis matrix
+                    cpu_utils.inplace_rot(basis_matrix.T, topo)
+
                 topo *= 2 * np.pi
 
                 for freqidx in range(nfreqs)[freq_idx]:
                     freq = freqs[freqidx]
-                    uvw = bls * freq
+
+                    if not use_type1:
+                        uvw = bls * freq
 
                     # Update beam evaluator for matvis compatibility
                     _cpu_beam_evaluator.beam_list = [beam]
@@ -404,7 +470,7 @@ class CPUSimulationEngine(SimulationEngine):
                     _cpu_beam_evaluator.polarized = polarized
                     _cpu_beam_evaluator.freq = freq
 
-                    A_s = _cpu_beam_evaluator.evaluate_beam(
+                    apparent_coherency = _cpu_beam_evaluator.evaluate_beam(
                         beam,
                         az,
                         za,
@@ -414,66 +480,84 @@ class CPUSimulationEngine(SimulationEngine):
                         interpolation_function=interpolation_function,
                     ).astype(complex_dtype)
 
-                    if polarized:
+                    if polarized and polarized_sky_model:
+                        logger.info(
+                            "Using polarized sky model. "
+                            "Computing apparent flux for polarized sources."
+                        )
+                        # Flip to match the expected order
+                        apparent_coherency = np.flip(apparent_coherency, axis=0)
+            
+                        # Compute the polarized apparent flux
                         _cpu_beam_evaluator.get_apparent_flux_polarized(
-                            A_s, flux[:nsim_sources, freqidx] if flux.ndim > 1 else flux[:nsim_sources]
+                            apparent_coherency, np.transpose(flux[:nsim_sources, freqidx], (1, 2, 0))
+                        )
+                    elif polarized:
+                        logger.info(
+                            "Using polarized beam. "
+                            "Computing apparent flux for unpolarized sources."
+                        )
+                        _cpu_beam_evaluator.get_apparent_flux_polarized_beam(
+                            apparent_coherency, flux[:nsim_sources, freqidx]
                         )
                     else:
-                        # Check if flux is 1D or 2D
-                        if flux.ndim > 1:
-                            A_s *= flux[:nsim_sources, freqidx]
-                        else:
-                            A_s *= flux[:nsim_sources]
-
-                    # Check if A_s can be reshaped to expected dimensions
-                    # For polarized case with 2 feeds, expected shape is (2, 2, nsim_sources) -> (4, nsim_sources)
-                    expected_size = nfeeds**2 * nsim_sources
-                    if A_s.size != expected_size: # pragma: no cover
-                        # Log the shape mismatch and try to adapt
-                        logger.warning(f"Shape mismatch: A_s size {A_s.size} != expected size {expected_size}") # pragma: no cover
-                        logger.warning(f"A_s shape: {A_s.shape}, nfeeds: {nfeeds}, nsim_sources: {nsim_sources}") # pragma: no cover
-                        
-                        # Handle polarized case specially - if we got a 2D array but expected 3D
-                        if polarized and A_s.ndim == 2: # pragma: no cover
-                            # Just skip this time/freq, or could try to expand the array
-                            continue # pragma: no cover
+                        logger.info(
+                            "Using unpolarized beam. "
+                            "Computing apparent flux for unpolarized sources."
+                        )
+                        apparent_coherency *= flux[:nsim_sources, freqidx]
                     
                     # Try to reshape safely
                     try:
-                        A_s.shape = (nfeeds**2, nsim_sources)
+                        apparent_coherency = np.reshape(
+                            apparent_coherency, (nfeeds**2, nsim_sources)
+                        )
+                        pass
                     except ValueError: # pragma: no cover
-                        logger.error(f"Cannot reshape A_s with shape {A_s.shape} to {(nfeeds**2, nsim_sources)}") # pragma: no cover
+                        logger.error(f"Cannot reshape A_s with shape {apparent_coherency.shape} to {(nfeeds**2, nsim_sources)}") # pragma: no cover
                         continue # pragma: no cover
                     
-                    i_sky = A_s
-
-                    if i_sky.dtype != complex_dtype:
-                        i_sky = i_sky.astype(complex_dtype)
+                    # Check if the dtype is complex
+                    if apparent_coherency.dtype != complex_dtype:
+                        apparent_coherency = apparent_coherency.astype(complex_dtype)
 
                     # Compute visibilities w/ non-uniform FFT
-                    if is_coplanar:
-                        _vis_here = cpu_nufft2d(
-                            topo[0],
-                            topo[1],
-                            i_sky,
-                            uvw[0],
-                            uvw[1],
+                    if use_type1:
+                        _vis_here = cpu_nufft2d_type1(
+                            topo[0] * freq,
+                            topo[1] * freq,
+                            apparent_coherency,
+                            n_modes=type1_n_modes,
+                            index=bls,
                             eps=eps,
                             n_threads=n_threads,
+                            upsample_factor=upsample_factor,
                         )
                     else:
-                        _vis_here = cpu_nufft3d(
-                            topo[0],
-                            topo[1],
-                            topo[2],
-                            i_sky,
-                            uvw[0],
-                            uvw[1],
-                            uvw[2],
-                            eps=eps,
-                            n_threads=n_threads,
-                        )
-
+                        if is_coplanar:
+                            _vis_here = cpu_nufft2d(
+                                topo[0],
+                                topo[1],
+                                apparent_coherency,
+                                uvw[0],
+                                uvw[1],
+                                eps=eps,
+                                n_threads=n_threads,
+                                upsample_factor=upsample_factor,
+                            )
+                        else:
+                            _vis_here = cpu_nufft3d(
+                                topo[0],
+                                topo[1],
+                                topo[2],
+                                apparent_coherency,
+                                uvw[0],
+                                uvw[1],
+                                uvw[2],
+                                eps=eps,
+                                n_threads=n_threads,
+                                upsample_factor=upsample_factor,
+                            )
                     vis[time_index, ..., freqidx] = np.swapaxes(
                         _vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0
                     )

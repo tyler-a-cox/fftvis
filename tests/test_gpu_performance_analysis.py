@@ -14,7 +14,7 @@ from tabulate import tabulate
 # Check GPU availability and specs
 try:
     import cupy as cp
-    from fftvis.gpu.gpu_nufft import HAVE_CUFINUFFT
+    from fftvis.gpu.nufft import HAVE_CUFINUFFT
     GPU_AVAILABLE = cp.cuda.is_available() and HAVE_CUFINUFFT
     
     if GPU_AVAILABLE:
@@ -171,7 +171,7 @@ class TestGPUPerformanceAnalysis:
         # Test increasing problem sizes until failure
         test_sizes = [1000, 5000, 10000, 50000, 100000, 200000, 500000]
         
-        from fftvis.gpu.gpu_nufft import gpu_nufft3d
+        from fftvis.gpu.nufft import gpu_nufft3d
         
         results = []
         for nsrc in test_sizes:

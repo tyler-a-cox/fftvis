@@ -8,12 +8,12 @@ to ensure they produce consistent results across different scenarios.
 import numpy as np
 import pytest
 
-from fftvis.cpu.cpu_beams import CPUBeamEvaluator
+from fftvis.cpu.beams import CPUBeamEvaluator
 
 # Try to import GPU functions
 try:
     import cupy as cp
-    from fftvis.gpu.gpu_beams import GPUBeamEvaluator
+    from fftvis.gpu.beams import GPUBeamEvaluator
     GPU_AVAILABLE = True
 except ImportError:
     GPU_AVAILABLE = False

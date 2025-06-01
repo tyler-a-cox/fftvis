@@ -3,10 +3,11 @@ import numpy as np
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
 from pyuvdata.beam_interface import BeamInterface
+from pyuvdata import UVBeam
 from matvis.core.beams import prepare_beam_unpolarized
 
 from .core.beams import BeamEvaluator
-from .cpu.cpu_beams import CPUBeamEvaluator
+from .cpu.beams import CPUBeamEvaluator
 from .core.simulate import SimulationEngine, default_accuracy_dict
 from .cpu.cpu_simulate import CPUSimulationEngine
 
@@ -41,7 +42,7 @@ def create_beam_evaluator(
         evaluator.beam_idx = None
         return evaluator
     elif backend == "gpu":
-        from .gpu.gpu_beams import GPUBeamEvaluator
+        from .gpu.beams import GPUBeamEvaluator
 
         evaluator = GPUBeamEvaluator(**kwargs)
         # Ensure the beam_list is properly initialized since this is required by matvis
@@ -98,9 +99,10 @@ def simulate_vis(
     precision: int = 2,
     polarized: bool = False,
     eps: float = None,
+    upsample_factor: Literal[1.25, 2] = 2,
     beam_spline_opts: dict = None,
     use_feed: str = "x",
-    flat_array_tol: float = 0.0,
+    flat_array_tol: float = 1e-6,
     interpolation_function: str = "az_za_map_coordinates",
     nprocesses: int | None = 1,
     nthreads: int | None = None,
@@ -108,6 +110,7 @@ def simulate_vis(
         "CoordinateRotationAstropy", "CoordinateRotationERFA"
     ] = "CoordinateRotationERFA",
     coord_method_params: dict | None = None,
+    force_use_type3: bool = False,
     force_use_ray: bool = False,
     trace_mem: bool = False,
     backend: Literal["cpu", "gpu"] = "cpu",
@@ -118,11 +121,14 @@ def simulate_vis(
     ants : dict
         Dictionary of antenna positions
     fluxes : np.ndarray
-        Intensity distribution of sources/pixels on the sky, assuming intensity
-        (Stokes I) only. The Stokes I intensity will be split equally between
-        the two linear polarization channels, resulting in a factor of 0.5 from
-        the value inputted here. This is done even if only one polarization
-        channel is simulated.
+        Intensity distribution of sources/pixels on the sky. Either an array of size
+        (nsources, nfreqs) or (nsources, nfreqs, 4) can be provided. If an array of size
+        (nsources, nfreqs) is provided, it will be assumed to intensity (Stokes I) only. 
+        The Stokes I intensity will be split equally between the two linear polarization channels, 
+        resulting in a factor of 0.5 from the value inputted here. This is done even if only one 
+        polarization channel is simulated. If an array of size (nsources, nfreqs, 4) is provided,
+        it will be used to be the full set of stokes parameters (I, Q, U, and V). Full stokes input
+        is only accepted if polarized=True.
     ra, dec : array_like
         Arrays of source RA and Dec positions in radians. RA goes from [0, 2 pi]
         and Dec from [-pi, +pi].
@@ -150,14 +156,19 @@ def simulate_vis(
         Desired accuracy of the non-uniform fast fourier transform. If None, the default accuracy
         for the given precision will be used. For precision 1, the default accuracy is 6e-8, and for
         precision 2, the default accuracy is 1e-12.
+    upsample_factor : int, default = 2
+        Upsampling factor for the non-uniform fast fourier transform. This is the factor by which the
+        intermediate grid is upsampled. Only values of 1.25 or 2 are allowed. Can be useful for decreasing
+        the computation time and memory requirement for large arrays at the expensive of some accuracy. 
+        The default value is 2.
     beam_spline_opts : dict, optional
         Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
     use_feed : str, default = "x"
         Feed to use for unpolarized simulations.
-    flat_array_tol : float, default = 0.0
+    flat_array_tol : float, default = 1e-6
         Tolerance for checking if the array is flat in units of meters. If the
         z-coordinate of all baseline vectors is within this tolerance, the array
-        is considered flat and the z-coordinate is set to zero. Default is 0.0.
+        is considered flat and the z-coordinate is set to zero. Default is 1e-6.
     interpolation_function : str, default = "az_za_simple"
         The interpolation function to use when interpolating the beam. Can be either be
         'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
@@ -179,6 +190,9 @@ def simulate_vis(
         for the CoordinateRotationERFA method, there is the parameter ``update_bcrs_every``,
         which should be a time in seconds, for which larger values speed up the computation.
         See the documentation for the CoordinateRotation classes in matvis for more information.
+    force_use_type3: bool, default = False
+        Whether to force the use of type 3 NUFFT. If False, type 3 will only be used
+        if the array cannot be defined in a regular grid.
     force_use_ray: bool, default = False
         Whether to force the use of Ray for parallelization. If False, Ray will only be used
         if nprocesses > 1.
@@ -203,6 +217,15 @@ def simulate_vis(
     # Make sure antpos has the right format
     ants = {k: np.array(v) for k, v in ants.items()}
 
+    # Interpolate the beam to the desired frequencies to avoid redundant
+    # interpolation in the simulation engine
+    if isinstance(beam, UVBeam):
+        if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
+            beam = beam.interp(freq_array=freqs, new_object=True, run_check=False) # pragma: no cover
+    elif isinstance(beam, BeamInterface) and beam._isuvbeam:
+        if hasattr(beam.beam, "Nfreqs") and beam.beam.Nfreqs > 1:
+            beam.beam = beam.beam.interp(freq_array=freqs, new_object=True, run_check=False)
+
     beam = BeamInterface(beam)
 
     # Prepare the beam
@@ -226,6 +249,7 @@ def simulate_vis(
         precision=precision,
         polarized=polarized,
         eps=eps,
+        upsample_factor=upsample_factor,
         beam_spline_opts=beam_spline_opts,
         flat_array_tol=flat_array_tol,
         interpolation_function=interpolation_function,
@@ -233,6 +257,7 @@ def simulate_vis(
         nthreads=nthreads,
         coord_method=coord_method,
         coord_method_params=coord_method_params,
+        force_use_type3=force_use_type3,
         force_use_ray=force_use_ray,
         trace_mem=trace_mem,
     )

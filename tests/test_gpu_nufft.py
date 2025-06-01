@@ -5,7 +5,7 @@ import numpy as np
 cupy = pytest.importorskip("cupy")
 cufinufft = pytest.importorskip("cufinufft")
 
-from fftvis.gpu.gpu_nufft import gpu_nufft2d, gpu_nufft3d
+from fftvis.gpu.nufft import gpu_nufft2d, gpu_nufft3d
 from fftvis.gpu.gpu_simulate import GPUSimulationEngine
 
 

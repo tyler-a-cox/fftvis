@@ -37,6 +37,7 @@ class SimulationEngine(ABC):
         precision: int = 2,
         polarized: bool = False,
         eps: float = None,
+        upsample_factor: Literal[1.25, 2] = 2,
         beam_spline_opts: dict = None,
         flat_array_tol: float = 0.0,
         interpolation_function: str = "az_za_map_coordinates",
@@ -91,6 +92,11 @@ class SimulationEngine(ABC):
             Desired accuracy of the non-uniform fast fourier transform. If None, the default accuracy
             for the given precision will be used. For precision 1, the default accuracy is 6e-8, and for
             precision 2, the default accuracy is 1e-12.
+        upsample_factor : default = 2
+            Upsampling factor for the non-uniform fast fourier transform. This is the factor by which the
+            intermediate grid is upsampled. Only values of 1.25 or 2 are allowed. Can be useful for decreasing
+            the computation time and memory requirement for large arrays at the expensive of some accuracy. 
+            The default value is 2.
         beam_spline_opts : dict, optional
             Options to pass to :meth:`pyuvdata.uvbeam.UVBeam.interp` as `spline_opts`.
         flat_array_tol : float, default = 0.0
@@ -152,10 +158,13 @@ class SimulationEngine(ABC):
         nfeeds: int,
         polarized: bool = False,
         eps: float = None,
+        upsample_factor: Literal[1.25, 2] = 2,
         beam_spline_opts: dict = None,
         interpolation_function: str = "az_za_map_coordinates",
         n_threads: int = 1,
         is_coplanar: bool = False,
+        basis_matrix: np.ndarray = None,
+        type1_n_modes: int = None,
         trace_mem: bool = False,
     ) -> np.ndarray:
         """
@@ -185,6 +194,8 @@ class SimulationEngine(ABC):
             Whether to simulate polarized visibilities.
         eps : float, default = None
             Desired accuracy of the non-uniform fast fourier transform.
+        upsample_factor : int
+            Upsampling factor for the non-uniform FFT.
         beam_spline_opts : dict, default = None
             Options for beam interpolation.
         interpolation_function : str
@@ -193,6 +204,12 @@ class SimulationEngine(ABC):
             Number of threads to use.
         is_coplanar : bool
             Whether the array is coplanar.
+        basis_matrix : np.ndarray, default = None
+            Lattice basis matrix used to grid baselines and sources for a type 1
+            non-uniform FFT. If None, a set of basis functions will be inferred from
+            the antenna positions.
+        type1_n_modes : int
+            Number of modes for type 1 non-uniform FFT.
         trace_mem : bool
             Whether to trace memory usage.
 

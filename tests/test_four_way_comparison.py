@@ -32,7 +32,7 @@ import matvis
 # Try to import GPU support
 try:
     import cupy as cp
-    from fftvis.gpu.gpu_nufft import HAVE_CUFINUFFT
+    from fftvis.gpu.nufft import HAVE_CUFINUFFT
     GPU_AVAILABLE = cp.cuda.is_available() and HAVE_CUFINUFFT
 except ImportError:
     GPU_AVAILABLE = False

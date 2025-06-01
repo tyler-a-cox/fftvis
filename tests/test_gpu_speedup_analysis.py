@@ -22,7 +22,7 @@ from astropy.coordinates import SkyCoord
 # Check GPU availability
 try:
     import cupy as cp
-    from fftvis.gpu.gpu_nufft import HAVE_CUFINUFFT
+    from fftvis.gpu.nufft import HAVE_CUFINUFFT
     GPU_AVAILABLE = cp.cuda.is_available() and HAVE_CUFINUFFT
 except ImportError:
     GPU_AVAILABLE = False
@@ -42,8 +42,8 @@ class TestGPUSpeedupAnalysis:
         logger.info("CORE NUFFT PERFORMANCE COMPARISON")
         logger.info("="*60)
         
-        from fftvis.cpu.cpu_nufft import cpu_nufft3d
-        from fftvis.gpu.gpu_nufft import gpu_nufft3d
+        from fftvis.cpu.nufft import cpu_nufft3d
+        from fftvis.gpu.nufft import gpu_nufft3d
         
         # Test different problem sizes
         test_cases = [

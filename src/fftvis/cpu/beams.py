@@ -90,8 +90,8 @@ class CPUBeamEvaluator(BeamEvaluator):
 
     @staticmethod
     @nb.jit(nopython=True, parallel=False, nogil=False)
-    def get_apparent_flux_polarized(beam: np.ndarray, flux: np.ndarray):  # pragma: no cover
-        """Calculate apparent flux of the sources."""
+    def get_apparent_flux_polarized_beam(beam: np.ndarray, flux: np.ndarray):  # pragma: no cover
+        """Calculate apparent flux of the sources. """
         nax, nfd, nsrc = beam.shape
 
         for isrc in range(nsrc):
@@ -105,3 +105,38 @@ class CPUBeamEvaluator(BeamEvaluator):
             beam[0, 1, isrc] = i01 * flux[isrc]
             beam[1, 0, isrc] = np.conj(i01) * flux[isrc]
             beam[1, 1, isrc] = i11 * flux[isrc]
+
+    @staticmethod
+    @nb.jit(nopython=True, parallel=False, nogil=False)
+    def get_apparent_flux_polarized(beam, coherency):
+        """
+        Calculate the apparent flux of the sources using the beam and coherency matrices.
+        
+        This function computes the product of the conjugate transpose of beam and
+        the coherency matrix, and then multiplies it with beam.
+        
+        Parameters
+        ----------
+        beam : np.ndarray
+            A 3D array of shape (2, 2, Nsources) where each A[:,:,i] is a 2x2 matrix.
+        coherency : np.ndarray
+            A 3D array of shape (2, 2, Nsources) where each C[:,:,i] is a 2x2 matrix.
+        """
+        nsources = beam.shape[2]
+        for i in range(nsources):
+            a00 = beam[0,0,i]
+            a01 = beam[0,1,i]
+            a10 = beam[1,0,i]
+            a11 = beam[1,1,i]
+
+            # A^H @ C
+            tmp00 = np.conj(a00) * coherency[0,0,i] + np.conj(a10) * coherency[1,0,i]
+            tmp01 = np.conj(a00) * coherency[0,1,i] + np.conj(a10) * coherency[1,1,i]
+            tmp10 = np.conj(a01) * coherency[0,0,i] + np.conj(a11) * coherency[1,0,i]
+            tmp11 = np.conj(a01) * coherency[0,1,i] + np.conj(a11) * coherency[1,1,i]
+
+            # (A^H C) @ A
+            beam[0,0,i] = tmp00*a00 + tmp01*a10
+            beam[0,1,i] = tmp00*a01 + tmp01*a11
+            beam[1,0,i] = tmp10*a00 + tmp11*a10
+            beam[1,1,i] = tmp10*a01 + tmp11*a11

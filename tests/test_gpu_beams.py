@@ -4,8 +4,8 @@ import numpy as np
 # Skip all GPU tests if CuPy is not available
 cupy = pytest.importorskip("cupy")
 
-from fftvis.gpu.gpu_beams import GPUBeamEvaluator
-from fftvis.gpu.gpu_utils import inplace_rot
+from fftvis.gpu.beams import GPUBeamEvaluator
+from fftvis.gpu.utils import inplace_rot
 
 
 def test_gpu_beam_evaluator_init():

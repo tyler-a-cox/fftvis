@@ -23,8 +23,8 @@ from ..core.simulate import SimulationEngine, default_accuracy_dict
 from .. import utils
 
 # Import the GPU beam evaluator and NUFFT
-from .gpu_beams import GPUBeamEvaluator
-from .gpu_nufft import gpu_nufft2d, gpu_nufft3d
+from .beams import GPUBeamEvaluator
+from .nufft import gpu_nufft2d, gpu_nufft3d
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ class GPUSimulationEngine(SimulationEngine):
         polarized: bool = False,
         eps: float = None,
         beam_spline_opts: dict = None,
-        flat_array_tol: float = 0.0,
+        flat_array_tol: float = 1e-6,
         interpolation_function: str = "az_za_map_coordinates",
         nprocesses: int | None = 1,
         nthreads: int | None = None,

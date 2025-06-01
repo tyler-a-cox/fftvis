@@ -7,13 +7,13 @@ to ensure they produce consistent results across different transform types.
 
 import numpy as np
 import pytest
-from fftvis.cpu.cpu_nufft import cpu_nufft2d, cpu_nufft3d
+from fftvis.cpu.nufft import cpu_nufft2d, cpu_nufft3d
 
 # Try to import GPU functions
 try:
     import cupy as cp
     import cufinufft
-    from fftvis.gpu.gpu_nufft import gpu_nufft2d, gpu_nufft3d
+    from fftvis.gpu.nufft import gpu_nufft2d, gpu_nufft3d
     GPU_AVAILABLE = True
 except ImportError:
     GPU_AVAILABLE = False

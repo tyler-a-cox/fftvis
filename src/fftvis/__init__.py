@@ -2,7 +2,7 @@
 
 # Import key components for beams
 from .core.beams import BeamEvaluator
-from .cpu.cpu_beams import CPUBeamEvaluator
+from .cpu.beams import CPUBeamEvaluator
 from .wrapper import create_beam_evaluator
 
 # Import simulation functionality
@@ -15,7 +15,7 @@ from . import utils, logutils
 
 # Try to import GPU implementations if available
 try:
-    from .gpu.gpu_beams import GPUBeamEvaluator
+    from .gpu.beams import GPUBeamEvaluator
     from .gpu.gpu_simulate import GPUSimulationEngine
     _gpu_available = True
 except ImportError:
