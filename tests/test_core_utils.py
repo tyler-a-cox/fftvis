@@ -196,22 +196,33 @@ def test_utils_module_imports():
 @pytest.mark.parametrize("with_cupy", [False, True])
 def test_use_gpu_function(with_cupy, monkeypatch):
     """Test the _use_gpu function with mocked imports."""
+    # Reset the cached value properly
+    fftvis.utils._cached_use_gpu = None
+    
     # Mock the cupy import behavior
     if with_cupy:
-        # Mock successful import of cupy
+        # Mock successful import of cupy with cuda available
         import sys
-        mock_cupy = type('MockCuPy', (), {})()
-        sys.modules['cupy'] = mock_cupy
         
-        # Clean up utils module's cached result if any
-        if hasattr(fftvis.utils, "_cached_use_gpu"):
-            delattr(fftvis.utils, "_cached_use_gpu")
-            
+        # Create a proper mock for cupy.cuda.is_available()
+        class MockCuda:
+            @staticmethod
+            def is_available():
+                return True
+        
+        class MockCuPy:
+            cuda = MockCuda
+        
+        sys.modules['cupy'] = MockCuPy()
+        
         # The function should return True now
-        assert fftvis.utils._use_gpu() is True
+        result = fftvis.utils._use_gpu()
+        assert result is True
         
         # Clean up mock
         del sys.modules['cupy']
+        # Reset cache for next test
+        fftvis.utils._cached_use_gpu = None
     else:
         # Mock failed import by raising ImportError when importing cupy
         def mock_import_error(name, *args, **kwargs):
@@ -222,12 +233,11 @@ def test_use_gpu_function(with_cupy, monkeypatch):
         orig_import = __import__
         monkeypatch.setattr('builtins.__import__', mock_import_error)
         
-        # Clean up utils module's cached result if any
-        if hasattr(fftvis.utils, "_cached_use_gpu"):
-            delattr(fftvis.utils, "_cached_use_gpu")
-        
         # The function should return False now
-        assert fftvis.utils._use_gpu() is False
+        result = fftvis.utils._use_gpu()
+        assert result is False
         
         # Restore original import
         monkeypatch.undo()
+        # Reset cache for next test
+        fftvis.utils._cached_use_gpu = None

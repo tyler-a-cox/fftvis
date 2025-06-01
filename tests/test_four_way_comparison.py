@@ -19,17 +19,15 @@ from astropy.coordinates import EarthLocation
 from astropy import units as un
 from pyuvdata import UVBeam
 from pyuvdata.data import DATA_PATH
-from pyuvdata.analytic_beam import AiryBeam, GaussianBeam
+from pyuvdata.analytic_beam import AiryBeam
 from pyuvdata.beam_interface import BeamInterface
 import os
 
 # Import fftvis
 from fftvis.wrapper import simulate_vis as fftvis_simulate
-from fftvis import utils
 
 # Import matvis
 import matvis
-from matvis._test_utils import get_standard_sim_params
 
 # Try to import GPU support
 try:

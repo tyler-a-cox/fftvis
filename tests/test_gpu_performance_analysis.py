@@ -180,7 +180,7 @@ class TestGPUPerformanceAnalysis:
                 x = cp.random.uniform(-0.5, 0.5, nsrc, dtype=cp.float64)
                 y = cp.random.uniform(-0.5, 0.5, nsrc, dtype=cp.float64)
                 z = cp.random.uniform(-0.1, 0.1, nsrc, dtype=cp.float64)
-                weights = cp.random.complex128(nsrc)
+                weights = cp.random.random(nsrc, dtype=cp.complex128)
                 
                 # Small number of baselines
                 nbl = 100
@@ -206,7 +206,7 @@ class TestGPUPerformanceAnalysis:
                     'Memory (GB)': f"{used_gb:.2f}"
                 })
                 
-            except cp.cuda.MemoryError:
+            except cp.cuda.memory.OutOfMemoryError:
                 results.append({
                     'Sources': f"{nsrc:,}",
                     'Status': 'Out of Memory',
