@@ -392,4 +392,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         pytest.main([__file__, f"::TestPerformanceCPUvsGPU::{sys.argv[1]}", "-v", "-s"])
     else:
-        pytest.main([__file__, "-v", "-s"])f
+        pytest.main([__file__, "-v", "-s"])

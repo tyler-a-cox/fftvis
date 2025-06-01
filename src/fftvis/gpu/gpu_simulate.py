@@ -416,7 +416,7 @@ class GPUSimulationEngine(SimulationEngine):
 
                 for source_chunk_idx in range(n_source_chunks):
                     # Select a chunk of sources above the horizon
-                    topo, flux_sqrt, nsim_sources = coord_mgr.select_chunk(source_chunk_idx)
+                    topo, flux_sqrt, nsim_sources = coord_mgr.select_chunk(source_chunk_idx, time_total_idx)
 
                     # Ensure topo and flux_sqrt are on GPU
                     if not isinstance(topo, cp.ndarray):
