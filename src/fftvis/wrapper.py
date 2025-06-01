@@ -235,29 +235,35 @@ def simulate_vis(
     # Create the simulation engine for the desired backend
     engine = create_simulation_engine(backend=backend)
 
+    # Common parameters for both backends
+    common_params = {
+        'ants': ants,
+        'freqs': freqs,
+        'fluxes': fluxes,
+        'beam': beam,
+        'ra': ra,
+        'dec': dec,
+        'times': times,
+        'telescope_loc': telescope_loc,
+        'baselines': baselines,
+        'precision': precision,
+        'polarized': polarized,
+        'eps': eps,
+        'beam_spline_opts': beam_spline_opts,
+        'flat_array_tol': flat_array_tol,
+        'interpolation_function': interpolation_function,
+        'nprocesses': nprocesses,
+        'nthreads': nthreads,
+        'coord_method': coord_method,
+        'coord_method_params': coord_method_params,
+        'force_use_ray': force_use_ray,
+        'trace_mem': trace_mem,
+    }
+    
+    # Add CPU-specific parameters
+    if backend == 'cpu':
+        common_params['upsample_factor'] = upsample_factor
+        common_params['force_use_type3'] = force_use_type3
+
     # Run the simulation
-    return engine.simulate(
-        ants=ants,
-        freqs=freqs,
-        fluxes=fluxes,
-        beam=beam,
-        ra=ra,
-        dec=dec,
-        times=times,
-        telescope_loc=telescope_loc,
-        baselines=baselines,
-        precision=precision,
-        polarized=polarized,
-        eps=eps,
-        upsample_factor=upsample_factor,
-        beam_spline_opts=beam_spline_opts,
-        flat_array_tol=flat_array_tol,
-        interpolation_function=interpolation_function,
-        nprocesses=nprocesses,
-        nthreads=nthreads,
-        coord_method=coord_method,
-        coord_method_params=coord_method_params,
-        force_use_type3=force_use_type3,
-        force_use_ray=force_use_ray,
-        trace_mem=trace_mem,
-    )
+    return engine.simulate(**common_params)

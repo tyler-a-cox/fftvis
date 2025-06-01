@@ -433,7 +433,7 @@ class CPUSimulationEngine(SimulationEngine):
         with threadpool_limits(limits=n_threads, user_api="blas"):
             for time_index, ti in enumerate(range(ntimes)[time_idx]):
                 coord_mgr.rotate(ti)
-                topo, flux, nsim_sources = coord_mgr.select_chunk(0, ti)
+                topo, flux, nsim_sources = coord_mgr.select_chunk(0)
 
                 # truncate to nsim_sources
                 topo = topo[:, :nsim_sources]

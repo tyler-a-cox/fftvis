@@ -139,12 +139,12 @@ class TestBeamComparison:
         beam_data_cpu = np.random.randn(nax, nfd, nsrc) + 1j * np.random.randn(nax, nfd, nsrc)
         beam_data_gpu = cp.asarray(beam_data_cpu.copy())
         
-        # Create flux data
+        # Create flux data (1D array)
         flux_cpu = np.random.randn(nsrc) + 1j * np.random.randn(nsrc)
         flux_gpu = cp.asarray(flux_cpu)
         
-        # CPU calculation (modifies beam_data_cpu in place)
-        CPUBeamEvaluator.get_apparent_flux_polarized(beam_data_cpu, flux_cpu)
+        # CPU calculation using get_apparent_flux_polarized_beam (modifies beam_data_cpu in place)
+        CPUBeamEvaluator.get_apparent_flux_polarized_beam(beam_data_cpu, flux_cpu)
         
         # GPU calculation (modifies beam_data_gpu in place)
         self.gpu_evaluator.get_apparent_flux_polarized(beam_data_gpu, flux_gpu)
