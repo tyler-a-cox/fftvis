@@ -21,6 +21,7 @@ from matvis.core.coords import CoordinateRotation
 
 from ..core.simulate import SimulationEngine, default_accuracy_dict
 from .. import utils
+from . import utils as gpu_utils
 
 # Import the GPU beam evaluator and NUFFT
 from .beams import GPUBeamEvaluator
@@ -443,7 +444,7 @@ class GPUSimulationEngine(SimulationEngine):
                         za = cp.asarray(za)
 
                     # Rotate source coordinates with rotation matrix (on GPU)
-                    utils.inplace_rot(rotation_matrix, topo)
+                    gpu_utils.inplace_rot(rotation_matrix, topo)
 
                     # Scale topo by 2*pi (on GPU)
                     topo *= 2 * np.pi

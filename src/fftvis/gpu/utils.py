@@ -1,7 +1,7 @@
 import cupy as cp
 
 
-def inplace_rot(rot: cp.ndarray, b: cp.ndarray):  # pragma: no cover
+def inplace_rot(rot: cp.ndarray, b: cp.ndarray):
     """
     GPU implementation of in-place rotation of coordinates using CuPy.
 

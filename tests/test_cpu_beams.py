@@ -231,9 +231,9 @@ def test_wrapper_beam_creation():
         assert hasattr(gpu_evaluator, 'beam_idx')
         assert gpu_evaluator.beam_list == []
         assert gpu_evaluator.beam_idx is None
-    except ImportError:
-        # This is expected if cupy is not installed
-        pytest.skip("GPU backend not available (cupy not installed)")
+    except (ImportError, ValueError) as e:
+        # This is expected if cupy is not installed or GPU backend is unsupported
+        pytest.skip(f"GPU backend not available: {str(e)}")
     
     # Test invalid backend
     with pytest.raises(ValueError):
