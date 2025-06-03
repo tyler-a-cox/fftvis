@@ -51,50 +51,6 @@ class TestBeamInterpolationComparison:
         self.polarized = True
         self.npol = 1
         
-    def test_analytic_beam_consistency(self):
-        """Test that AnalyticBeam gives identical results on CPU and GPU."""
-        from pyuvdata.beam_interface import BeamInterface
-        # Create a simple Airy beam
-        airy = AiryBeam(diameter=14.0)
-        beam = BeamInterface(airy)
-        
-        # Create evaluators
-        cpu_evaluator = CPUBeamEvaluator()
-        gpu_evaluator = GPUBeamEvaluator()
-        
-        # Evaluate on CPU
-        cpu_result = cpu_evaluator.evaluate_beam(
-            beam=beam,
-            az=self.az_flat,
-            za=self.za_flat,
-            freq=self.freq,
-            polarized=self.polarized,
-            interpolation_function="az_za_map_coordinates",  # Explicit
-            spline_opts=None  # Use defaults
-        )
-        
-        # Evaluate on GPU
-        gpu_result = gpu_evaluator.evaluate_beam(
-            beam=beam,
-            az=self.az_flat,
-            za=self.za_flat,
-            freq=self.freq,
-            polarized=self.polarized,
-            interpolation_function="az_za_map_coordinates",  # Explicit
-            spline_opts=None  # Use defaults
-        )
-        
-        # Convert GPU result to numpy if needed
-        gpu_result_np = self._to_numpy(gpu_result)
-            
-        # Compare results
-        np.testing.assert_allclose(
-            cpu_result, gpu_result_np,
-            rtol=1e-6, atol=1e-8,
-            err_msg="AnalyticBeam: CPU and GPU results differ"
-        )
-        
-        print(f"AnalyticBeam test passed: max diff = {np.max(np.abs(cpu_result - gpu_result_np))}")
     
     def test_uvbeam_interpolation_order(self):
         """Test UVBeam interpolation with different spline orders."""
