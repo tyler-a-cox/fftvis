@@ -94,10 +94,11 @@ class GPUBeamEvaluator(BeamEvaluator):
 
         # Check if it's an AnalyticBeam that we can handle on GPU
         beam_obj = None
-        if hasattr(beam, 'beam_type'):  # Direct AnalyticBeam
-            beam_obj = beam
-        elif hasattr(beam, 'beam'):  # BeamInterface wrapper
+        is_beam_interface = hasattr(beam, 'beam')
+        if is_beam_interface:  # BeamInterface wrapper
             beam_obj = beam.beam
+        else:  # Direct beam object
+            beam_obj = beam
             
         # Handle AiryBeam directly on GPU if supported
         if (beam_obj is not None and 
@@ -109,10 +110,13 @@ class GPUBeamEvaluator(BeamEvaluator):
 
         # Check if we can do GPU interpolation for UVBeam
         # Make sure it's actually a UVBeam (not an AnalyticBeam)
+        # Check using attributes rather than class name to handle BeamInterface wrapper
         if (HAS_GPU_MAP_COORDS and 
             interpolation_function == "az_za_map_coordinates" and
             beam_obj is not None and 
-            beam_obj.__class__.__name__ == 'UVBeam'):  # Check class name
+            hasattr(beam_obj, 'data_array') and  # UVBeam has data_array
+            hasattr(beam_obj, 'pixel_coordinate_system') and  # UVBeam has this
+            not hasattr(beam_obj, 'diameter')):  # AnalyticBeams like AiryBeam have diameter
             return self._evaluate_uvbeam_gpu(
                 beam, az, za, polarized, freq, check, spline_opts
             )
@@ -314,7 +318,7 @@ class GPUBeamEvaluator(BeamEvaluator):
         freq_idx = np.argmin(np.abs(uvbeam.freq_array - freq))
         
         # Get beam data array and transfer to GPU if not cached
-        beam_key = (id(beam), freq_idx)
+        beam_key = (id(beam), freq_idx, polarized)
         if beam_key not in self._gpu_beam_data:
             # Get the beam data for this frequency
             if polarized:
@@ -359,9 +363,10 @@ class GPUBeamEvaluator(BeamEvaluator):
         za_idx *= (len(za_axis) - 1) / (za_axis_gpu.max() - za_axis_gpu.min())
         
         # Handle azimuth wrapping if needed
+        # Note: CuPy's map_coordinates doesn't support different modes per axis
+        # So we use 'wrap' for both if azimuth wraps, 'constant' otherwise
         if wraps_around:
-            # For wrapping, use 'wrap' mode for azimuth axis
-            mode = ('constant', 'wrap')  # (za_mode, az_mode)
+            mode = 'wrap'
         else:
             mode = 'constant'
             
