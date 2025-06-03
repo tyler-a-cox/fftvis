@@ -14,7 +14,6 @@ from pyuvdata.beam_interface import BeamInterface
 
 # Direct imports to measure core computation
 from fftvis.cpu.cpu_simulate import CPUSimulationEngine
-from fftvis.gpu.gpu_simulate import GPUSimulationEngine
 from fftvis import utils
 from matvis.core.coords import CoordinateRotation
 from astropy.coordinates import SkyCoord
@@ -22,11 +21,40 @@ from astropy.coordinates import SkyCoord
 # Check GPU availability
 try:
     import cupy as cp
-    from fftvis.gpu.nufft import HAVE_CUFINUFFT
-    GPU_AVAILABLE = cp.cuda.is_available() and HAVE_CUFINUFFT
+    GPU_AVAILABLE = cp.cuda.is_available()
+    
+    if GPU_AVAILABLE:
+        # Try importing GPU modules
+        try:
+            from fftvis.gpu.gpu_simulate import GPUSimulationEngine
+            from fftvis.gpu.nufft import HAVE_CUFINUFFT
+            GPU_AVAILABLE = GPU_AVAILABLE and HAVE_CUFINUFFT
+        except ImportError:
+            GPU_AVAILABLE = False
 except ImportError:
     GPU_AVAILABLE = False
     cp = None
+
+# Import tabulate only if available
+try:
+    from tabulate import tabulate
+    HAVE_TABULATE = True
+except ImportError:
+    HAVE_TABULATE = False
+    # Simple fallback for tabulate
+    def tabulate(data, headers=None, tablefmt=None):
+        if headers == 'keys' and isinstance(data, list) and len(data) > 0:
+            headers = list(data[0].keys())
+            rows = [list(d.values()) for d in data]
+        else:
+            rows = data
+        
+        # Simple text table  
+        if headers:
+            print("  ".join(str(h) for h in headers))
+            print("-" * 60)
+        for row in rows:
+            print("  ".join(str(cell) for cell in row))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -43,7 +71,11 @@ class TestGPUSpeedupAnalysis:
         logger.info("="*60)
         
         from fftvis.cpu.nufft import cpu_nufft3d
-        from fftvis.gpu.nufft import gpu_nufft3d
+        if GPU_AVAILABLE:
+            from fftvis.gpu.nufft import gpu_nufft3d
+        else:
+            # This should never be reached due to skipif decorator
+            return
         
         # Test different problem sizes
         test_cases = [
@@ -121,7 +153,6 @@ class TestGPUSpeedupAnalysis:
             logger.info(f"  Max difference: {max_diff:.2e}")
         
         # Display results
-        from tabulate import tabulate
         print("\n" + tabulate(results, headers='keys', tablefmt='grid'))
     
     def test_full_simulation_breakdown(self):
@@ -289,7 +320,6 @@ class TestGPUSpeedupAnalysis:
                     'Speedup': "N/A"
                 })
         
-        from tabulate import tabulate
         print("\n" + tabulate(results, headers='keys', tablefmt='grid'))
 
 

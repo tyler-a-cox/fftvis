@@ -9,13 +9,11 @@ import pytest
 import numpy as np
 import time
 import logging
-from tabulate import tabulate
 
 # Check GPU availability and specs
 try:
     import cupy as cp
-    from fftvis.gpu.nufft import HAVE_CUFINUFFT
-    GPU_AVAILABLE = cp.cuda.is_available() and HAVE_CUFINUFFT
+    GPU_AVAILABLE = cp.cuda.is_available()
     
     if GPU_AVAILABLE:
         # Get GPU properties
@@ -24,16 +22,46 @@ try:
         GPU_NAME = props['name'].decode() if isinstance(props['name'], bytes) else props['name']
         GPU_MEMORY = props['totalGlobalMem'] / (1024**3)  # Total memory in GB
         GPU_COMPUTE_CAPABILITY = f"{props['major']}.{props['minor']}"
+        
+        # Check for cufinufft
+        try:
+            from fftvis.gpu.nufft import HAVE_CUFINUFFT
+            GPU_AVAILABLE = GPU_AVAILABLE and HAVE_CUFINUFFT
+        except ImportError:
+            GPU_AVAILABLE = False
 except ImportError:
     GPU_AVAILABLE = False
     GPU_NAME = "N/A"
     GPU_MEMORY = 0
     GPU_COMPUTE_CAPABILITY = "N/A"
+    cp = None
+
+# Import tabulate only if available
+try:
+    from tabulate import tabulate
+    HAVE_TABULATE = True
+except ImportError:
+    HAVE_TABULATE = False
+    # Simple fallback for tabulate
+    def tabulate(data, headers=None, tablefmt=None):
+        if headers == 'keys' and isinstance(data, list) and len(data) > 0:
+            headers = list(data[0].keys())
+            rows = [list(d.values()) for d in data]
+        else:
+            rows = data
+        
+        # Simple text table
+        if headers:
+            print("  ".join(str(h) for h in headers))
+            print("-" * 60)
+        for row in rows:
+            print("  ".join(str(cell) for cell in row))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+@pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU not available")
 class TestGPUPerformanceAnalysis:
     """Analysis of GPU performance characteristics."""
     
@@ -171,7 +199,11 @@ class TestGPUPerformanceAnalysis:
         # Test increasing problem sizes until failure
         test_sizes = [1000, 5000, 10000, 50000, 100000, 200000, 500000]
         
-        from fftvis.gpu.nufft import gpu_nufft3d
+        if GPU_AVAILABLE:
+            from fftvis.gpu.nufft import gpu_nufft3d
+        else:
+            # This should never be reached due to skipif decorator
+            return
         
         results = []
         for nsrc in test_sizes:
