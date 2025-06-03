@@ -144,69 +144,13 @@ def _gpu_nufft2d_plan_fallback(x, y, weights, u, v, eps, n_trans):
             result = plan.execute(weights)
         return result
 
-    except Exception:
-        return _gpu_nufft2d_type1_type2_fallback(x, y, weights, u, v, eps, n_trans)
-def _gpu_nufft2d_type1_type2_fallback(x, y, weights, u, v, eps, n_trans):
-    """Type 1+2 decomposition fallback for 2D Type 3 NUFFT."""
-    try:
-        import math
-
-        if eps < 1e-10:
-            base_size = 256
-        elif eps < 1e-8:
-            base_size = 128
-        else:
-            base_size = 64
-
-        max_points = max(len(x), len(u))
-        scale_factor = max(1.0, math.sqrt(max_points / 50.0))
-
-        N1 = int(base_size * scale_factor)
-        N2 = int(base_size * scale_factor)
-
-        N1 = max(64, 2 ** int(math.ceil(math.log2(N1))))
-        N2 = max(64, 2 ** int(math.ceil(math.log2(N2))))
-
-        # Limit maximum size to avoid memory issues
-        N1 = min(2048, N1)
-        N2 = min(2048, N2)
-
-        # Step 1: Create and execute Type 1 plan (nonuniform -> uniform)
-        plan1 = cufinufft.Plan(
-            nufft_type=1,
-            n_modes=(N1, N2),
-            n_trans=n_trans,
-            eps=eps,
-            dtype='complex128',
-            isign=1,        # finufft default for Type 1
-            modeord=0       # Match CPU setting
-        )
-        plan1.setpts(x, y)
-
-        # Execute Type 1 transform
-        grid = plan1.execute(weights)
-
-        # Debug info
-
-        # Step 2: Create and execute Type 2 plan (uniform -> nonuniform)
-        plan2 = cufinufft.Plan(
-            nufft_type=2,
-            n_modes=(N1, N2),
-            n_trans=n_trans,
-            eps=eps,
-            dtype='complex128',
-            isign=-1,       # finufft default for Type 2
-            modeord=0       # Match CPU setting
-        )
-        plan2.setpts(u, v)
-
-        # Execute Type 2 transform
-        result = plan2.execute(grid)
-
-        return result
-
     except Exception as e:
-        raise RuntimeError(f"GPU 2D Type 3 NUFFT failed: {e}")
+        raise RuntimeError(
+            f"GPU 2D Type 3 NUFFT failed: {e}\n"
+            "Please install the latest beta versions:\n"
+            "  pip install cufinufft==2.4.0b1\n"
+            "  pip install finufft==2.4.0rc1"
+        )
 def gpu_nufft3d(
     x: cp.ndarray,
     y: cp.ndarray,
@@ -336,74 +280,10 @@ def _gpu_nufft3d_plan_fallback(x, y, z, weights, u, v, w, eps, n_trans):
             result = plan.execute(weights)
         return result
 
-    except Exception:
-        return _gpu_nufft3d_plan_type1_type2_fallback(x, y, z, weights, u, v, w, eps, n_trans)
-def _gpu_nufft3d_plan_type1_type2_fallback(x, y, z, weights, u, v, w, eps, n_trans):
-    """Type 1+2 decomposition fallback for 3D Type 3 NUFFT."""
-    try:
-        import math
-
-        if eps < 1e-10:
-            base_size = 128
-        elif eps < 1e-8:
-            base_size = 96
-        else:
-            base_size = 64
-
-        # Scale with number of points (more points need larger grids)
-        max_points = max(len(x), len(u))
-        scale_factor = max(1.0, math.sqrt(max_points / 50.0))
-
-        # Calculate grid sizes
-        N1 = int(base_size * scale_factor)
-        N2 = int(base_size * scale_factor)
-        N3 = int(base_size * scale_factor)
-
-        # Make power of 2 for FFT efficiency and ensure minimum size
-        N1 = max(64, 2 ** int(math.ceil(math.log2(N1))))
-        N2 = max(64, 2 ** int(math.ceil(math.log2(N2))))
-        N3 = max(64, 2 ** int(math.ceil(math.log2(N3))))
-
-        # Limit maximum size to avoid memory issues (3D grids can get huge!)
-        N1 = min(512, N1)
-        N2 = min(512, N2)
-        N3 = min(512, N3)
-
-        # Step 1: Create and execute Type 1 plan (nonuniform -> uniform)
-        # Match CPU parameters: modeord=0, appropriate isign
-        plan1 = cufinufft.Plan(
-            nufft_type=1,
-            n_modes=(N1, N2, N3),
-            n_trans=n_trans,
-            eps=eps,
-            dtype='complex128',
-            isign=1,        # finufft default for Type 1
-            modeord=0       # Match CPU setting
-        )
-        plan1.setpts(x, y, z)
-
-        # Execute Type 1 transform
-        grid = plan1.execute(weights)
-
-        # Debug info
-
-        # Step 2: Create and execute Type 2 plan (uniform -> nonuniform)
-        # Match CPU parameters: modeord=0, appropriate isign
-        plan2 = cufinufft.Plan(
-            nufft_type=2,
-            n_modes=(N1, N2, N3),
-            n_trans=n_trans,
-            eps=eps,
-            dtype='complex128',
-            isign=-1,       # finufft default for Type 2
-            modeord=0       # Match CPU setting
-        )
-        plan2.setpts(u, v, w)
-
-        # Execute Type 2 transform
-        result = plan2.execute(grid)
-
-        return result
-
     except Exception as e:
-        raise RuntimeError(f"GPU 3D Type 3 NUFFT failed: {e}")
+        raise RuntimeError(
+            f"GPU 3D Type 3 NUFFT failed: {e}\n"
+            "Please install the latest beta versions:\n"
+            "  pip install cufinufft==2.4.0b1\n"
+            "  pip install finufft==2.4.0rc1"
+        )
