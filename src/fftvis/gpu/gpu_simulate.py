@@ -25,7 +25,7 @@ from . import utils as gpu_utils
 
 # Import the GPU beam evaluator and NUFFT
 from .beams import GPUBeamEvaluator
-from .nufft import gpu_nufft2d, gpu_nufft3d
+from .nufft import gpu_nufft2d, gpu_nufft3d, gpu_nufft2d_batch, gpu_nufft3d_batch
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,7 @@ def _evaluate_vis_chunk_remote_gpu(
     n_threads: int = 1,
     is_coplanar: bool = False,
     trace_mem: bool = False,
+    freq_batch_size: int = 16,
 ):
     """Ray-compatible remote version of _evaluate_vis_chunk for GPU."""
     # Create a simulation engine instance in the remote process
@@ -74,11 +75,73 @@ def _evaluate_vis_chunk_remote_gpu(
         n_threads=n_threads,
         is_coplanar=is_coplanar,
         trace_mem=trace_mem,
+        freq_batch_size=freq_batch_size,
     )
 
 
 class GPUSimulationEngine(SimulationEngine):
     """GPU implementation of the simulation engine."""
+    
+    @staticmethod
+    def _get_optimal_freq_batch_size(
+        nbls: int, 
+        nsources: int, 
+        nfeeds: int,
+        precision: int = 2,
+        available_memory_fraction: float = 0.8
+    ) -> int:
+        """
+        Determine optimal frequency batch size based on GPU memory constraints.
+        
+        Parameters
+        ----------
+        nbls : int
+            Number of baselines
+        nsources : int
+            Typical number of sources per chunk
+        nfeeds : int
+            Number of feeds (1 for unpolarized, 2 for polarized)
+        precision : int
+            Precision (1 for float32, 2 for float64)
+        available_memory_fraction : float
+            Fraction of GPU memory to use
+            
+        Returns
+        -------
+        int
+            Optimal frequency batch size
+        """
+        # Get available GPU memory
+        mempool = cp.get_default_memory_pool()
+        device = cp.cuda.Device()
+        total_memory = device.mem_info[1]
+        available_memory = total_memory * available_memory_fraction
+        
+        # Calculate memory per frequency
+        complex_size = 8 if precision == 1 else 16  # bytes
+        
+        # Memory for one frequency:
+        # - UVW coordinates: 3 * nbls * 8 bytes
+        # - Weights: nfeeds**2 * nsources * complex_size
+        # - Visibility output: nfeeds**2 * nbls * complex_size
+        # - Temporary arrays: ~2x the above
+        memory_per_freq = (
+            3 * nbls * 8 +  # UVW
+            nfeeds**2 * nsources * complex_size +  # Weights
+            nfeeds**2 * nbls * complex_size  # Output
+        ) * 3  # Safety factor for temporaries
+        
+        # Calculate maximum batch size
+        max_batch_size = int(available_memory / memory_per_freq)
+        
+        # Clamp to reasonable range (max 128 to balance memory and efficiency)
+        batch_size = max(1, min(max_batch_size, 128))
+        
+        # Round down to power of 2 for better GPU utilization
+        if batch_size > 1:
+            batch_size = 2 ** int(np.log2(batch_size))
+        
+        return max(1, batch_size)
 
     def simulate(
         self,
@@ -209,6 +272,18 @@ class GPUSimulationEngine(SimulationEngine):
             **coord_method_params,
         )
 
+        # --- Calculate optimal frequency batch size ---
+        # Estimate typical number of sources per chunk
+        typical_sources = min(1000, len(ra) // 10) if len(ra) > 0 else 100
+        optimal_batch_size = self._get_optimal_freq_batch_size(
+            nbls=nbls,
+            nsources=typical_sources,
+            nfeeds=nfeeds,
+            precision=precision,
+            available_memory_fraction=0.8  # Use 80% of available GPU memory for better performance
+        )
+        logger.info(f"Using frequency batch size: {optimal_batch_size}")
+        
         # --- Data Transfer to GPU (if not handled by coord_mgr) ---
         # Transfer data needed by _evaluate_vis_chunk to GPU *before* chunking/Ray
         # This avoids transferring the same data multiple times if Ray is used
@@ -301,6 +376,7 @@ class GPUSimulationEngine(SimulationEngine):
                     n_threads=nthi,  # Ignored by GPU NUFFT
                     is_coplanar=is_coplanar,
                     trace_mem=trace_mem,
+                    freq_batch_size=optimal_batch_size,  # Dynamic batch size for frequency processing
                 )
             )
 
@@ -353,11 +429,13 @@ class GPUSimulationEngine(SimulationEngine):
         n_threads: int = 1,  # Ignored for GPU NUFFT
         is_coplanar: bool = False,
         trace_mem: bool = False,
+        freq_batch_size: int = 16,  # New parameter for frequency batching
     ) -> cp.ndarray:  # Return cupy array
         """
-        Evaluate a chunk of visibility data using GPU.
+        Evaluate a chunk of visibility data using GPU with frequency batching.
 
-        See base class for parameter descriptions.
+        This implementation processes multiple frequencies simultaneously to
+        reduce kernel launch overhead and improve GPU utilization.
         """
         pid = os.getpid()
         pr = psutil.Process(pid)
@@ -371,17 +449,17 @@ class GPUSimulationEngine(SimulationEngine):
             freqs = cp.asarray(freqs)
 
         nbls = bls.shape[1]
-        ntimes_total = len(coord_mgr.times)  # Total number of times
-        nfreqs_total = len(freqs)  # Total number of frequencies
+        ntimes_total = len(coord_mgr.times)
+        nfreqs_total = len(freqs)
 
-        # Handle slice(None) case - when start/stop are None, use full range
+        # Handle slice(None) case
         time_start = time_idx.start if time_idx.start is not None else 0
         time_stop = time_idx.stop if time_idx.stop is not None else ntimes_total
         freq_start = freq_idx.start if freq_idx.start is not None else 0
         freq_stop = freq_idx.stop if freq_idx.stop is not None else nfreqs_total
         
-        nt_here = time_stop - time_start  # Number of times in this chunk
-        nf_here = freq_stop - freq_start  # Number of frequencies in this chunk
+        nt_here = time_stop - time_start
+        nf_here = freq_stop - freq_start
 
         # Allocate output visibility array for this chunk on the GPU
         vis_chunk_gpu = cp.zeros(
@@ -394,23 +472,29 @@ class GPUSimulationEngine(SimulationEngine):
         # Initialize the coordinate manager
         coord_mgr.setup()
 
+        # Get frequency indices for this chunk
+        freq_indices = list(range(nfreqs_total)[freq_idx])
+        
         # Loop over time samples in this chunk
         for time_chunk_idx, time_total_idx in enumerate(range(ntimes_total)[time_idx]):
             # Rotate coordinates for the current time
-            coord_mgr.rotate(
-                time_total_idx
-            )  # This updates coord_mgr's internal coordinates
+            coord_mgr.rotate(time_total_idx)
 
-            # Loop over frequency indices in this chunk
-            for freq_chunk_idx, freq_total_idx in enumerate(
-                range(nfreqs_total)[freq_idx]
-            ):
-                # Allocate temporary array for visibilities from source chunks for this time/freq chunk
-                vis_time_freq_chunk_gpu = cp.zeros(
-                    dtype=complex_dtype, shape=(nbls, nfeeds, nfeeds)
+            # Process frequencies in batches
+            for batch_start in range(0, len(freq_indices), freq_batch_size):
+                batch_end = min(batch_start + freq_batch_size, len(freq_indices))
+                freq_batch_indices = freq_indices[batch_start:batch_end]
+                batch_size = len(freq_batch_indices)
+                
+                # Get frequencies for this batch
+                freq_batch = freqs[freq_batch_indices[0] - freq_start:freq_batch_indices[-1] - freq_start + 1]
+                
+                # Allocate batch arrays for visibilities
+                vis_batch_gpu = cp.zeros(
+                    dtype=complex_dtype, shape=(batch_size, nbls, nfeeds, nfeeds)
                 )
                 
-                # Loop over source chunks (within the time and freq loops)
+                # Loop over source chunks
                 n_source_chunks = coord_mgr.nsrc // coord_mgr.chunk_size + (
                     coord_mgr.nsrc % coord_mgr.chunk_size > 0
                 )
@@ -426,7 +510,7 @@ class GPUSimulationEngine(SimulationEngine):
                         flux_sqrt = cp.asarray(flux_sqrt)
 
                     if nsim_sources == 0:
-                        continue  # Skip if no sources in this chunk are above horizon
+                        continue
 
                     # Truncate arrays to actual number of sources above horizon
                     topo = topo[:, :nsim_sources]
@@ -449,112 +533,94 @@ class GPUSimulationEngine(SimulationEngine):
                     # Scale topo by 2*pi (on GPU)
                     topo *= 2 * np.pi
 
-                    # Get frequency value
-                    freq = freqs[freq_chunk_idx]  # Get frequency value (on GPU)
-
-                    # Compute uvw coordinates (on GPU)
-                    uvw = (
-                        bls * freq
-                    )  # bls is (3, nbls), freq is scalar -> uvw is (3, nbls)
-
-                    # Evaluate beam (on GPU)
-                    # We need to get the actual scalar value for freq to pass to evaluate_beam
-                    freq_value = (
-                        freq.get().item() if isinstance(freq, cp.ndarray) else freq
-                    )
-                    A_s = beam_evaluator.evaluate_beam(
-                        beam,
-                        az,
-                        za,
-                        polarized,
-                        freq_value,
-                        spline_opts=beam_spline_opts,
-                        interpolation_function=interpolation_function,
-                    )  # A_s shape: (nax, nfeed, nsim_sources) or (nsim_sources,)
-
-                    # Apply flux (on GPU)
-                    if polarized:
-                        # For polarized case, get the correct flux slice
-                        if flux_sqrt.ndim > 1:
-                            flux_slice = flux_sqrt[:nsim_sources, freq_total_idx]
+                    # Prepare batch arrays for UVW coordinates and weights
+                    uvw_batch = cp.empty((batch_size, 3, nbls), dtype=cp.float64)
+                    weights_batch = cp.empty((batch_size, nfeeds**2, nsim_sources), dtype=complex_dtype)
+                    
+                    # Process each frequency in the batch
+                    for batch_idx, freq_idx in enumerate(freq_batch_indices):
+                        freq_chunk_idx = freq_idx - freq_start
+                        freq = freqs[freq_chunk_idx]
+                        
+                        # Compute uvw for this frequency
+                        uvw_batch[batch_idx] = bls * freq
+                        
+                        # Get frequency value for beam evaluation
+                        freq_value = freq.get().item() if isinstance(freq, cp.ndarray) else freq
+                        
+                        # Evaluate beam
+                        A_s = beam_evaluator.evaluate_beam(
+                            beam,
+                            az,
+                            za,
+                            polarized,
+                            freq_value,
+                            spline_opts=beam_spline_opts,
+                            interpolation_function=interpolation_function,
+                        )
+                        
+                        # Apply flux
+                        if polarized:
+                            if flux_sqrt.ndim > 1:
+                                flux_slice = flux_sqrt[:nsim_sources, freq_idx]
+                            else:
+                                flux_slice = flux_sqrt[:nsim_sources]
+                            beam_evaluator.get_apparent_flux_polarized(A_s, flux_slice)
                         else:
-                            flux_slice = flux_sqrt[:nsim_sources]
-
-                        # beam_evaluator.get_apparent_flux_polarized modifies A_s in-place
-                        beam_evaluator.get_apparent_flux_polarized(A_s, flux_slice)
-                        # A_s is now the apparent flux, shape (nax, nfeed, nsim_sources)
-                    else:
-                        # For unpolarized case, handle flux correctly
-                        if flux_sqrt.ndim > 1:
-                            # flux_sqrt is (nsources, nfreqs), get the right frequency slice
-                            flux_slice = flux_sqrt[:nsim_sources, freq_total_idx]
-                        else:
-                            # flux_sqrt is (nsources,), use directly
-                            flux_slice = flux_sqrt[:nsim_sources]
-
-                        # Multiply by flux_sqrt
-                        A_s *= flux_slice
-                        # A_s is now the apparent flux, shape (nsim_sources,)
-
-                    # Check if A_s can be reshaped to expected dimensions (like CPU implementation)
-                    expected_size = nfeeds**2 * nsim_sources
-                    if A_s.size != expected_size:
-                        # Log the shape mismatch and try to adapt
-                        print(f"Warning: Shape mismatch: A_s size {A_s.size} != expected size {expected_size}")
-                        print(f"A_s shape: {A_s.shape}, nfeeds: {nfeeds}, nsim_sources: {nsim_sources}")
-
-                        # Handle polarized case specially - if we got a 2D array but expected 3D
-                        if polarized and A_s.ndim == 2:
-                            # Skip this time/freq
+                            if flux_sqrt.ndim > 1:
+                                flux_slice = flux_sqrt[:nsim_sources, freq_idx]
+                            else:
+                                flux_slice = flux_sqrt[:nsim_sources]
+                            A_s *= flux_slice
+                        
+                        # Reshape A_s
+                        try:
+                            A_s_reshaped = A_s.reshape(nfeeds**2, nsim_sources)
+                        except ValueError:
+                            logger.warning(f"Cannot reshape A_s with shape {A_s.shape} to {(nfeeds**2, nsim_sources)}")
                             continue
-
-                    # Try to reshape safely (like CPU implementation)
-                    try:
-                        A_s = A_s.reshape(nfeeds**2, nsim_sources)
-                    except ValueError:
-                        print(f"Error: Cannot reshape A_s with shape {A_s.shape} to {(nfeeds**2, nsim_sources)}")
-                        continue
-
-                    i_sky = A_s
-
-                    # Ensure weights have correct complex dtype
-                    if i_sky.dtype != complex_dtype:
-                        i_sky = i_sky.astype(complex_dtype)
-
-                    # Compute visibilities w/ non-uniform FFT (on GPU)
+                        
+                        # Ensure correct dtype
+                        if A_s_reshaped.dtype != complex_dtype:
+                            A_s_reshaped = A_s_reshaped.astype(complex_dtype)
+                        
+                        weights_batch[batch_idx] = A_s_reshaped
+                    
+                    # Compute visibilities for the batch using batch NUFFT
                     if is_coplanar:
-                        _vis_here = gpu_nufft2d(
+                        vis_batch_here = gpu_nufft2d_batch(
                             topo[0],  # x
                             topo[1],  # y
-                            i_sky,  # weights
-                            uvw[0],  # u
-                            uvw[1],  # v
+                            weights_batch,  # (batch_size, nfeeds**2, nsrc)
+                            uvw_batch[:, 0, :],  # u (batch_size, nbls)
+                            uvw_batch[:, 1, :],  # v (batch_size, nbls)
                             eps=eps,
-                            n_threads=n_threads,  # Ignored by GPU NUFFT
+                            n_threads=n_threads,
                         )
                     else:
-                        _vis_here = gpu_nufft3d(
+                        vis_batch_here = gpu_nufft3d_batch(
                             topo[0],  # x
                             topo[1],  # y
                             topo[2],  # z
-                            i_sky,  # weights
-                            uvw[0],  # u
-                            uvw[1],  # v
-                            uvw[2],  # w
+                            weights_batch,  # (batch_size, nfeeds**2, nsrc)
+                            uvw_batch[:, 0, :],  # u (batch_size, nbls)
+                            uvw_batch[:, 1, :],  # v (batch_size, nbls)
+                            uvw_batch[:, 2, :],  # w (batch_size, nbls)
                             eps=eps,
-                            n_threads=n_threads,  # Ignored by GPU NUFFT
+                            n_threads=n_threads,
                         )
-
-                    # Reshape and transpose _vis_here to match expected shape (like CPU implementation)
-                    # _vis_here should have shape (nfeeds**2, nbls) -> reshape to (nfeeds, nfeeds, nbls) -> transpose to (nbls, nfeeds, nfeeds)
-                    _vis_here = _vis_here.reshape(nfeeds, nfeeds, nbls)
-                    _vis_here = cp.swapaxes(_vis_here, 2, 0)  # Shape (nbls, nfeeds, nfeeds)
-
-                    # Add contribution from this source chunk to the total for this time/freq chunk
-                    vis_time_freq_chunk_gpu += _vis_here
-
-                # Store the summed visibility for this time/freq chunk in the main output array
-                vis_chunk_gpu[time_chunk_idx, :, :, :, freq_chunk_idx] = vis_time_freq_chunk_gpu
+                    
+                    # vis_batch_here shape: (batch_size, nfeeds**2, nbls)
+                    # Reshape and transpose to (batch_size, nbls, nfeeds, nfeeds)
+                    for batch_idx in range(batch_size):
+                        vis_single = vis_batch_here[batch_idx].reshape(nfeeds, nfeeds, nbls)
+                        vis_single = cp.swapaxes(vis_single, 2, 0)  # (nbls, nfeeds, nfeeds)
+                        vis_batch_gpu[batch_idx] += vis_single
+                
+                # Store the batch results in the main output array
+                for batch_idx, freq_idx in enumerate(freq_batch_indices):
+                    freq_chunk_idx = freq_idx - freq_start
+                    vis_chunk_gpu[time_chunk_idx, :, :, :, freq_chunk_idx] = vis_batch_gpu[batch_idx]
 
         # Return the chunk of visibility data (on GPU)
         return vis_chunk_gpu
