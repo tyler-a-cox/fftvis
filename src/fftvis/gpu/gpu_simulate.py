@@ -26,6 +26,7 @@ from . import utils as gpu_utils
 # Import the GPU beam evaluator and NUFFT
 from .beams import GPUBeamEvaluator
 from .nufft import gpu_nufft2d, gpu_nufft3d, gpu_nufft2d_batch, gpu_nufft3d_batch
+from .memory_manager import GPUMemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -82,66 +83,6 @@ def _evaluate_vis_chunk_remote_gpu(
 class GPUSimulationEngine(SimulationEngine):
     """GPU implementation of the simulation engine."""
     
-    @staticmethod
-    def _get_optimal_freq_batch_size(
-        nbls: int, 
-        nsources: int, 
-        nfeeds: int,
-        precision: int = 2,
-        available_memory_fraction: float = 0.8
-    ) -> int:
-        """
-        Determine optimal frequency batch size based on GPU memory constraints.
-        
-        Parameters
-        ----------
-        nbls : int
-            Number of baselines
-        nsources : int
-            Typical number of sources per chunk
-        nfeeds : int
-            Number of feeds (1 for unpolarized, 2 for polarized)
-        precision : int
-            Precision (1 for float32, 2 for float64)
-        available_memory_fraction : float
-            Fraction of GPU memory to use
-            
-        Returns
-        -------
-        int
-            Optimal frequency batch size
-        """
-        # Get available GPU memory
-        mempool = cp.get_default_memory_pool()
-        device = cp.cuda.Device()
-        total_memory = device.mem_info[1]
-        available_memory = total_memory * available_memory_fraction
-        
-        # Calculate memory per frequency
-        complex_size = 8 if precision == 1 else 16  # bytes
-        
-        # Memory for one frequency:
-        # - UVW coordinates: 3 * nbls * 8 bytes
-        # - Weights: nfeeds**2 * nsources * complex_size
-        # - Visibility output: nfeeds**2 * nbls * complex_size
-        # - Temporary arrays: ~2x the above
-        memory_per_freq = (
-            3 * nbls * 8 +  # UVW
-            nfeeds**2 * nsources * complex_size +  # Weights
-            nfeeds**2 * nbls * complex_size  # Output
-        ) * 3  # Safety factor for temporaries
-        
-        # Calculate maximum batch size
-        max_batch_size = int(available_memory / memory_per_freq)
-        
-        # Clamp to reasonable range (max 128 to balance memory and efficiency)
-        batch_size = max(1, min(max_batch_size, 128))
-        
-        # Round down to power of 2 for better GPU utilization
-        if batch_size > 1:
-            batch_size = 2 ** int(np.log2(batch_size))
-        
-        return max(1, batch_size)
 
     def simulate(
         self,
@@ -272,17 +213,108 @@ class GPUSimulationEngine(SimulationEngine):
             **coord_method_params,
         )
 
-        # --- Calculate optimal frequency batch size ---
-        # Estimate typical number of sources per chunk
-        typical_sources = min(1000, len(ra) // 10) if len(ra) > 0 else 100
-        optimal_batch_size = self._get_optimal_freq_batch_size(
+        # --- Calculate optimal memory allocation ---
+        # Get total number of sources
+        total_sources = len(ra)
+        
+        # Initialize memory manager
+        # Use 0.8 safety factor since we have better memory estimates now
+        mem_manager = GPUMemoryManager(safety_factor=0.8)
+        
+        # Check available memory first
+        available_memory = mem_manager.get_available_memory()
+        device_free = mem_manager.device.mem_info[0]
+        device_total = mem_manager.device.mem_info[1]
+        
+        logger.info(
+            f"GPU Memory: {device_free/1e9:.2f}GB free / {device_total/1e9:.2f}GB total "
+            f"(using {available_memory/1e9:.2f}GB)"
+        )
+        
+        # Estimate maximum feasible sources for this GPU
+        # First try with freq_batch_size=1 (process frequencies sequentially)
+        # This gives the absolute maximum number of sources possible
+        max_feasible_sources_seq = mem_manager.estimate_max_sources(
+            nfreqs=nfreqs,
+            ntimes=ntimes,
             nbls=nbls,
-            nsources=typical_sources,
             nfeeds=nfeeds,
             precision=precision,
-            available_memory_fraction=0.8  # Use 80% of available GPU memory for better performance
+            polarized=polarized,
+            freq_batch_size=1  # Sequential processing
         )
-        logger.info(f"Using frequency batch size: {optimal_batch_size}")
+        
+        # Also estimate with a more typical batch size for reference
+        max_feasible_sources_batch = mem_manager.estimate_max_sources(
+            nfreqs=nfreqs,
+            ntimes=ntimes,
+            nbls=nbls,
+            nfeeds=nfeeds,
+            precision=precision,
+            polarized=polarized,
+            freq_batch_size=min(nfreqs, 8)  # Batched processing
+        )
+        
+        logger.info(
+            f"Maximum feasible sources for this GPU: "
+            f"~{max_feasible_sources_seq:,} (sequential frequencies) "
+            f"to ~{max_feasible_sources_batch:,} (batched frequencies)"
+        )
+        
+        # Use the sequential estimate for the hard limit check
+        # optimize_chunking will find the best configuration
+        # Be more conservative for large datasets to prevent kernel crashes
+        if total_sources > max_feasible_sources_seq * 1.2:  # 20% margin
+            logger.error(
+                f"Dataset with {total_sources:,} sources exceeds GPU capacity "
+                f"(max feasible: ~{max_feasible_sources_seq:,} sources). "
+                f"Please use CPU backend."
+            )
+            raise ValueError(
+                f"Dataset too large for GPU memory. Use backend='cpu' for {total_sources:,} sources."
+            )
+        
+        # Additional safety check for borderline cases
+        # CUDA errors during plan creation can crash the kernel
+        # Be extra conservative when memory is tight to prevent crashes
+        safety_factor = 0.6  # Use only 60% of estimated capacity when memory is low
+        
+        if device_free < 1.0e9:  # Less than 1GB free
+            # When memory is very limited, be extra conservative
+            safe_max_sources = int(max_feasible_sources_seq * safety_factor)
+            
+            if total_sources > safe_max_sources:
+                logger.warning(
+                    f"Low GPU memory ({device_free/1e9:.2f}GB free) with large dataset ({total_sources:,} sources). "
+                    f"Safe limit estimated at ~{safe_max_sources:,} sources to prevent kernel crashes."
+                )
+                raise ValueError(
+                    f"Dataset with {total_sources:,} sources exceeds safe limit (~{safe_max_sources:,}) "
+                    f"with only {device_free/1e9:.2f}GB free GPU memory. "
+                    f"Use backend='cpu' to avoid kernel crashes."
+                )
+        
+        # Optimize source chunk size and frequency batch size together
+        optimal_source_chunk, optimal_freq_batch = mem_manager.optimize_chunking(
+            nsources_total=total_sources,
+            nfreqs_total=nfreqs,
+            ntimes_total=ntimes,
+            nbls=nbls,
+            nfeeds=nfeeds,
+            precision=precision,
+            polarized=polarized,
+            min_chunk_size=1000,
+            max_freq_batch=nfreqs  # Allow processing all frequencies if memory permits
+        )
+        
+        # Update coord_mgr chunk size if needed
+        if hasattr(coord_mgr, 'chunk_size'):
+            if coord_mgr.chunk_size is None or coord_mgr.chunk_size > optimal_source_chunk:
+                coord_mgr.chunk_size = optimal_source_chunk
+                logger.info(f"Updated coordinate manager chunk size to {optimal_source_chunk:,}")
+        
+        # Use the optimized frequency batch size
+        optimal_batch_size = optimal_freq_batch
         
         # --- Data Transfer to GPU (if not handled by coord_mgr) ---
         # Transfer data needed by _evaluate_vis_chunk to GPU *before* chunking/Ray
@@ -504,10 +536,18 @@ class GPUSimulationEngine(SimulationEngine):
                     topo, flux_sqrt, nsim_sources = coord_mgr.select_chunk(source_chunk_idx, time_total_idx)
 
                     # Ensure topo and flux_sqrt are on GPU
-                    if not isinstance(topo, cp.ndarray):
-                        topo = cp.asarray(topo)
-                    if not isinstance(flux_sqrt, cp.ndarray):
-                        flux_sqrt = cp.asarray(flux_sqrt)
+                    # Convert to GPU arrays with error handling
+                    try:
+                        if not isinstance(topo, cp.ndarray):
+                            topo = cp.asarray(topo)
+                        if not isinstance(flux_sqrt, cp.ndarray):
+                            flux_sqrt = cp.asarray(flux_sqrt)
+                    except cp.cuda.memory.OutOfMemoryError as e:
+                        logger.error(f"GPU out of memory while copying arrays: {e}")
+                        raise MemoryError(
+                            f"GPU out of memory. Dataset too large for available GPU memory.\n"
+                            f"Consider using backend='cpu' or reducing the problem size."
+                        )
 
                     if nsim_sources == 0:
                         continue
@@ -587,40 +627,179 @@ class GPUSimulationEngine(SimulationEngine):
                         weights_batch[batch_idx] = A_s_reshaped
                     
                     # Compute visibilities for the batch using batch NUFFT
-                    if is_coplanar:
-                        vis_batch_here = gpu_nufft2d_batch(
-                            topo[0],  # x
-                            topo[1],  # y
-                            weights_batch,  # (batch_size, nfeeds**2, nsrc)
-                            uvw_batch[:, 0, :],  # u (batch_size, nbls)
-                            uvw_batch[:, 1, :],  # v (batch_size, nbls)
-                            eps=eps,
-                            n_threads=n_threads,
-                        )
-                    else:
-                        vis_batch_here = gpu_nufft3d_batch(
-                            topo[0],  # x
-                            topo[1],  # y
-                            topo[2],  # z
-                            weights_batch,  # (batch_size, nfeeds**2, nsrc)
-                            uvw_batch[:, 0, :],  # u (batch_size, nbls)
-                            uvw_batch[:, 1, :],  # v (batch_size, nbls)
-                            uvw_batch[:, 2, :],  # w (batch_size, nbls)
-                            eps=eps,
-                            n_threads=n_threads,
-                        )
+                    # Try with current batch size, reduce if memory error occurs
+                    current_batch_size = batch_size
+                    retry_count = 0
+                    max_retries = 3
+                    vis_batch_here = None
                     
-                    # vis_batch_here shape: (batch_size, nfeeds**2, nbls)
-                    # Reshape and transpose to (batch_size, nbls, nfeeds, nfeeds)
-                    for batch_idx in range(batch_size):
-                        vis_single = vis_batch_here[batch_idx].reshape(nfeeds, nfeeds, nbls)
-                        vis_single = cp.swapaxes(vis_single, 2, 0)  # (nbls, nfeeds, nfeeds)
-                        vis_batch_gpu[batch_idx] += vis_single
+                    while retry_count < max_retries:
+                        try:
+                            if is_coplanar:
+                                vis_batch_here = gpu_nufft2d_batch(
+                                    topo[0],  # x
+                                    topo[1],  # y
+                                    weights_batch[:current_batch_size],  # (batch_size, nfeeds**2, nsrc)
+                                    uvw_batch[:current_batch_size, 0, :],  # u (batch_size, nbls)
+                                    uvw_batch[:current_batch_size, 1, :],  # v (batch_size, nbls)
+                                    eps=eps,
+                                    n_threads=n_threads,
+                                )
+                            break  # Success, exit retry loop
+                        except (RuntimeError, cp.cuda.memory.OutOfMemoryError, cp.cuda.runtime.CUDARuntimeError) as e:
+                            retry_count += 1
+                            
+                            # If we've hit a CUDA invalid value error, the GPU state is corrupted
+                            if "cudaErrorInvalidValue" in str(e):
+                                logger.error(
+                                    f"Critical GPU error detected: {e}\n"
+                                    f"GPU memory is exhausted and cannot allocate more.\n"
+                                    f"Please switch to CPU backend by using backend='cpu' in your simulate_vis() call."
+                                )
+                                # Try to reset GPU state
+                                try:
+                                    cp.cuda.runtime.deviceReset()
+                                except:
+                                    pass
+                                raise RuntimeError(
+                                    "GPU out of memory - cannot process this dataset on GPU. "
+                                    "Please use backend='cpu' to continue processing."
+                                )
+                            
+                            if retry_count >= max_retries:
+                                logger.error(
+                                    f"GPU memory exhausted after {max_retries} retries with reduced batch sizes.\n"
+                                    f"This dataset is too large for your GPU memory.\n"
+                                    f"Please switch to CPU backend by using backend='cpu' in your simulate_vis() call."
+                                )
+                                raise
+                            
+                            # Reduce batch size and retry
+                            current_batch_size = max(1, current_batch_size // 2)
+                            logger.warning(
+                                f"GPU memory error with batch size {batch_size}. "
+                                f"Retrying with reduced batch size: {current_batch_size}"
+                            )
+                            
+                            # Aggressive GPU memory cleanup
+                            try:
+                                # Clear all cached memory
+                                mempool = cp.get_default_memory_pool()
+                                pinned_mempool = cp.get_default_pinned_memory_pool()
+                                mempool.free_all_blocks()
+                                pinned_mempool.free_all_blocks()
+                                cp.cuda.runtime.deviceSynchronize()
+                                
+                                # Force garbage collection
+                                import gc
+                                gc.collect()
+                                
+                                # Small delay to let GPU recover
+                                import time
+                                time.sleep(0.1)
+                            except:
+                                pass
+                            
+                            # Only process the reduced batch
+                            if current_batch_size < batch_size:
+                                freq_batch_indices = freq_batch_indices[:current_batch_size]
+                                batch_size = current_batch_size
+                    else:
+                        # 3D case - apply same retry logic
+                        while retry_count < max_retries:
+                            try:
+                                vis_batch_here = gpu_nufft3d_batch(
+                                    topo[0],  # x
+                                    topo[1],  # y
+                                    topo[2],  # z
+                                    weights_batch[:current_batch_size],  # (batch_size, nfeeds**2, nsrc)
+                                    uvw_batch[:current_batch_size, 0, :],  # u (batch_size, nbls)
+                                    uvw_batch[:current_batch_size, 1, :],  # v (batch_size, nbls)
+                                    uvw_batch[:current_batch_size, 2, :],  # w (batch_size, nbls)
+                                    eps=eps,
+                                    n_threads=n_threads,
+                                )
+                                break  # Success, exit retry loop
+                            except (RuntimeError, cp.cuda.memory.OutOfMemoryError, cp.cuda.runtime.CUDARuntimeError) as e:
+                                retry_count += 1
+                                
+                                # If we've hit a CUDA invalid value error, the GPU state is corrupted
+                                if "cudaErrorInvalidValue" in str(e):
+                                    logger.error(
+                                        f"Critical GPU error detected: {e}\n"
+                                        f"GPU memory is exhausted and cannot allocate more.\n"
+                                        f"Please switch to CPU backend by using backend='cpu' in your simulate_vis() call."
+                                    )
+                                    # Try to reset GPU state
+                                    try:
+                                        cp.cuda.runtime.deviceReset()
+                                    except:
+                                        pass
+                                    raise RuntimeError(
+                                        "GPU out of memory - cannot process this dataset on GPU. "
+                                        "Please use backend='cpu' to continue processing."
+                                    )
+                                
+                                if retry_count >= max_retries:
+                                    logger.error(
+                                        f"GPU memory exhausted after {max_retries} retries with reduced batch sizes.\n"
+                                        f"This dataset is too large for your GPU memory.\n"
+                                        f"Please switch to CPU backend by using backend='cpu' in your simulate_vis() call."
+                                    )
+                                    raise
+                                
+                                # Reduce batch size and retry
+                                current_batch_size = max(1, current_batch_size // 2)
+                                logger.warning(
+                                    f"GPU memory error with batch size {batch_size}. "
+                                    f"Retrying with reduced batch size: {current_batch_size}"
+                                )
+                                
+                                # Aggressive GPU memory cleanup
+                                try:
+                                    # Clear all cached memory
+                                    mempool = cp.get_default_memory_pool()
+                                    pinned_mempool = cp.get_default_pinned_memory_pool()
+                                    mempool.free_all_blocks()
+                                    pinned_mempool.free_all_blocks()
+                                    cp.cuda.runtime.deviceSynchronize()
+                                    
+                                    # Force garbage collection
+                                    import gc
+                                    gc.collect()
+                                    
+                                    # Small delay to let GPU recover
+                                    import time
+                                    time.sleep(0.1)
+                                except:
+                                    pass
+                                
+                                # Only process the reduced batch
+                                if current_batch_size < batch_size:
+                                    freq_batch_indices = freq_batch_indices[:current_batch_size]
+                                    batch_size = current_batch_size
+                    
+                    # vis_batch_here shape: (current_batch_size, nfeeds**2, nbls)
+                    # Reshape and transpose to (current_batch_size, nbls, nfeeds, nfeeds)
+                    if vis_batch_here is not None:
+                        for batch_idx in range(current_batch_size):
+                            vis_single = vis_batch_here[batch_idx].reshape(nfeeds, nfeeds, nbls)
+                            vis_single = cp.swapaxes(vis_single, 2, 0)  # (nbls, nfeeds, nfeeds)
+                            vis_batch_gpu[batch_idx] += vis_single
                 
                 # Store the batch results in the main output array
-                for batch_idx, freq_idx in enumerate(freq_batch_indices):
+                for batch_idx in range(current_batch_size):
+                    freq_idx = freq_batch_indices[batch_idx]
                     freq_chunk_idx = freq_idx - freq_start
                     vis_chunk_gpu[time_chunk_idx, :, :, :, freq_chunk_idx] = vis_batch_gpu[batch_idx]
+                
+                # Periodic memory cleanup for large datasets
+                if coord_mgr.nsrc > 200000 and batch_start % 10 == 0:
+                    try:
+                        mempool = cp.get_default_memory_pool()
+                        mempool.free_all_blocks()
+                    except:
+                        pass
 
         # Return the chunk of visibility data (on GPU)
         return vis_chunk_gpu

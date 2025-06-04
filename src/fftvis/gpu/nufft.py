@@ -105,7 +105,26 @@ def _gpu_nufft2d_native_type3(x, y, weights, u, v, eps, n_trans):
 
         return result
 
-    except (AttributeError, Exception):
+    except (cp.cuda.memory.OutOfMemoryError, cp.cuda.runtime.CUDARuntimeError) as e:
+        # Handle CUDA out-of-memory errors gracefully
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"GPU out of memory during native Type 3 NUFFT: {e}")
+        raise MemoryError(
+            f"GPU out of memory. Dataset too large for available GPU memory.\n"
+            f"Consider using backend='cpu' or reducing the problem size."
+        )
+    except (AttributeError, Exception) as e:
+        # Check if it's a CUDA error code 1 (invalid value) which often means OOM
+        if "code=1" in str(e) or "cudaErrorInvalidValue" in str(e):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"CUDA memory allocation error in native Type 3: {e}")
+            raise MemoryError(
+                f"GPU memory allocation failed. Dataset too large for available GPU memory.\n"
+                f"Consider using backend='cpu' or reducing the problem size."
+            )
+        # Otherwise try the fallback
         return _gpu_nufft2d_plan_fallback(x, y, weights, u, v, eps, n_trans)
 def _gpu_nufft2d_plan_fallback(x, y, weights, u, v, eps, n_trans):
     """Plan-based fallback implementation for 2D Type 3 NUFFT."""
@@ -145,7 +164,25 @@ def _gpu_nufft2d_plan_fallback(x, y, weights, u, v, eps, n_trans):
             result = plan.execute(weights)
         return result
 
+    except (cp.cuda.memory.OutOfMemoryError, cp.cuda.runtime.CUDARuntimeError) as e:
+        # Handle CUDA out-of-memory errors gracefully
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"GPU out of memory during NUFFT: {e}")
+        raise MemoryError(
+            f"GPU out of memory. Dataset too large for available GPU memory.\n"
+            f"Consider using backend='cpu' or reducing the problem size."
+        )
     except Exception as e:
+        # Check if it's a CUDA error code 1 (invalid value) which often means OOM
+        if "code=1" in str(e) or "cudaErrorInvalidValue" in str(e):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"CUDA memory allocation error: {e}")
+            raise MemoryError(
+                f"GPU memory allocation failed. Dataset too large for available GPU memory.\n"
+                f"Consider using backend='cpu' or reducing the problem size."
+            )
         raise RuntimeError(
             f"GPU 2D Type 3 NUFFT failed: {e}\n"
             "Please install the latest beta versions:\n"
