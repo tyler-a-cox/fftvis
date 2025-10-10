@@ -42,7 +42,13 @@ def create_beam_evaluator(
         evaluator.beam_idx = None
         return evaluator
     elif backend == "gpu":
-        raise NotImplementedError("GPU backend not yet implemented")
+        from .gpu.beams import GPUBeamEvaluator
+
+        evaluator = GPUBeamEvaluator(**kwargs)
+        # Ensure the beam_list is properly initialized since this is required by matvis
+        evaluator.beam_list = []
+        evaluator.beam_idx = None
+        return evaluator
     else:
         raise ValueError(f"Unsupported backend: {backend}")
 
@@ -56,8 +62,7 @@ def create_simulation_engine(
     ----------
     backend
         The backend to use for simulation.
-        Currently supported: "cpu".
-        "gpu" is defined but not yet implemented.
+        Currently supported: "cpu", "gpu".
     **kwargs
         Additional keyword arguments to pass to the simulation engine constructor.
 
@@ -230,29 +235,35 @@ def simulate_vis(
     # Create the simulation engine for the desired backend
     engine = create_simulation_engine(backend=backend)
 
+    # Common parameters for both backends
+    common_params = {
+        'ants': ants,
+        'freqs': freqs,
+        'fluxes': fluxes,
+        'beam': beam,
+        'ra': ra,
+        'dec': dec,
+        'times': times,
+        'telescope_loc': telescope_loc,
+        'baselines': baselines,
+        'precision': precision,
+        'polarized': polarized,
+        'eps': eps,
+        'beam_spline_opts': beam_spline_opts,
+        'flat_array_tol': flat_array_tol,
+        'interpolation_function': interpolation_function,
+        'nprocesses': nprocesses,
+        'nthreads': nthreads,
+        'coord_method': coord_method,
+        'coord_method_params': coord_method_params,
+        'force_use_ray': force_use_ray,
+        'trace_mem': trace_mem,
+    }
+    
+    # Add CPU-specific parameters
+    if backend == 'cpu':
+        common_params['upsample_factor'] = upsample_factor
+        common_params['force_use_type3'] = force_use_type3
+
     # Run the simulation
-    return engine.simulate(
-        ants=ants,
-        freqs=freqs,
-        fluxes=fluxes,
-        beam=beam,
-        ra=ra,
-        dec=dec,
-        times=times,
-        telescope_loc=telescope_loc,
-        baselines=baselines,
-        precision=precision,
-        polarized=polarized,
-        eps=eps,
-        upsample_factor=upsample_factor,
-        beam_spline_opts=beam_spline_opts,
-        flat_array_tol=flat_array_tol,
-        interpolation_function=interpolation_function,
-        nprocesses=nprocesses,
-        nthreads=nthreads,
-        coord_method=coord_method,
-        coord_method_params=coord_method_params,
-        force_use_type3=force_use_type3,
-        force_use_ray=force_use_ray,
-        trace_mem=trace_mem,
-    )
+    return engine.simulate(**common_params)
