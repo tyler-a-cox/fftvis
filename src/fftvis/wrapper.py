@@ -164,7 +164,7 @@ def simulate_vis(
         Tolerance for checking if the array is flat in units of meters. If the
         z-coordinate of all baseline vectors is within this tolerance, the array
         is considered flat and the z-coordinate is set to zero. Default is 1e-6.
-    interpolation_function : str, default = "az_za_simple"
+    interpolation_function : str, default = "az_za_map_coordinates"
         The interpolation function to use when interpolating the beam. Can be either be
         'az_za_simple' or 'az_za_map_coordinates'. The former is slower but more accurate
         at the edges of the beam, while the latter is faster but less accurate
