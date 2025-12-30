@@ -497,7 +497,7 @@ def test_simulate_with_basic_beam():
 
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file,
+        str(beam_file),
         frequency=[150e6],
         telescope_name="HERA",
         feed_name="Dipole",
@@ -575,7 +575,7 @@ def test_simulate_with_specified_baselines():
 
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file,
+        str(beam_file),
         frequency=[150e6],
         telescope_name="HERA",
         feed_name="Dipole",
@@ -637,7 +637,7 @@ def test_beam_interpolation():
     # Create the UVBeam object with a single frequency
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file,
+        str(beam_file),
         frequency=[150e6],
         telescope_name="HERA",
         feed_name="Dipole",
@@ -695,7 +695,7 @@ def test_simulation_with_empty_baselines():
 
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file,
+        str(beam_file),
         frequency=[150e6],
         telescope_name="HERA",
         feed_name="Dipole",
@@ -766,7 +766,7 @@ def test_wrapper_simulation():
 
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file,
+        str(beam_file),
         frequency=[150e6],
         telescope_name="HERA",
         feed_name="Dipole",
@@ -839,7 +839,7 @@ def test_time_array_handling():
 
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file,
+        str(beam_file),
         frequency=[150e6],
         telescope_name="HERA",
         feed_name="Dipole",
@@ -1016,7 +1016,7 @@ def test_simulate_force_use_ray_single_proc(tmp_path, caplog):
     beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file, frequency=[1e8], telescope_name="HERA",
+        str(beam_file), frequency=[1e8], telescope_name="HERA",
         feed_name="Dipole", feed_version="1.0", feed_pol=["x"],
         model_name="test", model_version="1.0"
     )
