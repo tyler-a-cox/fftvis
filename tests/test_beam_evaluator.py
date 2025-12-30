@@ -6,9 +6,10 @@ from fftvis.core.beams import BeamEvaluator
 from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvdata.beam_interface import BeamInterface
-from pyuvdata.data import DATA_PATH
+from pathlib import Path
 
-cst_file = Path(DATA_PATH) / "NicCSTbeams" / "HERA_NicCST_150MHz.txt"
+TEST_DIR = Path(__file__).parent
+cst_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
 
 
 def test_cpu_beam_evaluator_init():
@@ -203,14 +204,12 @@ def test_beam_evaluator_interp_branches():
     import numpy as np
     from pyuvdata import UVBeam
     from pyuvdata.beam_interface import BeamInterface
-    from pyuvdata.data import DATA_PATH
-    from pathlib import Path
     
     # Create a CPUBeamEvaluator instance (concrete implementation of BeamEvaluator)
     evaluator = CPUBeamEvaluator()
     
     # Load a test beam
-    cst_file = Path(DATA_PATH) / "NicCSTbeams" / "HERA_NicCST_150MHz.txt"
+    cst_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
     extra_keywords = {
         "software": "CST 2016",
         "sim_type": "E-farfield",

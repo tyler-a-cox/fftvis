@@ -9,7 +9,6 @@ from astropy.coordinates import EarthLocation, SkyCoord, Latitude, Longitude
 from astropy import units as un
 from astropy.units import Quantity
 from pyuvdata import UVBeam
-from pyuvdata.data import DATA_PATH
 from matvis.core.coords import CoordinateRotation
 
 from fftvis.core.simulate import SimulationEngine
@@ -18,6 +17,9 @@ from fftvis.wrapper import simulate_vis
 from pyradiosky import SkyModel
 from pyuvsim import simsetup, uvsim
 from fftvis import utils
+from pathlib import Path
+
+TEST_DIR = Path(__file__).parent
 
 # Monkey patch pyuvdata.telescopes before importing matvis
 import pyuvdata.telescopes
@@ -45,7 +47,6 @@ from astropy.time import Time
 from astropy.coordinates import EarthLocation
 import os
 from pyuvdata import UVBeam
-from pyuvdata.data import DATA_PATH
 from matvis.core.coords import CoordinateRotation
 
 from fftvis.core.simulate import SimulationEngine
@@ -492,8 +493,8 @@ def test_simulate_with_basic_beam():
     times = Time(['2020-01-01 00:00:00'], scale='utc')
     
     # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
+
     beam = UVBeam()
     beam.read_cst_beam(
         beam_file,
@@ -570,8 +571,8 @@ def test_simulate_with_specified_baselines():
     times = Time(['2020-01-01 00:00:00'], scale='utc')
     
     # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
+
     beam = UVBeam()
     beam.read_cst_beam(
         beam_file,
@@ -631,8 +632,8 @@ def test_beam_interpolation():
     times = Time(['2020-01-01 00:00:00'], scale='utc')
     
     # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
+
     # Create the UVBeam object with a single frequency
     beam = UVBeam()
     beam.read_cst_beam(
@@ -690,8 +691,8 @@ def test_simulation_with_empty_baselines():
     times = Time(['2020-01-01 00:00:00'], scale='utc')
     
     # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
+
     beam = UVBeam()
     beam.read_cst_beam(
         beam_file,
@@ -761,8 +762,8 @@ def test_wrapper_simulation():
     times = Time(['2020-01-01 00:00:00'], scale='utc')
     
     # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
+
     beam = UVBeam()
     beam.read_cst_beam(
         beam_file,
@@ -834,8 +835,8 @@ def test_time_array_handling():
     dec = np.array([0.0])
     
     # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
+
     beam = UVBeam()
     beam.read_cst_beam(
         beam_file,
@@ -1011,7 +1012,8 @@ def test_simulate_force_use_ray_single_proc(tmp_path, caplog):
     dec = np.array([0.0])
     times = Time(['2020-01-01'], scale='utc')
     telescope_loc = EarthLocation(lat='0d', lon='0d', height=0)
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
+
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
     beam = UVBeam()
     beam.read_cst_beam(
         beam_file, frequency=[1e8], telescope_name="HERA",

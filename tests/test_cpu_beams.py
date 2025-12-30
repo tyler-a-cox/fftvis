@@ -6,10 +6,10 @@ from fftvis.core.beams import BeamEvaluator
 from pathlib import Path
 from pyuvdata import UVBeam
 from pyuvdata.beam_interface import BeamInterface
-from pyuvdata.data import DATA_PATH
-import copy
+from pathlib import Path
 
-cst_file = Path(DATA_PATH) / "NicCSTbeams" / "HERA_NicCST_150MHz.txt"
+TEST_DIR = Path(__file__).parent
+cst_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
 
 
 @pytest.mark.parametrize("polarized", [True, False])
