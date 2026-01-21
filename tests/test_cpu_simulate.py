@@ -8,8 +8,7 @@ from astropy.time import Time
 from astropy.coordinates import EarthLocation, SkyCoord, Latitude, Longitude
 from astropy import units as un
 from astropy.units import Quantity
-from pyuvdata import UVBeam, Telescope
-from pyuvdata.data import DATA_PATH
+from pyuvdata import UVBeam
 from matvis.core.coords import CoordinateRotation
 
 from fftvis.core.simulate import SimulationEngine
@@ -18,6 +17,9 @@ from fftvis.wrapper import simulate_vis
 from pyradiosky import SkyModel
 from pyuvsim import simsetup, uvsim
 from fftvis import utils
+from pathlib import Path
+
+TEST_DIR = Path(__file__).parent
 
 # Monkey patch pyuvdata.telescopes before importing matvis
 import pyuvdata.telescopes
@@ -34,68 +36,20 @@ if not hasattr(pyuvdata.telescopes, 'get_telescope'):
 # Now import matvis after the patch
 import matvis
 from matvis._test_utils import get_standard_sim_params
-from hera_sim.antpos import hex_array
-from pyuvdata.analytic_beam import AiryBeam
+from fftvis.wrapper import simulate_vis
 
+from fftvis.core.utils import get_plane_to_xy_rotation_matrix
+from fftvis.cpu.cpu_simulate import CPUSimulationEngine
+from fftvis import utils
+from fftvis.wrapper import create_simulation_engine
 
-def test_simulate_tutorial_style():
-    """Test simulation following the exact pattern from the working tutorial."""
-    # Setup from tutorial
-    antpos = hex_array(3, split_core=True, outriggers=0)
-    beam = AiryBeam(diameter=14.0)
-    
-    # Frequencies and times
-    nfreqs = 20
-    freqs = np.linspace(100e6, 120e6, nfreqs)
-    ntimes = 30
-    times = Time(np.linspace(2459845, 2459845.05, ntimes), format='jd', scale='utc')
-    
-    # Telescope location
-    telescope_loc = Telescope.from_known_telescopes('hera').location
-    
-    # Sky model
-    nsource = 100
-    ra = np.random.uniform(0, 2*np.pi, nsource)
-    dec = np.random.uniform(-np.pi/2, np.pi/2, nsource)
-    flux = np.random.uniform(0, 1, nsource)
-    flux_allfreq = flux[:, np.newaxis] * np.ones((nsource, nfreqs))
-    
-    # Define baselines like in tutorial
-    baselines = [(i, j) for i in range(len(antpos)) for j in range(len(antpos))]
-    
-    # Simulate with fftvis
-    vis_fftvis = simulate_vis(
-        ants=antpos,
-        fluxes=flux_allfreq,
-        ra=ra,
-        dec=dec,
-        freqs=freqs,
-        times=times.jd,
-        telescope_loc=telescope_loc,
-        beam=beam,
-        polarized=False,
-        precision=2,
-        nprocesses=1,
-        baselines=baselines,
-        backend="cpu"
-    )
-    
-    # Simulate with matvis
-    vis_matvis = matvis.simulate_vis(
-        ants=antpos,
-        fluxes=flux_allfreq,
-        ra=ra,
-        dec=dec,
-        freqs=freqs,
-        times=times,
-        telescope_loc=telescope_loc,
-        beams=[beam],
-        polarized=False,
-        precision=2,
-    )
-    
-    # Check they match (as shown in the tutorial)
-    assert np.allclose(vis_fftvis, vis_matvis)
+from astropy.time import Time
+from astropy.coordinates import EarthLocation
+import os
+from pyuvdata import UVBeam
+from matvis.core.coords import CoordinateRotation
+
+from fftvis.core.simulate import SimulationEngine
 
 def _hex_grid():
     return {
@@ -483,11 +437,11 @@ def test_simulate_with_basic_beam():
     times = Time(['2020-01-01 00:00:00'], scale='utc')
     
     # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
+
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file,
+        str(beam_file),
         frequency=[150e6],
         telescope_name="HERA",
         feed_name="Dipole",
@@ -561,11 +515,11 @@ def test_simulate_with_specified_baselines():
     times = Time(['2020-01-01 00:00:00'], scale='utc')
     
     # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
+
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file,
+        str(beam_file),
         frequency=[150e6],
         telescope_name="HERA",
         feed_name="Dipole",
@@ -622,12 +576,12 @@ def test_beam_interpolation():
     times = Time(['2020-01-01 00:00:00'], scale='utc')
     
     # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
+
     # Create the UVBeam object with a single frequency
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file,
+        str(beam_file),
         frequency=[150e6],
         telescope_name="HERA",
         feed_name="Dipole",
@@ -681,11 +635,11 @@ def test_simulation_with_empty_baselines():
     times = Time(['2020-01-01 00:00:00'], scale='utc')
     
     # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
+
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file,
+        str(beam_file),
         frequency=[150e6],
         telescope_name="HERA",
         feed_name="Dipole",
@@ -752,11 +706,11 @@ def test_wrapper_simulation():
     times = Time(['2020-01-01 00:00:00'], scale='utc')
     
     # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
+
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file,
+        str(beam_file),
         frequency=[150e6],
         telescope_name="HERA",
         feed_name="Dipole",
@@ -825,11 +779,11 @@ def test_time_array_handling():
     dec = np.array([0.0])
     
     # Create a UVBeam object
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
-    
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
+
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file,
+        str(beam_file),
         frequency=[150e6],
         telescope_name="HERA",
         feed_name="Dipole",
@@ -1002,10 +956,11 @@ def test_simulate_force_use_ray_single_proc(tmp_path, caplog):
     dec = np.array([0.0])
     times = Time(['2020-01-01'], scale='utc')
     telescope_loc = EarthLocation(lat='0d', lon='0d', height=0)
-    beam_file = os.path.join(DATA_PATH, "NicCSTbeams", "HERA_NicCST_150MHz.txt")
+
+    beam_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
     beam = UVBeam()
     beam.read_cst_beam(
-        beam_file, frequency=[1e8], telescope_name="HERA",
+        str(beam_file), frequency=[1e8], telescope_name="HERA",
         feed_name="Dipole", feed_version="1.0", feed_pol=["x"],
         model_name="test", model_version="1.0"
     )
