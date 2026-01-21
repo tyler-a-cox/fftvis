@@ -580,12 +580,8 @@ class GPUSimulationEngine(SimulationEngine):
                             A_s *= flux_slice
                         
                         # Reshape A_s
-                        try:
-                            A_s_reshaped = A_s.reshape(nfeeds**2, nsim_sources)
-                        except ValueError:
-                            logger.warning(f"Cannot reshape A_s with shape {A_s.shape} to {(nfeeds**2, nsim_sources)}")
-                            continue
-                        
+                        A_s_reshaped = A_s.reshape(nfeeds**2, nsim_sources)
+
                         # Ensure correct dtype
                         if A_s_reshaped.dtype != complex_dtype:
                             A_s_reshaped = A_s_reshaped.astype(complex_dtype)
