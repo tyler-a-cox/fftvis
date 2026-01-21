@@ -173,6 +173,3 @@ before-puts.txt
 
 # Benchmark output directories
 docs/tutorials/*_benchmark/
-
-# Local testing against matvis
-matvis/
