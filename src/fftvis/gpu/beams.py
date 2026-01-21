@@ -86,11 +86,9 @@ class GPUBeamEvaluator(BeamEvaluator):
                 "GPU beam evaluation only supports 'az_za_map_coordinates'"
             )
 
-        # Ensure inputs are cupy arrays
-        if not isinstance(az, cp.ndarray):
-            az = cp.asarray(az)
-        if not isinstance(za, cp.ndarray):
-            za = cp.asarray(za)
+        # Ensure inputs are cupy arrays (no-op if already cupy)
+        az = cp.asarray(az)
+        za = cp.asarray(za)
 
         # Check if it's an AnalyticBeam that we can handle on GPU
         beam_obj = None
@@ -425,11 +423,9 @@ class GPUBeamEvaluator(BeamEvaluator):
         flux : cp.ndarray
             Array with source flux values of shape (nsrc,)
         """
-        # Ensure inputs are cupy arrays
-        if not isinstance(beam, cp.ndarray):
-            beam = cp.asarray(beam)
-        if not isinstance(flux, cp.ndarray):
-            flux = cp.asarray(flux)
+        # Ensure inputs are cupy arrays (no-op if already cupy)
+        beam = cp.asarray(beam)
+        flux = cp.asarray(flux)
 
         # Get dimensions
         nax, nfd, nsrc = beam.shape

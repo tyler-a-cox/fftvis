@@ -193,16 +193,16 @@ class GPUSimulationEngine(SimulationEngine):
         if isinstance(times, np.ndarray):
             times = Time(times, format="jd")
 
-        # Instantiate CoordinateRotation (can be CPU or GPU compatible)
+        # Instantiate CoordinateRotation with GPU support
         coord_method_cls = CoordinateRotation._methods[coord_method]
         coord_method_params = coord_method_params or {}
-        # Pass gpu=True to the coord_method constructor if it supports it
         coord_mgr = coord_method_cls(
-            flux=Isky,  # Pass CPU flux here, coord_mgr handles transfer if needed
+            flux=Isky,
             times=times,
             telescope_loc=telescope_loc,
             skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs"),
             precision=precision,
+            gpu=True,  # Use GPU arrays for coord_mgr
             **coord_method_params,
         )
 
@@ -377,31 +377,30 @@ class GPUSimulationEngine(SimulationEngine):
         futures = []
         init_time = time.time()
 
-        # nthreads is ignored for GPU NUFFT, but keep the loop structure
-        nthreads_per_proc = [
-            1
-        ] * nprocesses  # Each GPU process typically uses 1 thread for NUFFT
+        # Each GPU process typically uses 1 thread for NUFFT
+        nthreads_per_proc = [1] * nprocesses
 
         for nthi, fc, tc in zip(nthreads_per_proc, freq_chunks, time_chunks):
+            # Arguments are Ray object refs when use_ray=True, direct objects otherwise
             futures.append(
                 fnc(
                     time_idx=tc,
                     freq_idx=fc,
-                    beam=beam_ref,  # Pass Ray object ref or direct object
-                    coord_mgr=coord_mgr_ref,  # Pass Ray object ref or direct object
-                    rotation_matrix=rotation_matrix_gpu_ref,  # Pass Ray object ref or direct object
-                    bls=bls_gpu_ref,  # Pass Ray object ref or direct object
-                    freqs=freqs_gpu_ref,  # Pass Ray object ref or direct object
+                    beam=beam_ref,
+                    coord_mgr=coord_mgr_ref,
+                    rotation_matrix=rotation_matrix_gpu_ref,
+                    bls=bls_gpu_ref,
+                    freqs=freqs_gpu_ref,
                     complex_dtype=complex_dtype,
                     nfeeds=nfeeds,
                     polarized=polarized,
                     eps=eps,
                     beam_spline_opts=beam_spline_opts,
                     interpolation_function=interpolation_function,
-                    n_threads=nthi,  # Ignored by GPU NUFFT
+                    n_threads=nthi,
                     is_coplanar=is_coplanar,
                     trace_mem=trace_mem,
-                    freq_batch_size=optimal_batch_size,  # Dynamic batch size for frequency processing
+                    freq_batch_size=optimal_batch_size,
                 )
             )
 
@@ -465,14 +464,6 @@ class GPUSimulationEngine(SimulationEngine):
         pid = os.getpid()
         pr = psutil.Process(pid)
 
-        # Ensure rotation_matrix, bls, and freqs are on GPU
-        if not isinstance(rotation_matrix, cp.ndarray):
-            rotation_matrix = cp.asarray(rotation_matrix)
-        if not isinstance(bls, cp.ndarray):
-            bls = cp.asarray(bls)
-        if not isinstance(freqs, cp.ndarray):
-            freqs = cp.asarray(freqs)
-
         nbls = bls.shape[1]
         ntimes_total = len(coord_mgr.times)
         nfreqs_total = len(freqs)
@@ -532,20 +523,6 @@ class GPUSimulationEngine(SimulationEngine):
                     # Select a chunk of sources above the horizon
                     topo, flux_sqrt, nsim_sources = coord_mgr.select_chunk(source_chunk_idx, time_total_idx)
 
-                    # Ensure topo and flux_sqrt are on GPU
-                    # Convert to GPU arrays with error handling
-                    try:
-                        if not isinstance(topo, cp.ndarray):
-                            topo = cp.asarray(topo)
-                        if not isinstance(flux_sqrt, cp.ndarray):
-                            flux_sqrt = cp.asarray(flux_sqrt)
-                    except cp.cuda.memory.OutOfMemoryError as e:
-                        logger.error(f"GPU out of memory while copying arrays: {e}")
-                        raise MemoryError(
-                            f"GPU out of memory. Dataset too large for available GPU memory.\n"
-                            f"Consider using backend='cpu' or reducing the problem size."
-                        )
-
                     if nsim_sources == 0:
                         continue
 
@@ -557,12 +534,6 @@ class GPUSimulationEngine(SimulationEngine):
                     az, za = coordinates.enu_to_az_za(
                         enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
                     )
-
-                    # Ensure az and za are on GPU
-                    if not isinstance(az, cp.ndarray):
-                        az = cp.asarray(az)
-                    if not isinstance(za, cp.ndarray):
-                        za = cp.asarray(za)
 
                     # Rotate source coordinates with rotation matrix (on GPU)
                     gpu_utils.inplace_rot(rotation_matrix, topo)
