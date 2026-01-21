@@ -172,9 +172,7 @@ memray-*.jsonl
 before-puts.txt
 
 # Benchmark output directories
-docs/tutorials/A100_highRam_benchmark/
-docs/tutorials/QuadroP600_highRam_benchmark/
-docs/tutorials/T4_highRam_benchmark/
+docs/tutorials/*_benchmark/
 
 # Local testing against matvis
 matvis/
