@@ -567,18 +567,16 @@ class GPUSimulationEngine(SimulationEngine):
                             interpolation_function=interpolation_function,
                         )
                         
+                        # Compute flux slice
+                        if flux_sqrt.ndim > 1:
+                            flux_slice = flux_sqrt[:nsim_sources, freq_idx]
+                        else:
+                            flux_slice = flux_sqrt[:nsim_sources]
+
                         # Apply flux
                         if polarized:
-                            if flux_sqrt.ndim > 1:
-                                flux_slice = flux_sqrt[:nsim_sources, freq_idx]
-                            else:
-                                flux_slice = flux_sqrt[:nsim_sources]
                             beam_evaluator.get_apparent_flux_polarized(A_s, flux_slice)
                         else:
-                            if flux_sqrt.ndim > 1:
-                                flux_slice = flux_sqrt[:nsim_sources, freq_idx]
-                            else:
-                                flux_slice = flux_sqrt[:nsim_sources]
                             A_s *= flux_slice
                         
                         # Reshape A_s
