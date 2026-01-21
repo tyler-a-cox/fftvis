@@ -221,7 +221,7 @@ def simulate_vis(
     # interpolation in the simulation engine
     if isinstance(beam, UVBeam):
         if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
-            beam = beam.interp(freq_array=freqs, new_object=True, run_check=False) # pragma: no cover
+            beam = beam.interp(freq_array=freqs, new_object=True, run_check=False)
     elif isinstance(beam, BeamInterface) and beam._isuvbeam:
         if hasattr(beam.beam, "Nfreqs") and beam.beam.Nfreqs > 1:
             beam.beam = beam.beam.interp(freq_array=freqs, new_object=True, run_check=False)

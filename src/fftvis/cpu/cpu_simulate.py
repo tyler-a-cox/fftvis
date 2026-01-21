@@ -62,9 +62,9 @@ def _evaluate_vis_chunk_remote(
 ):
     """Ray-compatible remote version of _evaluate_vis_chunk."""
     # Create a simulation engine instance
-    engine = CPUSimulationEngine() # pragma: no cover
+    engine = CPUSimulationEngine()
     # Call the method on the instance
-    return engine._evaluate_vis_chunk( # pragma: no cover
+    return engine._evaluate_vis_chunk(
         time_idx=time_idx,
         freq_idx=freq_idx,
         beam=beam,
@@ -218,7 +218,7 @@ class CPUSimulationEngine(SimulationEngine):
 
         # Get number of processes for multiprocessing
         if nprocesses is None:
-            nprocesses = cpu_count() # pragma: no cover
+            nprocesses = cpu_count()
 
         # Check if the times array is a numpy array
         if isinstance(times, np.ndarray):
@@ -238,14 +238,14 @@ class CPUSimulationEngine(SimulationEngine):
         if getattr(coord_mgr, "update_bcrs_every", 0) > (times[-1] - times[0]).to(un.s):
             # We don't need to ever update BCRS, so we get it now before sending
             # out the jobs to multiple processes.
-            coord_mgr._set_bcrs(0) # pragma: no cover
+            coord_mgr._set_bcrs(0)
 
         nprocesses, freq_chunks, time_chunks, nf, nt = utils.get_task_chunks(
             nprocesses, nfreqs, ntimes
         )
         use_ray = nprocesses > 1 or force_use_ray
 
-        if use_ray: # pragma: no cover
+        if use_ray:
             # Try to estimate how much shared memory will be required.
             required_shm = bls.nbytes + rotation_matrix.nbytes + freqs.nbytes
 
@@ -513,9 +513,9 @@ class CPUSimulationEngine(SimulationEngine):
                             apparent_coherency, (nfeeds**2, nsim_sources)
                         )
                         pass
-                    except ValueError: # pragma: no cover
-                        logger.error(f"Cannot reshape A_s with shape {apparent_coherency.shape} to {(nfeeds**2, nsim_sources)}") # pragma: no cover
-                        continue # pragma: no cover
+                    except ValueError:
+                        logger.error(f"Cannot reshape A_s with shape {apparent_coherency.shape} to {(nfeeds**2, nsim_sources)}")
+                        continue
                     
                     # Check if the dtype is complex
                     if apparent_coherency.dtype != complex_dtype:

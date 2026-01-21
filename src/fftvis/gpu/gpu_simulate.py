@@ -57,9 +57,9 @@ def _evaluate_vis_chunk_remote_gpu(
 ):
     """Ray-compatible remote version of _evaluate_vis_chunk for GPU."""
     # Create a simulation engine instance in the remote process
-    engine = GPUSimulationEngine()  # pragma: no cover
+    engine = GPUSimulationEngine()
     # Call the method on the instance
-    return engine._evaluate_vis_chunk(  # pragma: no cover
+    return engine._evaluate_vis_chunk(
         time_idx=time_idx,
         freq_idx=freq_idx,
         beam=beam,
@@ -154,7 +154,7 @@ class GPUSimulationEngine(SimulationEngine):
             if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
                 beam = beam.interp(
                     freq_array=freqs, new_object=True, run_check=False
-                )  # pragma: no cover
+                )
 
         # Factor of 0.5 accounts for splitting Stokes between polarization channels
         # Apply this factor on CPU before transferring flux
@@ -331,7 +331,7 @@ class GPUSimulationEngine(SimulationEngine):
 
         use_ray = nprocesses > 1 or force_use_ray
 
-        if use_ray:  # pragma: no cover
+        if use_ray:
             # Initialize Ray if not already initialized
             if not ray.is_initialized():
                 # Ray initialization with GPU support
@@ -406,7 +406,7 @@ class GPUSimulationEngine(SimulationEngine):
             )
 
         # --- Retrieve Results ---
-        if use_ray:  # pragma: no cover
+        if use_ray:
             # Ray returns futures, get the results
             results = ray.get(futures)
         else:
