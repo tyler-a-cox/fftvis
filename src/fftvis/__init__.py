@@ -20,8 +20,18 @@ try:
     _gpu_available = True
 except ImportError:
     _gpu_available = False
-    GPUBeamEvaluator = None
-    GPUSimulationEngine = None
+
+    def GPUBeamEvaluator(*args, **kwargs):
+        raise ImportError(
+            "GPUBeamEvaluator requires GPU dependencies. "
+            "Install with: pip install fftvis[gpu]"
+        )
+
+    def GPUSimulationEngine(*args, **kwargs):
+        raise ImportError(
+            "GPUSimulationEngine requires GPU dependencies. "
+            "Install with: pip install fftvis[gpu]"
+        )
 
 __all__ = [
     # Beam-related exports
