@@ -11,6 +11,7 @@ readme = "README.md"
 authors = [
     { name = "Tyler Cox", email = 'tyler.a.cox@berkeley.edu' },
     { name = "Steven Murray", email = "steven.murray@sns.it" },
+    { name = "Kartik Mandar", email = "kartik4321mandar@gmail.com" },
 ]
 license = { text = "MIT" }
 requires-python = ">=3.9"
