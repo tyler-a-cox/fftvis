@@ -8,15 +8,15 @@ import pytest
 from pyuvdata import UVBeam
 from pyuvdata.analytic_beam import AiryBeam
 from fftvis.cpu import CPUBeamEvaluator
-from fftvis.utils import _use_gpu as check_gpu_available
+from fftvis import GPU_AVAILABLE
 
 # Skip all tests if GPU not available
 pytestmark = pytest.mark.skipif(
-    not check_gpu_available(), reason="GPU not available"
+    not GPU_AVAILABLE, reason="GPU not available"
 )
 
 # Only import GPU modules if available
-if check_gpu_available():
+if GPU_AVAILABLE:
     from fftvis.gpu import GPUBeamEvaluator
 
 

@@ -2,18 +2,7 @@
 
 import pytest
 
-# Check GPU availability once at the start of the test session
-def check_gpu_available():
-    """Check if GPU implementation can be used."""
-    try:
-        import cupy as cp
-        return cp.cuda.is_available()
-    except ImportError:
-        return False
-
-
-# Store GPU availability as a session-scoped variable
-GPU_AVAILABLE = check_gpu_available()
+from fftvis import GPU_AVAILABLE
 
 # Create a marker for GPU tests
 gpu_test = pytest.mark.skipif(

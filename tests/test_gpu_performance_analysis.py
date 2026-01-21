@@ -10,31 +10,20 @@ import numpy as np
 import time
 import logging
 
-# Check GPU availability and specs
-try:
+from fftvis import GPU_AVAILABLE
+
+# Get GPU specs if available
+GPU_NAME = "N/A"
+GPU_MEMORY = 0
+GPU_COMPUTE_CAPABILITY = "N/A"
+
+if GPU_AVAILABLE:
     import cupy as cp
-    GPU_AVAILABLE = cp.cuda.is_available()
-    
-    if GPU_AVAILABLE:
-        # Get GPU properties
-        device = cp.cuda.Device()
-        props = cp.cuda.runtime.getDeviceProperties(device.id)
-        GPU_NAME = props['name'].decode() if isinstance(props['name'], bytes) else props['name']
-        GPU_MEMORY = props['totalGlobalMem'] / (1024**3)  # Total memory in GB
-        GPU_COMPUTE_CAPABILITY = f"{props['major']}.{props['minor']}"
-        
-        # Check for cufinufft
-        try:
-            from fftvis.gpu.nufft import HAVE_CUFINUFFT
-            GPU_AVAILABLE = GPU_AVAILABLE and HAVE_CUFINUFFT
-        except ImportError:
-            GPU_AVAILABLE = False
-except ImportError:
-    GPU_AVAILABLE = False
-    GPU_NAME = "N/A"
-    GPU_MEMORY = 0
-    GPU_COMPUTE_CAPABILITY = "N/A"
-    cp = None
+    device = cp.cuda.Device()
+    props = cp.cuda.runtime.getDeviceProperties(device.id)
+    GPU_NAME = props['name'].decode() if isinstance(props['name'], bytes) else props['name']
+    GPU_MEMORY = props['totalGlobalMem'] / (1024**3)  # Total memory in GB
+    GPU_COMPUTE_CAPABILITY = f"{props['major']}.{props['minor']}"
 
 # Import tabulate only if available
 try:

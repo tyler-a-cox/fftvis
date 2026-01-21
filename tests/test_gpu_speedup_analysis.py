@@ -14,26 +14,14 @@ from pyuvdata.beam_interface import BeamInterface
 
 # Direct imports to measure core computation
 from fftvis.cpu.cpu_simulate import CPUSimulationEngine
-from fftvis import utils
+from fftvis import utils, GPU_AVAILABLE
 from matvis.core.coords import CoordinateRotation
 from astropy.coordinates import SkyCoord
 
-# Check GPU availability
-try:
+# Import GPU modules if available
+if GPU_AVAILABLE:
     import cupy as cp
-    GPU_AVAILABLE = cp.cuda.is_available()
-    
-    if GPU_AVAILABLE:
-        # Try importing GPU modules
-        try:
-            from fftvis.gpu.gpu_simulate import GPUSimulationEngine
-            from fftvis.gpu.nufft import HAVE_CUFINUFFT
-            GPU_AVAILABLE = GPU_AVAILABLE and HAVE_CUFINUFFT
-        except ImportError:
-            GPU_AVAILABLE = False
-except ImportError:
-    GPU_AVAILABLE = False
-    cp = None
+    from fftvis.gpu.gpu_simulate import GPUSimulationEngine
 
 # Import tabulate only if available
 try:

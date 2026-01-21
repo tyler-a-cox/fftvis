@@ -11,15 +11,7 @@ from pyuvdata.analytic_beam import AiryBeam
 from pyuvdata.beam_interface import BeamInterface
 
 from fftvis.wrapper import simulate_vis
-
-# Check GPU availability
-try:
-    import cupy as cp
-    from fftvis.gpu.nufft import HAVE_CUFINUFFT
-    GPU_AVAILABLE = cp.cuda.is_available() and HAVE_CUFINUFFT
-except ImportError:
-    GPU_AVAILABLE = False
-    cp = None
+from fftvis import GPU_AVAILABLE
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU not available")

@@ -8,17 +8,12 @@ to ensure they produce consistent results across different transform types.
 import numpy as np
 import pytest
 from fftvis.cpu.nufft import cpu_nufft2d, cpu_nufft3d
+from fftvis import GPU_AVAILABLE
 
-# Try to import GPU functions
-try:
+# Import GPU modules if available
+if GPU_AVAILABLE:
     import cupy as cp
-    import cufinufft
     from fftvis.gpu.nufft import gpu_nufft2d, gpu_nufft3d
-    GPU_AVAILABLE = True
-except ImportError:
-    GPU_AVAILABLE = False
-    cp = None
-    cufinufft = None
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU support not available")

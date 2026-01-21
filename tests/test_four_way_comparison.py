@@ -25,18 +25,14 @@ import os
 
 # Import fftvis
 from fftvis.wrapper import simulate_vis as fftvis_simulate
+from fftvis import GPU_AVAILABLE
 
 # Import matvis
 import matvis
 
-# Try to import GPU support
-try:
+# Import cupy if GPU is available
+if GPU_AVAILABLE:
     import cupy as cp
-    from fftvis.gpu.nufft import HAVE_CUFINUFFT
-    GPU_AVAILABLE = cp.cuda.is_available() and HAVE_CUFINUFFT
-except ImportError:
-    GPU_AVAILABLE = False
-    cp = None
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)

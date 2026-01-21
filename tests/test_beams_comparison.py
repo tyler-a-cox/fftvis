@@ -9,15 +9,12 @@ import numpy as np
 import pytest
 
 from fftvis.cpu.beams import CPUBeamEvaluator
+from fftvis import GPU_AVAILABLE
 
-# Try to import GPU functions
-try:
+# Import GPU modules if available
+if GPU_AVAILABLE:
     import cupy as cp
     from fftvis.gpu.beams import GPUBeamEvaluator
-    GPU_AVAILABLE = True
-except ImportError:
-    GPU_AVAILABLE = False
-    cp = None
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU support not available")

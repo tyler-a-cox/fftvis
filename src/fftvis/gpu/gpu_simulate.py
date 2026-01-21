@@ -116,13 +116,6 @@ class GPUSimulationEngine(SimulationEngine):
 
         See base class for parameter descriptions.
         """
-        # --- Initial Setup (mostly on CPU) ---
-        if interpolation_function != "az_za_map_coordinates":
-            logger.warning(
-                "GPU backend only supports 'az_za_map_coordinates' for beam interpolation. Ignoring provided interpolation_function."
-            )
-            interpolation_function = "az_za_map_coordinates"
-
         nfreqs = np.size(freqs)
         ntimes = len(times)
 
