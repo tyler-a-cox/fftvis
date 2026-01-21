@@ -531,6 +531,10 @@ class GPUSimulationEngine(SimulationEngine):
                     coord_mgr.nsrc % coord_mgr.chunk_size > 0
                 )
 
+                # Initialize batch tracking variables before the source loop
+                # to avoid UnboundLocalError if all sources are below horizon
+                current_batch_size = batch_size
+
                 for source_chunk_idx in range(n_source_chunks):
                     # Select a chunk of sources above the horizon
                     topo, flux_sqrt, nsim_sources = coord_mgr.select_chunk(source_chunk_idx, time_total_idx)
@@ -627,157 +631,52 @@ class GPUSimulationEngine(SimulationEngine):
                         weights_batch[batch_idx] = A_s_reshaped
                     
                     # Compute visibilities for the batch using batch NUFFT
-                    # Try with current batch size, reduce if memory error occurs
+                    # Use helper function with automatic retry on memory errors
                     current_batch_size = batch_size
-                    retry_count = 0
-                    max_retries = 3
                     vis_batch_here = None
-                    
-                    while retry_count < max_retries:
-                        try:
-                            if is_coplanar:
-                                vis_batch_here = gpu_nufft2d_batch(
-                                    topo[0],  # x
-                                    topo[1],  # y
-                                    weights_batch[:current_batch_size],  # (batch_size, nfeeds**2, nsrc)
-                                    uvw_batch[:current_batch_size, 0, :],  # u (batch_size, nbls)
-                                    uvw_batch[:current_batch_size, 1, :],  # v (batch_size, nbls)
-                                    eps=eps,
-                                    n_threads=n_threads,
-                                )
-                            break  # Success, exit retry loop
-                        except (RuntimeError, cp.cuda.memory.OutOfMemoryError, cp.cuda.runtime.CUDARuntimeError) as e:
-                            retry_count += 1
-                            
-                            # If we've hit a CUDA invalid value error, the GPU state is corrupted
-                            if "cudaErrorInvalidValue" in str(e):
-                                logger.error(
-                                    f"Critical GPU error detected: {e}\n"
-                                    f"GPU memory is exhausted and cannot allocate more.\n"
-                                    f"Please switch to CPU backend by using backend='cpu' in your simulate_vis() call."
-                                )
-                                # Try to reset GPU state
-                                try:
-                                    cp.cuda.runtime.deviceReset()
-                                except:
-                                    pass
-                                raise RuntimeError(
-                                    "GPU out of memory - cannot process this dataset on GPU. "
-                                    "Please use backend='cpu' to continue processing."
-                                )
-                            
-                            if retry_count >= max_retries:
-                                logger.error(
-                                    f"GPU memory exhausted after {max_retries} retries with reduced batch sizes.\n"
-                                    f"This dataset is too large for your GPU memory.\n"
-                                    f"Please switch to CPU backend by using backend='cpu' in your simulate_vis() call."
-                                )
-                                raise
-                            
-                            # Reduce batch size and retry
-                            current_batch_size = max(1, current_batch_size // 2)
-                            logger.warning(
-                                f"GPU memory error with batch size {batch_size}. "
-                                f"Retrying with reduced batch size: {current_batch_size}"
+
+                    # Define the NUFFT call as a lambda for the retry helper
+                    if is_coplanar:
+                        def nufft_call():
+                            return gpu_nufft2d_batch(
+                                topo[0],  # x
+                                topo[1],  # y
+                                weights_batch[:current_batch_size],
+                                uvw_batch[:current_batch_size, 0, :],  # u
+                                uvw_batch[:current_batch_size, 1, :],  # v
+                                eps=eps,
+                                n_threads=n_threads,
                             )
-                            
-                            # Aggressive GPU memory cleanup
-                            try:
-                                # Clear all cached memory
-                                mempool = cp.get_default_memory_pool()
-                                pinned_mempool = cp.get_default_pinned_memory_pool()
-                                mempool.free_all_blocks()
-                                pinned_mempool.free_all_blocks()
-                                cp.cuda.runtime.deviceSynchronize()
-                                
-                                # Force garbage collection
-                                import gc
-                                gc.collect()
-                                
-                                # Small delay to let GPU recover
-                                import time
-                                time.sleep(0.1)
-                            except:
-                                pass
-                            
-                            # Only process the reduced batch
-                            if current_batch_size < batch_size:
-                                freq_batch_indices = freq_batch_indices[:current_batch_size]
-                                batch_size = current_batch_size
+                        context = "2D NUFFT batch"
                     else:
-                        # 3D case - apply same retry logic
-                        while retry_count < max_retries:
-                            try:
-                                vis_batch_here = gpu_nufft3d_batch(
-                                    topo[0],  # x
-                                    topo[1],  # y
-                                    topo[2],  # z
-                                    weights_batch[:current_batch_size],  # (batch_size, nfeeds**2, nsrc)
-                                    uvw_batch[:current_batch_size, 0, :],  # u (batch_size, nbls)
-                                    uvw_batch[:current_batch_size, 1, :],  # v (batch_size, nbls)
-                                    uvw_batch[:current_batch_size, 2, :],  # w (batch_size, nbls)
-                                    eps=eps,
-                                    n_threads=n_threads,
-                                )
-                                break  # Success, exit retry loop
-                            except (RuntimeError, cp.cuda.memory.OutOfMemoryError, cp.cuda.runtime.CUDARuntimeError) as e:
-                                retry_count += 1
-                                
-                                # If we've hit a CUDA invalid value error, the GPU state is corrupted
-                                if "cudaErrorInvalidValue" in str(e):
-                                    logger.error(
-                                        f"Critical GPU error detected: {e}\n"
-                                        f"GPU memory is exhausted and cannot allocate more.\n"
-                                        f"Please switch to CPU backend by using backend='cpu' in your simulate_vis() call."
-                                    )
-                                    # Try to reset GPU state
-                                    try:
-                                        cp.cuda.runtime.deviceReset()
-                                    except:
-                                        pass
-                                    raise RuntimeError(
-                                        "GPU out of memory - cannot process this dataset on GPU. "
-                                        "Please use backend='cpu' to continue processing."
-                                    )
-                                
-                                if retry_count >= max_retries:
-                                    logger.error(
-                                        f"GPU memory exhausted after {max_retries} retries with reduced batch sizes.\n"
-                                        f"This dataset is too large for your GPU memory.\n"
-                                        f"Please switch to CPU backend by using backend='cpu' in your simulate_vis() call."
-                                    )
-                                    raise
-                                
-                                # Reduce batch size and retry
-                                current_batch_size = max(1, current_batch_size // 2)
-                                logger.warning(
-                                    f"GPU memory error with batch size {batch_size}. "
-                                    f"Retrying with reduced batch size: {current_batch_size}"
-                                )
-                                
-                                # Aggressive GPU memory cleanup
-                                try:
-                                    # Clear all cached memory
-                                    mempool = cp.get_default_memory_pool()
-                                    pinned_mempool = cp.get_default_pinned_memory_pool()
-                                    mempool.free_all_blocks()
-                                    pinned_mempool.free_all_blocks()
-                                    cp.cuda.runtime.deviceSynchronize()
-                                    
-                                    # Force garbage collection
-                                    import gc
-                                    gc.collect()
-                                    
-                                    # Small delay to let GPU recover
-                                    import time
-                                    time.sleep(0.1)
-                                except:
-                                    pass
-                                
-                                # Only process the reduced batch
-                                if current_batch_size < batch_size:
-                                    freq_batch_indices = freq_batch_indices[:current_batch_size]
-                                    batch_size = current_batch_size
+                        def nufft_call():
+                            return gpu_nufft3d_batch(
+                                topo[0],  # x
+                                topo[1],  # y
+                                topo[2],  # z
+                                weights_batch[:current_batch_size],
+                                uvw_batch[:current_batch_size, 0, :],  # u
+                                uvw_batch[:current_batch_size, 1, :],  # v
+                                uvw_batch[:current_batch_size, 2, :],  # w
+                                eps=eps,
+                                n_threads=n_threads,
+                            )
+                        context = "3D NUFFT batch"
+
+                    # Execute with retry logic
+                    vis_batch_here, current_batch_size = gpu_utils.execute_with_retry(
+                        nufft_func=nufft_call,
+                        func_args=(),
+                        func_kwargs={},
+                        initial_batch_size=batch_size,
+                        max_retries=3,
+                        logger_context=context
+                    )
+
+                    # Update batch indices if batch size was reduced during retry
+                    if current_batch_size < batch_size:
+                        freq_batch_indices = freq_batch_indices[:current_batch_size]
+                        batch_size = current_batch_size
                     
                     # vis_batch_here shape: (current_batch_size, nfeeds**2, nbls)
                     # Reshape and transpose to (current_batch_size, nbls, nfeeds, nfeeds)

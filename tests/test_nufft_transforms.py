@@ -129,12 +129,65 @@ class TestNUFFTTransforms:
             err_msg="3D NUFFT wrapper: CPU and GPU results differ"
         )
         
-    @pytest.mark.skip(reason="cufinufft doesn't have native nufft2d3/nufft3d3 functions yet")
     def test_direct_type3_transforms(self):
         """Test Type 3 NUFFT directly using finufft and cufinufft."""
-        # This test is skipped because cufinufft doesn't have native Type 3 functions
-        # The wrapper functions use Plan-based Type 3 instead
-        pass
+        import finufft
+        import cufinufft
+
+        # Test 2D Type 3: nonuniform to nonuniform
+        # Source points
+        n_src = 50
+        x_src = np.random.uniform(-np.pi, np.pi, n_src)
+        y_src = np.random.uniform(-np.pi, np.pi, n_src)
+        c_src = np.random.randn(n_src) + 1j * np.random.randn(n_src)
+
+        # Target points
+        n_tgt = 40
+        s_tgt = np.random.uniform(-np.pi, np.pi, n_tgt)
+        t_tgt = np.random.uniform(-np.pi, np.pi, n_tgt)
+
+        # CPU Type 3
+        cpu_result_2d = finufft.nufft2d3(x_src, y_src, c_src, s_tgt, t_tgt, eps=self.eps)
+
+        # GPU Type 3
+        x_gpu = cp.asarray(x_src)
+        y_gpu = cp.asarray(y_src)
+        c_gpu = cp.asarray(c_src)
+        s_gpu = cp.asarray(s_tgt)
+        t_gpu = cp.asarray(t_tgt)
+
+        gpu_result_2d = cufinufft.nufft2d3(x_gpu, y_gpu, c_gpu, s_gpu, t_gpu, eps=self.eps)
+        gpu_result_2d_cpu = cp.asnumpy(gpu_result_2d)
+
+        np.testing.assert_allclose(
+            cpu_result_2d, gpu_result_2d_cpu,
+            rtol=1e-4, atol=1e-5,
+            err_msg="2D Type 3 NUFFT: CPU and GPU results differ"
+        )
+
+        # Test 3D Type 3: nonuniform to nonuniform
+        z_src = np.random.uniform(-np.pi, np.pi, n_src)
+        u_tgt = np.random.uniform(-np.pi, np.pi, n_tgt)
+
+        # CPU Type 3
+        cpu_result_3d = finufft.nufft3d3(
+            x_src, y_src, z_src, c_src, s_tgt, t_tgt, u_tgt, eps=self.eps
+        )
+
+        # GPU Type 3
+        z_gpu = cp.asarray(z_src)
+        u_gpu = cp.asarray(u_tgt)
+
+        gpu_result_3d = cufinufft.nufft3d3(
+            x_gpu, y_gpu, z_gpu, c_gpu, s_gpu, t_gpu, u_gpu, eps=self.eps
+        )
+        gpu_result_3d_cpu = cp.asnumpy(gpu_result_3d)
+
+        np.testing.assert_allclose(
+            cpu_result_3d, gpu_result_3d_cpu,
+            rtol=1e-4, atol=1e-5,
+            err_msg="3D Type 3 NUFFT: CPU and GPU results differ"
+        )
         
     def test_empty_inputs(self):
         """Test handling of empty inputs."""
