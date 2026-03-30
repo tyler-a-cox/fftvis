@@ -45,6 +45,8 @@ class GPUBeamEvaluator(GPUBeamInterpolator):
             Precision level (1 for single, 2 for double precision).
         """
         self.precision = precision
+        self.beam_list = []
+        self.beam_idx = None
         self._initialized = False
         self._current_beam_id = None
         self._current_freq = None

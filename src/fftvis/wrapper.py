@@ -36,19 +36,11 @@ def create_beam_evaluator(
         If the specified backend is not supported.
     """
     if backend == "cpu":
-        evaluator = CPUBeamEvaluator(**kwargs)
-        # Ensure the beam_list is properly initialized since this is required by matvis
-        evaluator.beam_list = []
-        evaluator.beam_idx = None
-        return evaluator
+        return CPUBeamEvaluator(**kwargs)
     elif backend == "gpu":
         from .gpu.beams import GPUBeamEvaluator
 
-        evaluator = GPUBeamEvaluator(**kwargs)
-        # Ensure the beam_list is properly initialized since this is required by matvis
-        evaluator.beam_list = []
-        evaluator.beam_idx = None
-        return evaluator
+        return GPUBeamEvaluator(**kwargs)
     else:
         raise ValueError(f"Unsupported backend: {backend}")
 
@@ -259,11 +251,14 @@ def simulate_vis(
         'force_use_ray': force_use_ray,
         'trace_mem': trace_mem,
     }
-    
-    # Add CPU-specific parameters
-    if backend == 'cpu':
-        common_params['upsample_factor'] = upsample_factor
-        common_params['force_use_type3'] = force_use_type3
 
-    # Run the simulation
-    return engine.simulate(**common_params)
+    # Backend-specific parameters
+    if backend == 'cpu':
+        backend_params = {
+            'upsample_factor': upsample_factor,
+            'force_use_type3': force_use_type3,
+        }
+    elif backend == 'gpu':
+        backend_params = {}
+
+    return engine.simulate(**(common_params | backend_params))
