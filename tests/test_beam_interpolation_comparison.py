@@ -48,10 +48,10 @@ class TestBeamInterpolationComparison:
         self.n_sources = len(self.az_flat)
         
         # Fixed frequency (must be within beam file range)
-        self.freq = 100e6  # 100 MHz
-        
-        # Fixed polarization array (using XX only for simplicity)
-        self.polarized = True
+        self.freq = 150e6  # 150 MHz (matches our CST beam file)
+
+        # Use unpolarized mode (CST beam is power beam, not efield)
+        self.polarized = False
         self.npol = 1
         
     
@@ -60,9 +60,19 @@ class TestBeamInterpolationComparison:
         from pyuvdata.beam_interface import BeamInterface
         # Load UVBeam
         import os
-        beam_file = os.path.join(os.path.dirname(__file__), 
-                                "../matvis/src/matvis/data/NF_HERA_Dipole_small.fits")
-        uvbeam_raw = UVBeam.from_file(beam_file)
+        beam_file = os.path.join(os.path.dirname(__file__),
+                                "data/HERA_NicCST_150MHz.txt")
+        uvbeam_raw = UVBeam()
+        uvbeam_raw.read_cst_beam(
+            beam_file,
+            frequency=[self.freq],
+            telescope_name="HERA",
+            feed_name="Dipole",
+            feed_version="1.0",
+            feed_pol=["x"],
+            model_name="NicCST",
+            model_version="1.0",
+        )
         uvbeam = BeamInterface(uvbeam_raw)
         
         # Test different interpolation orders
@@ -143,13 +153,23 @@ class TestBeamInterpolationComparison:
     def test_uvbeam_with_beaminterface(self):
         """Test UVBeam wrapped in BeamInterface to check for the bug."""
         from pyuvdata.beam_interface import BeamInterface
-        
+
         # Load UVBeam
         import os
-        beam_file = os.path.join(os.path.dirname(__file__), 
-                                "../matvis/src/matvis/data/NF_HERA_Dipole_small.fits")
-        uvbeam_raw = UVBeam.from_file(beam_file)
-        
+        beam_file = os.path.join(os.path.dirname(__file__),
+                                "data/HERA_NicCST_150MHz.txt")
+        uvbeam_raw = UVBeam()
+        uvbeam_raw.read_cst_beam(
+            beam_file,
+            frequency=[self.freq],
+            telescope_name="HERA",
+            feed_name="Dipole",
+            feed_version="1.0",
+            feed_pol=["x"],
+            model_name="NicCST",
+            model_version="1.0",
+        )
+
         # Wrap in BeamInterface
         beam_interface = BeamInterface(uvbeam_raw)
         
@@ -204,12 +224,22 @@ class TestBeamInterpolationComparison:
         # Zenith angles from 30 to 60 degrees
         za_edge = np.linspace(np.pi/6, np.pi/3, n_edge)
         az_edge = np.random.uniform(0, 2*np.pi, n_edge)
-        
+
         # Load UVBeam
         import os
-        beam_file = os.path.join(os.path.dirname(__file__), 
-                                "../matvis/src/matvis/data/NF_HERA_Dipole_small.fits")
-        uvbeam_raw = UVBeam.from_file(beam_file)
+        beam_file = os.path.join(os.path.dirname(__file__),
+                                "data/HERA_NicCST_150MHz.txt")
+        uvbeam_raw = UVBeam()
+        uvbeam_raw.read_cst_beam(
+            beam_file,
+            frequency=[self.freq],
+            telescope_name="HERA",
+            feed_name="Dipole",
+            feed_version="1.0",
+            feed_pol=["x"],
+            model_name="NicCST",
+            model_version="1.0",
+        )
         uvbeam = BeamInterface(uvbeam_raw)
         
         for order in [1, 3]:

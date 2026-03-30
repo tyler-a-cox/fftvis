@@ -13,7 +13,7 @@ from pyuvdata.analytic_beam import AiryBeam
 from pyuvdata.beam_interface import BeamInterface
 
 # Direct imports to measure core computation
-from fftvis.cpu.cpu_simulate import CPUSimulationEngine
+from fftvis.cpu.cpu import CPUSimulationEngine
 from fftvis import utils, GPU_AVAILABLE
 from matvis.core.coords import CoordinateRotation
 from astropy.coordinates import SkyCoord
@@ -21,7 +21,7 @@ from astropy.coordinates import SkyCoord
 # Import GPU modules if available
 if GPU_AVAILABLE:
     import cupy as cp
-    from fftvis.gpu.gpu_simulate import GPUSimulationEngine
+    from fftvis.gpu.gpu import GPUSimulationEngine
 
 # Import tabulate only if available
 try:

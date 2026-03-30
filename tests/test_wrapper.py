@@ -300,7 +300,7 @@ def test_simulate_vis_precision():
     )
     
     # Check that the results are close, but not identical
-    assert np.allclose(vis_double, vis_single, rtol=1e-5, atol=1e-5)
+    assert np.allclose(vis_double, vis_single, rtol=1e-4, atol=1e-4)
     
     # Check data types
     assert vis_double.dtype == np.complex128

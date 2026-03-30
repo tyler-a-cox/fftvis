@@ -13,6 +13,10 @@ from pyuvdata.beam_interface import BeamInterface
 from fftvis.wrapper import simulate_vis
 from fftvis import GPU_AVAILABLE
 
+# Import cupy if GPU is available
+if GPU_AVAILABLE:
+    import cupy as cp
+
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason="GPU not available")
 class TestFFTvisCPUvsGPU:

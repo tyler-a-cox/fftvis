@@ -15,7 +15,7 @@ from fftvis.gpu.nufft import (
     _gpu_nufft2d_plan_fallback,
     _gpu_nufft3d_plan_fallback,
 )
-from fftvis.gpu.gpu_simulate import GPUSimulationEngine
+from fftvis.gpu.gpu import GPUSimulationEngine
 
 
 # ============================================================================

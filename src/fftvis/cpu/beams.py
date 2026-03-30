@@ -4,10 +4,39 @@ from pyuvdata.beam_interface import BeamInterface
 from typing import Dict, Optional
 
 from ..core.beams import BeamEvaluator
+from matvis.cpu.beams import UVBeamInterpolator
+from matvis.coordinates import enu_to_az_za
 
 
 class CPUBeamEvaluator(BeamEvaluator):
-    """CPU implementation of beam evaluation."""
+    """
+    CPU beam evaluator using matvis for consistency with GPU.
+    """
+
+    def __init__(self, precision: int = 2, **kwargs):
+        """
+        Initialize evaluator.
+
+        Parameters
+        ----------
+        precision : int
+            Precision level (1 for single, 2 for double precision).
+        """
+        self.precision = precision
+        self._initialized = False
+        self._current_beam_id = None
+        self._current_freq = None
+        self._current_polarized = None
+        self._interpolator = None
+
+        # Attributes expected by base class interp() method
+        self.beam_list = []
+        self.polarized = False
+        self.freq = 0.0
+        self.nsrc = 0
+        self.nant = 1
+        self.spline_opts = {}
+        self.beam_idx = None
 
     def evaluate_beam(
         self,
@@ -53,40 +82,66 @@ class CPUBeamEvaluator(BeamEvaluator):
             np.ndarray
                 Interpolated beam values.
         """
-        # Save these for matvis compatibility
-        self.polarized = polarized
-        self.freq = freq
-        self.spline_opts = spline_opts or {}
-        
-        # Primary beam pattern using direct interpolation of UVBeam object
-        kw = {
-            "reuse_spline": True,
-            "check_azza_domain": False,
-            "spline_opts": spline_opts,
-            "interpolation_function": interpolation_function,
-        }
+        # Convert az/za to ENU (tx/ty) for matvis interface
+        tx = np.sin(za) * np.cos(az)  # enu_e
+        ty = np.sin(za) * np.sin(az)  # enu_n
+        nsrc = len(az)
 
-        interp_beam = beam.compute_response(
-            az_array=az,
-            za_array=za,
-            freq_array=np.atleast_1d(freq),
-            **kw,
+        # Check if we need to reinitialize (beam/freq/polarization changed)
+        beam_id = id(beam)
+        need_reinit = (
+            not hasattr(self, '_initialized') or not self._initialized
+            or beam_id != self._current_beam_id
+            or freq != self._current_freq
+            or polarized != self._current_polarized
         )
 
-        if polarized:
-            interp_beam = interp_beam[:, :, 0, :]
-        else:
-            # Here we have already asserted that the beam is a power beam and
-            # has only one polarization, so we just evaluate that one.
-            interp_beam = interp_beam[0, 0, 0, :]
+        if need_reinit:
+            # Initialize matvis interpolator
+            self._interpolator = UVBeamInterpolator(
+                beam_list=[beam],
+                beam_idx=None,
+                polarized=polarized,
+                nant=1,
+                freq=freq,
+                nsrc=nsrc,
+                precision=self.precision,
+                spline_opts=spline_opts or {},
+            )
+            self._interpolator.setup()
+            self._initialized = True
+            self._current_beam_id = beam_id
+            self._current_freq = freq
+            self._current_polarized = polarized
 
-        # Check for invalid beam values
+            # Update attributes expected by base class
+            self.beam_list = [beam]
+            self.polarized = polarized
+            self.freq = freq
+            self.nsrc = nsrc
+            self.spline_opts = spline_opts or {}
+
+        # Call matvis's interp method
+        nfeed = 2 if polarized else 1
+        nax = 2 if polarized else 1
+        complex_dtype = np.complex64 if self.precision == 1 else np.complex128
+
+        out = np.zeros((1, nfeed, nax, nsrc), dtype=complex_dtype)
+        self._interpolator.interp(tx, ty, out)
+
+        # Check for invalid values
         if check:
-            sm = np.sum(interp_beam)
-            if np.isinf(sm) or np.isnan(sm):
+            if np.isinf(np.sum(out)) or np.isnan(np.sum(out)):
                 raise ValueError("Beam interpolation resulted in an invalid value")
 
-        return interp_beam
+        # Return in expected format (remove beam dimension)
+        if polarized:
+            return out[0]  # Shape: (nfeed, nax, nsrc)
+        else:
+            # Return power for unpolarized: fftvis computes V = NUFFT(beam * flux)
+            # so beam must be |E|^2. matvis returns E-field, so we square it.
+            result = out[0, 0, 0, :]
+            return np.abs(result) ** 2
 
     @staticmethod
     @nb.jit(nopython=True, parallel=False, nogil=False)

@@ -9,7 +9,7 @@ from .wrapper import create_beam_evaluator
 
 # Import simulation functionality
 from .core.simulate import SimulationEngine
-from .cpu.cpu_simulate import CPUSimulationEngine
+from .cpu.cpu import CPUSimulationEngine
 from .wrapper import create_simulation_engine, simulate_vis
 
 # Import utility modules
@@ -33,7 +33,7 @@ try:
         import cufinufft  # noqa: F401
 
         from .gpu.beams import GPUBeamEvaluator
-        from .gpu.gpu_simulate import GPUSimulationEngine
+        from .gpu.gpu import GPUSimulationEngine
         GPU_AVAILABLE = True
 
 except ImportError as e:
