@@ -242,13 +242,13 @@ class GPUSimulationEngine(SimulationEngine):
             **coord_method_params,
         )
         
-        # --- Data Transfer to GPU (if not handled by coord_mgr) ---
-        # Transfer data needed by _evaluate_vis_chunk to GPU *before* chunking/Ray
-        # This avoids transferring the same data multiple times if Ray is used
+        # Transfer simulation data to GPU once before task distribution.
+        # TODO: Move these into components (coord_mgr or a dedicated GPU data
+        # holder) so each component manages its own GPU state, following the
+        # matvis pattern where components handle transfers in their setup().
         rotation_matrix_gpu = cp.asarray(rotation_matrix_cpu)
         bls_gpu = cp.asarray(bls_cpu)
         freqs_gpu = cp.asarray(freqs)
-        # Beam data transfer is handled by GPUBeamEvaluator internally
 
         # --- Chunking and Parallelization (Ray) ---
         # Determine chunking based on available resources
