@@ -10,20 +10,6 @@ import numpy as np
 from pyuvdata.beam_interface import BeamInterface
 from typing import Dict, Optional
 
-# Check for GPU capabilities (exported for compatibility)
-try:
-    from cupyx.scipy.special import j1 as gpu_j1
-    HAS_GPU_BESSEL = True
-except ImportError:
-    HAS_GPU_BESSEL = False
-
-try:
-    from cupyx.scipy.ndimage import map_coordinates as gpu_map_coordinates
-    HAS_GPU_MAP_COORDS = True
-except ImportError:
-    HAS_GPU_MAP_COORDS = False
-
-# Import matvis's GPU beam interpolator
 from matvis.gpu.beams import GPUBeamInterpolator
 
 

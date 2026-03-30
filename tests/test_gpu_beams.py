@@ -15,11 +15,7 @@ from unittest.mock import Mock
 # Skip all GPU tests if CuPy is not available
 cupy = pytest.importorskip("cupy")
 
-from fftvis.gpu.beams import (
-    GPUBeamEvaluator,
-    HAS_GPU_BESSEL,
-    HAS_GPU_MAP_COORDS,
-)
+from fftvis.gpu.beams import GPUBeamEvaluator
 from fftvis.gpu.utils import inplace_rot
 
 
@@ -50,20 +46,6 @@ def test_gpu_beam_evaluator_inherits_from_matvis():
     from matvis.gpu.beams import GPUBeamInterpolator
     evaluator = GPUBeamEvaluator()
     assert isinstance(evaluator, GPUBeamInterpolator)
-
-
-# ============================================================================
-# Module Constants Tests
-# ============================================================================
-
-def test_has_gpu_bessel_flag():
-    """Test that HAS_GPU_BESSEL is a boolean."""
-    assert isinstance(HAS_GPU_BESSEL, bool)
-
-
-def test_has_gpu_map_coords_flag():
-    """Test that HAS_GPU_MAP_COORDS is a boolean."""
-    assert isinstance(HAS_GPU_MAP_COORDS, bool)
 
 
 # ============================================================================
