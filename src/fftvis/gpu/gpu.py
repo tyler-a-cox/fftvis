@@ -193,101 +193,16 @@ class GPUSimulationEngine(SimulationEngine):
         if isinstance(times, np.ndarray):
             times = Time(times, format="jd")
 
-        # Instantiate CoordinateRotation with GPU support
-        coord_method_cls = CoordinateRotation._methods[coord_method]
-        coord_method_params = coord_method_params or {}
-        coord_mgr = coord_method_cls(
-            flux=Isky,
-            times=times,
-            telescope_loc=telescope_loc,
-            skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs"),
-            precision=precision,
-            gpu=True,  # Use GPU arrays for coord_mgr
-            **coord_method_params,
+        # --- Calculate optimal memory allocation ---
+        total_sources = len(ra)
+        mem_manager = GPUMemoryManager(safety_factor=0.8)
+
+        device_free, device_total = mem_manager.device.mem_info
+        logger.info(
+            f"GPU Memory: {device_free/1e9:.2f}GB free / {device_total/1e9:.2f}GB total"
         )
 
-        # --- Calculate optimal memory allocation ---
-        # Get total number of sources
-        total_sources = len(ra)
-        
-        # Initialize memory manager
-        # Use 0.8 safety factor since we have better memory estimates now
-        mem_manager = GPUMemoryManager(safety_factor=0.8)
-        
-        # Check available memory first
-        available_memory = mem_manager.get_available_memory()
-        device_free = mem_manager.device.mem_info[0]
-        device_total = mem_manager.device.mem_info[1]
-        
-        logger.info(
-            f"GPU Memory: {device_free/1e9:.2f}GB free / {device_total/1e9:.2f}GB total "
-            f"(using {available_memory/1e9:.2f}GB)"
-        )
-        
-        # Estimate maximum feasible sources for this GPU
-        # First try with freq_batch_size=1 (process frequencies sequentially)
-        # This gives the absolute maximum number of sources possible
-        max_feasible_sources_seq = mem_manager.estimate_max_sources(
-            nfreqs=nfreqs,
-            ntimes=ntimes,
-            nbls=nbls,
-            nfeeds=nfeeds,
-            precision=precision,
-            polarized=polarized,
-            freq_batch_size=1  # Sequential processing
-        )
-        
-        # Also estimate with a more typical batch size for reference
-        max_feasible_sources_batch = mem_manager.estimate_max_sources(
-            nfreqs=nfreqs,
-            ntimes=ntimes,
-            nbls=nbls,
-            nfeeds=nfeeds,
-            precision=precision,
-            polarized=polarized,
-            freq_batch_size=min(nfreqs, 8)  # Batched processing
-        )
-        
-        logger.info(
-            f"Maximum feasible sources for this GPU: "
-            f"~{max_feasible_sources_seq:,} (sequential frequencies) "
-            f"to ~{max_feasible_sources_batch:,} (batched frequencies)"
-        )
-        
-        # Use the sequential estimate for the hard limit check
-        # optimize_chunking will find the best configuration
-        # Be more conservative for large datasets to prevent kernel crashes
-        if total_sources > max_feasible_sources_seq * 1.2:  # 20% margin
-            logger.error(
-                f"Dataset with {total_sources:,} sources exceeds GPU capacity "
-                f"(max feasible: ~{max_feasible_sources_seq:,} sources). "
-                f"Please use CPU backend."
-            )
-            raise ValueError(
-                f"Dataset too large for GPU memory. Use backend='cpu' for {total_sources:,} sources."
-            )
-        
-        # Additional safety check for borderline cases
-        # CUDA errors during plan creation can crash the kernel
-        # Be extra conservative when memory is tight to prevent crashes
-        safety_factor = 0.6  # Use only 60% of estimated capacity when memory is low
-        
-        if device_free < 1.0e9:  # Less than 1GB free
-            # When memory is very limited, be extra conservative
-            safe_max_sources = int(max_feasible_sources_seq * safety_factor)
-            
-            if total_sources > safe_max_sources:
-                logger.warning(
-                    f"Low GPU memory ({device_free/1e9:.2f}GB free) with large dataset ({total_sources:,} sources). "
-                    f"Safe limit estimated at ~{safe_max_sources:,} sources to prevent kernel crashes."
-                )
-                raise ValueError(
-                    f"Dataset with {total_sources:,} sources exceeds safe limit (~{safe_max_sources:,}) "
-                    f"with only {device_free/1e9:.2f}GB free GPU memory. "
-                    f"Use backend='cpu' to avoid kernel crashes."
-                )
-        
-        # Optimize source chunk size and frequency batch size together
+        # Find optimal chunk sizes that fit in GPU memory
         optimal_source_chunk, optimal_freq_batch = mem_manager.optimize_chunking(
             nsources_total=total_sources,
             nfreqs_total=nfreqs,
@@ -296,18 +211,30 @@ class GPUSimulationEngine(SimulationEngine):
             nfeeds=nfeeds,
             precision=precision,
             polarized=polarized,
-            min_chunk_size=1000,
-            max_freq_batch=nfreqs  # Allow processing all frequencies if memory permits
+            min_chunk_size=100,
+            max_freq_batch=nfreqs,
         )
-        
-        # Update coord_mgr chunk size if needed
-        if hasattr(coord_mgr, 'chunk_size'):
-            if coord_mgr.chunk_size is None or coord_mgr.chunk_size > optimal_source_chunk:
-                coord_mgr.chunk_size = optimal_source_chunk
-                logger.info(f"Updated coordinate manager chunk size to {optimal_source_chunk:,}")
-        
-        # Use the optimized frequency batch size
+
+        logger.info(
+            f"Processing {total_sources:,} sources in chunks of {optimal_source_chunk:,}, "
+            f"frequency batch size: {optimal_freq_batch}"
+        )
+
         optimal_batch_size = optimal_freq_batch
+
+        # Instantiate CoordinateRotation with GPU support and correct chunk_size
+        coord_method_cls = CoordinateRotation._methods[coord_method]
+        coord_method_params = coord_method_params or {}
+        coord_mgr = coord_method_cls(
+            flux=Isky,
+            times=times,
+            telescope_loc=telescope_loc,
+            skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs"),
+            precision=precision,
+            chunk_size=optimal_source_chunk,
+            gpu=True,
+            **coord_method_params,
+        )
         
         # --- Data Transfer to GPU (if not handled by coord_mgr) ---
         # Transfer data needed by _evaluate_vis_chunk to GPU *before* chunking/Ray
