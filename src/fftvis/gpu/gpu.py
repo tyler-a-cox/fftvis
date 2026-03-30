@@ -16,6 +16,7 @@ from astropy.coordinates import EarthLocation, SkyCoord
 from astropy import units as un
 from astropy.time import Time
 from pyuvdata import UVBeam
+from pyuvdata.beam_interface import BeamInterface
 from matvis import coordinates
 from matvis.core.coords import CoordinateRotation
 
@@ -149,12 +150,17 @@ class GPUSimulationEngine(SimulationEngine):
         nbls = len(baselines)
 
         # Handle beam frequency interpolation on CPU before transferring to GPU
-        if isinstance(beam, UVBeam):
-            # Only try to interpolate the beam if it has more than one frequency
+        if isinstance(beam, BeamInterface) and beam._isuvbeam:
+            if hasattr(beam.beam, "Nfreqs") and beam.beam.Nfreqs > 1:
+                beam.beam = beam.beam.interp(
+                    freq_array=freqs, new_object=True, run_check=False
+                )
+        elif isinstance(beam, UVBeam):
             if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
                 beam = beam.interp(
                     freq_array=freqs, new_object=True, run_check=False
                 )
+            beam = BeamInterface(beam)
 
         # Factor of 0.5 accounts for splitting Stokes between polarization channels
         # Apply this factor on CPU before transferring flux
@@ -366,7 +372,7 @@ class GPUSimulationEngine(SimulationEngine):
         self,
         time_idx: slice,
         freq_idx: slice,
-        beam,  # UVBeam or BeamInterface (on CPU, needs data transfer)
+        beam: BeamInterface,
         coord_mgr: CoordinateRotation,  # CoordinateRotation instance
         rotation_matrix: cp.ndarray,  # Expect cupy array
         bls: cp.ndarray,  # Expect cupy array
@@ -508,10 +514,6 @@ class GPUSimulationEngine(SimulationEngine):
                         
                         # Reshape A_s
                         A_s_reshaped = A_s.reshape(nfeeds**2, nsim_sources)
-
-                        # Ensure correct dtype
-                        if A_s_reshaped.dtype != complex_dtype:
-                            A_s_reshaped = A_s_reshaped.astype(complex_dtype)
                         
                         weights_batch[batch_idx] = A_s_reshaped
                     
@@ -576,14 +578,5 @@ class GPUSimulationEngine(SimulationEngine):
                     freq_idx = freq_batch_indices[batch_idx]
                     freq_chunk_idx = freq_idx - freq_start
                     vis_chunk_gpu[time_chunk_idx, :, :, :, freq_chunk_idx] = vis_batch_gpu[batch_idx]
-                
-                # Periodic memory cleanup for large datasets
-                if coord_mgr.nsrc > 200000 and batch_start % 10 == 0:
-                    try:
-                        mempool = cp.get_default_memory_pool()
-                        mempool.free_all_blocks()
-                    except:
-                        pass
 
-        # Return the chunk of visibility data (on GPU)
         return vis_chunk_gpu
