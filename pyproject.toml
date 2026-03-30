@@ -57,7 +57,7 @@ dev = [
     "pyuvsim[sim]",
     "hera_sim",
 ]
-gpu = ["cupy", "cufinufft"]
+gpu = ["cupy", "cufinufft>=2.2.0"]
 
 [project.scripts]
 fftvis = "fftvis.cli:app"

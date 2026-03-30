@@ -11,9 +11,6 @@ from fftvis.gpu.nufft import (
     gpu_nufft2d_batch,
     gpu_nufft3d_batch,
     HAVE_CUFINUFFT,
-    HAS_NATIVE_TYPE3_SUPPORT,
-    _gpu_nufft2d_plan_fallback,
-    _gpu_nufft3d_plan_fallback,
 )
 from fftvis.gpu.gpu import GPUSimulationEngine
 
@@ -235,170 +232,6 @@ def test_gpu_nufft3d_larger_dataset():
 
 
 # ============================================================================
-# Plan-based Fallback Tests
-# ============================================================================
-
-@pytest.mark.skipif(not cupy.cuda.is_available(), reason="CUDA not available")
-def test_gpu_nufft2d_plan_fallback_basic():
-    """Test the plan-based fallback for 2D NUFFT directly."""
-    nsrc = 10
-    nbls = 5
-
-    x = cupy.random.uniform(-np.pi, np.pi, nsrc).astype(cupy.float64)
-    y = cupy.random.uniform(-np.pi, np.pi, nsrc).astype(cupy.float64)
-    weights = cupy.random.random(nsrc).astype(cupy.complex128)
-    u = cupy.random.uniform(-np.pi, np.pi, nbls).astype(cupy.float64)
-    v = cupy.random.uniform(-np.pi, np.pi, nbls).astype(cupy.float64)
-    eps = 1e-6
-    n_trans = 1
-
-    result = _gpu_nufft2d_plan_fallback(x, y, weights, u, v, eps, n_trans)
-
-    assert isinstance(result, cupy.ndarray)
-    assert result.shape == (nbls,)
-    assert cupy.all(cupy.isfinite(result))
-
-
-@pytest.mark.skipif(not cupy.cuda.is_available(), reason="CUDA not available")
-def test_gpu_nufft2d_plan_fallback_polarized():
-    """Test the plan-based fallback for 2D NUFFT with polarized weights."""
-    nsrc = 10
-    nbls = 5
-    n_trans = 4  # Polarized
-
-    x = cupy.random.uniform(-np.pi, np.pi, nsrc).astype(cupy.float64)
-    y = cupy.random.uniform(-np.pi, np.pi, nsrc).astype(cupy.float64)
-    weights = cupy.random.random((n_trans, nsrc)).astype(cupy.complex128)
-    u = cupy.random.uniform(-np.pi, np.pi, nbls).astype(cupy.float64)
-    v = cupy.random.uniform(-np.pi, np.pi, nbls).astype(cupy.float64)
-    eps = 1e-6
-
-    result = _gpu_nufft2d_plan_fallback(x, y, weights, u, v, eps, n_trans)
-
-    assert isinstance(result, cupy.ndarray)
-    assert result.shape == (n_trans, nbls)
-    assert cupy.all(cupy.isfinite(result))
-
-
-@pytest.mark.skipif(not cupy.cuda.is_available(), reason="CUDA not available")
-def test_gpu_nufft2d_plan_fallback_empty():
-    """Test the plan-based fallback for 2D NUFFT with empty inputs."""
-    x = cupy.array([], dtype=cupy.float64)
-    y = cupy.array([], dtype=cupy.float64)
-    weights = cupy.array([], dtype=cupy.complex128)
-    u = cupy.array([0.0, 1.0])
-    v = cupy.array([0.0, 0.0])
-    eps = 1e-6
-    n_trans = 1
-
-    result = _gpu_nufft2d_plan_fallback(x, y, weights, u, v, eps, n_trans)
-
-    assert result.shape == (2,)
-    assert cupy.allclose(result, 0.0)
-
-
-@pytest.mark.skipif(not cupy.cuda.is_available(), reason="CUDA not available")
-def test_gpu_nufft2d_plan_fallback_empty_polarized():
-    """Test the plan-based fallback for 2D NUFFT with empty inputs (polarized)."""
-    x = cupy.array([], dtype=cupy.float64)
-    y = cupy.array([], dtype=cupy.float64)
-    weights = cupy.zeros((4, 0), dtype=cupy.complex128)
-    u = cupy.array([0.0, 1.0])
-    v = cupy.array([0.0, 0.0])
-    eps = 1e-6
-    n_trans = 4
-
-    result = _gpu_nufft2d_plan_fallback(x, y, weights, u, v, eps, n_trans)
-
-    assert result.shape == (4, 2)
-    assert cupy.allclose(result, 0.0)
-
-
-@pytest.mark.skipif(not cupy.cuda.is_available(), reason="CUDA not available")
-def test_gpu_nufft3d_plan_fallback_basic():
-    """Test the plan-based fallback for 3D NUFFT directly."""
-    nsrc = 10
-    nbls = 5
-
-    x = cupy.random.uniform(-np.pi, np.pi, nsrc).astype(cupy.float64)
-    y = cupy.random.uniform(-np.pi, np.pi, nsrc).astype(cupy.float64)
-    z = cupy.random.uniform(-np.pi, np.pi, nsrc).astype(cupy.float64)
-    weights = cupy.random.random(nsrc).astype(cupy.complex128)
-    u = cupy.random.uniform(-np.pi, np.pi, nbls).astype(cupy.float64)
-    v = cupy.random.uniform(-np.pi, np.pi, nbls).astype(cupy.float64)
-    w = cupy.random.uniform(-np.pi, np.pi, nbls).astype(cupy.float64)
-    eps = 1e-6
-    n_trans = 1
-
-    result = _gpu_nufft3d_plan_fallback(x, y, z, weights, u, v, w, eps, n_trans)
-
-    assert isinstance(result, cupy.ndarray)
-    assert result.shape == (nbls,)
-    assert cupy.all(cupy.isfinite(result))
-
-
-@pytest.mark.skipif(not cupy.cuda.is_available(), reason="CUDA not available")
-def test_gpu_nufft3d_plan_fallback_polarized():
-    """Test the plan-based fallback for 3D NUFFT with polarized weights."""
-    nsrc = 10
-    nbls = 5
-    n_trans = 4  # Polarized
-
-    x = cupy.random.uniform(-np.pi, np.pi, nsrc).astype(cupy.float64)
-    y = cupy.random.uniform(-np.pi, np.pi, nsrc).astype(cupy.float64)
-    z = cupy.random.uniform(-np.pi, np.pi, nsrc).astype(cupy.float64)
-    weights = cupy.random.random((n_trans, nsrc)).astype(cupy.complex128)
-    u = cupy.random.uniform(-np.pi, np.pi, nbls).astype(cupy.float64)
-    v = cupy.random.uniform(-np.pi, np.pi, nbls).astype(cupy.float64)
-    w = cupy.random.uniform(-np.pi, np.pi, nbls).astype(cupy.float64)
-    eps = 1e-6
-
-    result = _gpu_nufft3d_plan_fallback(x, y, z, weights, u, v, w, eps, n_trans)
-
-    assert isinstance(result, cupy.ndarray)
-    assert result.shape == (n_trans, nbls)
-    assert cupy.all(cupy.isfinite(result))
-
-
-@pytest.mark.skipif(not cupy.cuda.is_available(), reason="CUDA not available")
-def test_gpu_nufft3d_plan_fallback_empty():
-    """Test the plan-based fallback for 3D NUFFT with empty inputs."""
-    x = cupy.array([], dtype=cupy.float64)
-    y = cupy.array([], dtype=cupy.float64)
-    z = cupy.array([], dtype=cupy.float64)
-    weights = cupy.array([], dtype=cupy.complex128)
-    u = cupy.array([0.0, 1.0])
-    v = cupy.array([0.0, 0.0])
-    w = cupy.array([0.0, 0.0])
-    eps = 1e-6
-    n_trans = 1
-
-    result = _gpu_nufft3d_plan_fallback(x, y, z, weights, u, v, w, eps, n_trans)
-
-    assert result.shape == (2,)
-    assert cupy.allclose(result, 0.0)
-
-
-@pytest.mark.skipif(not cupy.cuda.is_available(), reason="CUDA not available")
-def test_gpu_nufft3d_plan_fallback_empty_polarized():
-    """Test the plan-based fallback for 3D NUFFT with empty inputs (polarized)."""
-    x = cupy.array([], dtype=cupy.float64)
-    y = cupy.array([], dtype=cupy.float64)
-    z = cupy.array([], dtype=cupy.float64)
-    weights = cupy.zeros((4, 0), dtype=cupy.complex128)
-    u = cupy.array([0.0, 1.0])
-    v = cupy.array([0.0, 0.0])
-    w = cupy.array([0.0, 0.0])
-    eps = 1e-6
-    n_trans = 4
-
-    result = _gpu_nufft3d_plan_fallback(x, y, z, weights, u, v, w, eps, n_trans)
-
-    assert result.shape == (4, 2)
-    assert cupy.allclose(result, 0.0)
-
-
-# ============================================================================
 # Batch NUFFT Tests (2D)
 # ============================================================================
 
@@ -560,11 +393,6 @@ def test_have_cufinufft_flag():
     """Test that HAVE_CUFINUFFT is set correctly."""
     # Since we importorskip cufinufft at the top, it should be True
     assert HAVE_CUFINUFFT is True
-
-
-def test_native_type3_support_flag():
-    """Test that HAS_NATIVE_TYPE3_SUPPORT is a boolean."""
-    assert isinstance(HAS_NATIVE_TYPE3_SUPPORT, bool)
 
 
 # ============================================================================
