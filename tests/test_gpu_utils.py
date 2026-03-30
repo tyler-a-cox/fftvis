@@ -144,7 +144,7 @@ def test_execute_with_retry_cuda_invalid_value_error():
     def cuda_error_func(*args, **kwargs):
         raise RuntimeError("cudaErrorInvalidValue: some error")
 
-    with pytest.raises(RuntimeError, match="GPU out of memory"):
+    with pytest.raises(RuntimeError, match="CUDA error during test"):
         execute_with_retry(
             nufft_func=cuda_error_func,
             func_args=(),
