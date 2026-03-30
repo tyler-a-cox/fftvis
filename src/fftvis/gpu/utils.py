@@ -1,29 +1,26 @@
 import cupy as cp
 import logging
 import gc
-import time
-from typing import Callable, Any, Tuple, Optional
+from typing import Callable, Any, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 def cleanup_gpu_memory():
     """
-    Perform aggressive GPU memory cleanup.
+    Release cached GPU memory back to the system.
 
-    This function clears all cached memory pools and forces garbage collection.
+    Clears CuPy memory pools and forces garbage collection.
     """
     try:
+        cp.cuda.runtime.deviceSynchronize()
         mempool = cp.get_default_memory_pool()
         pinned_mempool = cp.get_default_pinned_memory_pool()
         mempool.free_all_blocks()
         pinned_mempool.free_all_blocks()
-        cp.cuda.runtime.deviceSynchronize()
         gc.collect()
-        # Small delay to let GPU recover
-        time.sleep(0.1)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"GPU memory cleanup warning: {e}")
 
 
 def execute_with_retry(
@@ -86,26 +83,21 @@ def execute_with_retry(
             # Check for critical CUDA errors that indicate corrupted GPU state
             if "cudaErrorInvalidValue" in error_str:
                 logger.error(
-                    f"Critical GPU error detected during {logger_context}: {e}\n"
-                    f"GPU memory is exhausted and cannot allocate more.\n"
-                    f"Please switch to CPU backend by using backend='cpu' in your simulate_vis() call."
+                    f"Critical CUDA error during {logger_context}: {e}"
                 )
-                # Try to reset GPU state
                 try:
                     cp.cuda.runtime.deviceReset()
                 except Exception:
                     pass
                 raise RuntimeError(
-                    "GPU out of memory - cannot process this dataset on GPU. "
-                    "Please use backend='cpu' to continue processing."
+                    f"CUDA error during {logger_context}: {e}"
                 )
 
             # Check if we've exhausted retries
             if retry_count >= max_retries:
                 logger.error(
-                    f"GPU memory exhausted after {max_retries} retries with reduced batch sizes.\n"
-                    f"This dataset is too large for your GPU memory.\n"
-                    f"Please switch to CPU backend by using backend='cpu' in your simulate_vis() call."
+                    f"GPU memory exhausted after {max_retries} retries "
+                    f"during {logger_context}."
                 )
                 raise
 
@@ -117,7 +109,6 @@ def execute_with_retry(
             )
             current_batch_size = new_batch_size
 
-            # Aggressive GPU memory cleanup
             cleanup_gpu_memory()
 
     return result, current_batch_size
@@ -127,12 +118,11 @@ def inplace_rot(rot: cp.ndarray, b: cp.ndarray):
     """
     GPU implementation of in-place rotation of coordinates using CuPy.
 
-    Parameters:
+    Parameters
     ----------
     rot : cp.ndarray
         3x3 rotation matrix (on GPU)
     b : cp.ndarray
         Array of shape (3, n) containing coordinates to rotate (on GPU)
     """
-    # Perform matrix multiplication in-place
     cp.matmul(rot, b, out=b)
