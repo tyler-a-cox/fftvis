@@ -14,7 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 class GPUMemoryManager:
-    """Manages GPU memory allocation for fftvis simulations."""
+    """Manages GPU memory allocation for fftvis simulations.
+
+    Similar in spirit to matvis._utils.get_desired_chunks(), but extended for
+    NUFFT-specific memory requirements (per-frequency UVW coordinates, NUFFT
+    plan overhead, frequency batching optimization).
+    """
     
     def __init__(self, safety_factor: float = 0.7):
         """
