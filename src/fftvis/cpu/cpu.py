@@ -21,7 +21,7 @@ from pyuvdata import UVBeam
 from matvis import coordinates
 from matvis.core.coords import CoordinateRotation
 
-from ..core.simulate import SimulationEngine, default_accuracy_dict
+from ..core.simulate import SimulationEngine, default_accuracy_dict, prepare_simulation_inputs
 from ..core.antenna_gridding import check_antpos_griddability
 from .. import utils
 
@@ -126,36 +126,26 @@ class CPUSimulationEngine(SimulationEngine):
 
         See base class for parameter descriptions.
         """
-        # Get sizes of inputs
-        nfreqs = np.size(freqs)
-        ntimes = len(times)
+        # Common setup shared with GPU backend
+        ctx = prepare_simulation_inputs(
+            ants=ants, freqs=freqs, ra=ra, dec=dec, precision=precision,
+            eps=eps, baselines=baselines, flat_array_tol=flat_array_tol,
+            times=times,
+        )
+        nfreqs = ctx["nfreqs"]
+        ntimes = ctx["ntimes"]
+        real_dtype = ctx["real_dtype"]
+        complex_dtype = ctx["complex_dtype"]
+        eps = ctx["eps"]
+        ra = ctx["ra"]
+        dec = ctx["dec"]
+        freqs = ctx["freqs"]
+        baselines = ctx["baselines"]
+        nbls = ctx["nbls"]
+        antvecs = ctx["antvecs"]
+        times = ctx["times"]
 
         nax = nfeeds = 2 if polarized else 1
-
-        if precision == 1:
-            real_dtype = np.float32
-            complex_dtype = np.complex64
-        else:
-            real_dtype = np.float64
-            complex_dtype = np.complex128
-
-        if eps is None:
-            eps = default_accuracy_dict[precision]
-
-        if ra.dtype != real_dtype:
-            ra = ra.astype(real_dtype)
-        if dec.dtype != real_dtype:
-            dec = dec.astype(real_dtype)
-        if freqs.dtype != real_dtype:
-            freqs = freqs.astype(real_dtype)
-
-        # Get the redundant groups
-        if baselines is None:
-            reds = utils.get_pos_reds(ants, include_autos=True)
-            baselines = [red[0] for red in reds]
-
-        # Get number of baselines
-        nbls = len(baselines)
 
         # Prepare source catalog for the given fluxes
         coherency, polarized_sky_model = cpu_utils.prepare_source_catalog(
@@ -164,65 +154,39 @@ class CPUSimulationEngine(SimulationEngine):
         if coherency.dtype != complex_dtype:
             coherency = coherency.astype(complex_dtype)
 
-        # Flatten antenna positions
-        antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
-        antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
-
-        # If the array is flat within tolerance, we can check for griddability
+        # CPU-specific: check for griddability (Type 1 NUFFT)
         if np.abs(antvecs[:, -1]).max() > flat_array_tol or force_use_type3:
             is_gridded = False
         else:
             is_gridded, gridded_antpos, basis_matrix = check_antpos_griddability(ants)
-                
-        # Rotate antenna positions to XY plane if not gridded
-        if not is_gridded:
-            # Get the rotation matrix to rotate the array to the XY plane
-            rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
-            rotation_matrix = np.ascontiguousarray(rotation_matrix.T)
-            rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
-            rotated_ants = {
-                ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants
-            }
-            rotation_matrix = rotation_matrix.astype(real_dtype)
-        
-            # Compute baseline vectors and convert to speed of light units
-            bls = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
-                :, :
-            ].T
-            bls /= utils.speed_of_light
-            bls = bls.astype(real_dtype)
 
-            # Check if the array is flat within tolerance
-            is_coplanar = np.all(np.less_equal(np.abs(bls[2]), flat_array_tol))
+        if not is_gridded:
+            # Use the rotation/baselines from the common setup
+            rotation_matrix = ctx["rotation_matrix"]
+            bls = ctx["bls"]
+            is_coplanar = ctx["is_coplanar"]
         else:
             logger.info(
                 "Using gridded coordinates for the array. Type 1 transform will be used."
             )
             # Compute the baseline vectors in the gridded coordinate system
             bls = np.array([
-                gridded_antpos[bl[1]] - gridded_antpos[bl[0]] 
+                gridded_antpos[bl[1]] - gridded_antpos[bl[0]]
                 for bl in baselines]
             ).T
             bls = np.round(bls).astype(int)
-            
-            # Find the maximum extent of the array in gridded coordinates
+
             n_modes = 2 * int(np.round(np.max(np.abs(bls)))) + 1
 
-            # Get the maximum baseline length for proper coordinate scaling
             basis_matrix *= 1 / utils.speed_of_light
             basis_matrix = basis_matrix.astype(real_dtype)
 
-            # Assume the array is coplanar for gridded coordinates
             is_coplanar = True
             rotation_matrix = np.eye(3, dtype=real_dtype)
 
         # Get number of processes for multiprocessing
         if nprocesses is None:
             nprocesses = cpu_count()
-
-        # Check if the times array is a numpy array
-        if isinstance(times, np.ndarray):
-            times = Time(times, format="jd")
 
         coord_method = CoordinateRotation._methods[coord_method]
         coord_method_params = coord_method_params or {}

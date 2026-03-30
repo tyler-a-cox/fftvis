@@ -20,7 +20,7 @@ from pyuvdata.beam_interface import BeamInterface
 from matvis import coordinates
 from matvis.core.coords import CoordinateRotation
 
-from ..core.simulate import SimulationEngine, default_accuracy_dict
+from ..core.simulate import SimulationEngine, default_accuracy_dict, prepare_simulation_inputs
 from .. import utils
 from . import utils as gpu_utils
 
@@ -117,37 +117,31 @@ class GPUSimulationEngine(SimulationEngine):
 
         See base class for parameter descriptions.
         """
-        nfreqs = np.size(freqs)
-        ntimes = len(times)
+        # Common setup shared with CPU backend
+        ctx = prepare_simulation_inputs(
+            ants=ants, freqs=freqs, ra=ra, dec=dec, precision=precision,
+            eps=eps, baselines=baselines, flat_array_tol=flat_array_tol,
+            times=times,
+        )
+        nfreqs = ctx["nfreqs"]
+        ntimes = ctx["ntimes"]
+        real_dtype = ctx["real_dtype"]
+        complex_dtype = ctx["complex_dtype"]
+        eps = ctx["eps"]
+        ra = ctx["ra"]
+        dec = ctx["dec"]
+        freqs = ctx["freqs"]
+        baselines = ctx["baselines"]
+        nbls = ctx["nbls"]
+        rotation_matrix_cpu = ctx["rotation_matrix"]
+        bls_cpu = ctx["bls"]
+        is_coplanar = ctx["is_coplanar"]
+        times = ctx["times"]
 
         nax = nfeeds = 2 if polarized else 1
 
-        if precision == 1:
-            real_dtype = np.float32
-            complex_dtype = np.complex64
-        else:
-            real_dtype = np.float64
-            complex_dtype = np.complex128
-
-        if eps is None:
-            eps = default_accuracy_dict[precision]
-
-        # Ensure numpy arrays have correct dtype before potential transfer
-        if ra.dtype != real_dtype:
-            ra = ra.astype(real_dtype)
-        if dec.dtype != real_dtype:
-            dec = dec.astype(real_dtype)
-        if freqs.dtype != real_dtype:
-            freqs = freqs.astype(real_dtype)
-        if fluxes.dtype != real_dtype:  # Fluxes can be 1D or 2D
+        if fluxes.dtype != real_dtype:
             fluxes = fluxes.astype(real_dtype)
-
-        # Get the redundant groups
-        if baselines is None:
-            reds = utils.get_pos_reds(ants, include_autos=True)
-            baselines = [red[0] for red in reds]
-
-        nbls = len(baselines)
 
         # Handle beam frequency interpolation on CPU before transferring to GPU
         if isinstance(beam, BeamInterface) and beam._isuvbeam:
@@ -163,41 +157,13 @@ class GPUSimulationEngine(SimulationEngine):
             beam = BeamInterface(beam)
 
         # Factor of 0.5 accounts for splitting Stokes between polarization channels
-        # Apply this factor on CPU before transferring flux
         Isky = 0.5 * fluxes
-
-        # Flatten antenna positions
-        antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
-        antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
-
-        # Rotate the array to the xy-plane (on CPU)
-        rotation_matrix_cpu = utils.get_plane_to_xy_rotation_matrix(antvecs)
-        rotation_matrix_cpu = np.ascontiguousarray(
-            rotation_matrix_cpu.astype(real_dtype).T
-        )
-        rotated_antvecs = np.dot(rotation_matrix_cpu, antvecs.T)
-        rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
-
-        # Compute baseline vectors (on CPU)
-        bls_cpu = np.array(
-            [rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines]
-        )[:, :].T.astype(real_dtype)
-
-        # Check if the array is flat within tolerance (on CPU)
-        is_coplanar = np.all(np.less_equal(np.abs(bls_cpu[2]), flat_array_tol))
-
-        # Scale baselines by 1/c (on CPU)
-        bls_cpu /= utils.speed_of_light
 
         # Get number of processes for multiprocessing (Ray)
         if nprocesses is None:
             nprocesses = min(
                 cp.cuda.runtime.getDeviceCount(), 1
-            )  # Use number of available GPUs if Ray is used
-
-        # Check if the times array is a numpy array
-        if isinstance(times, np.ndarray):
-            times = Time(times, format="jd")
+            )
 
         # --- Calculate optimal memory allocation ---
         total_sources = len(ra)
