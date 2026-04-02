@@ -42,6 +42,10 @@ categories:
 name-template: 'v$RESOLVED_VERSION'
 tag-template: 'v$RESOLVED_VERSION'
 
+permissions:
+  contents: write
+  pull-requests: write
+
 autolabeler:
   - label: 'type: maint: documentation'
     files:
