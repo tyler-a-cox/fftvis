@@ -470,6 +470,8 @@ class CPUSimulationEngine(SimulationEngine):
                     _cpu_beam_evaluator.polarized = polarized
                     _cpu_beam_evaluator.freq = freq
 
+                    # TODO: Loop over multiple beams if needed, currently we only support one beam for simplicity.
+                    # TODO: Identify the pairs of baselines that have the same set of the beam pairs to avoid redundant beam evaluations.
                     apparent_coherency = _cpu_beam_evaluator.evaluate_beam(
                         beam,
                         az,
