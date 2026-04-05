@@ -16,9 +16,12 @@ logger = logging.getLogger(__name__)
 class GPUMemoryManager:
     """Manages GPU memory allocation for fftvis simulations.
 
-    Similar in spirit to matvis._utils.get_desired_chunks(), but extended for
-    NUFFT-specific memory requirements (per-frequency UVW coordinates, NUFFT
-    plan overhead, frequency batching optimization).
+    Serves the same role as ``matvis._utils.get_desired_chunks()`` — deciding
+    how to partition work so it fits in GPU memory — but tracks different
+    quantities because fftvis uses NUFFT rather than direct matrix products.
+    matvis budgets for Z-matrices, tau arrays, and beam data; fftvis budgets
+    for per-frequency UVW coordinates, NUFFT plan overhead, and frequency
+    batching buffers, so the two implementations are not interchangeable.
     """
     
     def __init__(self, safety_factor: float = 0.7):

@@ -10,7 +10,10 @@ def cleanup_gpu_memory():
     """
     Release cached GPU memory back to the system.
 
-    Clears CuPy memory pools and forces garbage collection.
+    CuPy's memory pool caches freed allocations rather than returning them to
+    CUDA.  This function flushes those pools so that a subsequent allocation
+    attempt can use the freed memory.  It is called by ``execute_with_retry``
+    between OOM retry attempts.
     """
     try:
         cp.cuda.runtime.deviceSynchronize()

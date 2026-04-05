@@ -15,7 +15,6 @@ from typing import Literal, Union
 from astropy.coordinates import EarthLocation, SkyCoord
 from astropy import units as un
 from astropy.time import Time
-from pyuvdata import UVBeam
 from pyuvdata.beam_interface import BeamInterface
 from matvis import coordinates
 from matvis.core.coords import CoordinateRotation
@@ -143,17 +142,9 @@ class GPUSimulationEngine(SimulationEngine):
         if fluxes.dtype != real_dtype:
             fluxes = fluxes.astype(real_dtype)
 
-        # Handle beam frequency interpolation on CPU before transferring to GPU
-        if isinstance(beam, BeamInterface) and beam._isuvbeam:
-            if hasattr(beam.beam, "Nfreqs") and beam.beam.Nfreqs > 1:
-                beam.beam = beam.beam.interp(
-                    freq_array=freqs, new_object=True, run_check=False
-                )
-        elif isinstance(beam, UVBeam):
-            if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
-                beam = beam.interp(
-                    freq_array=freqs, new_object=True, run_check=False
-                )
+        # Ensure beam is a BeamInterface (caller is responsible for wrapping;
+        # wrapper.simulate_vis does this automatically).
+        if not isinstance(beam, BeamInterface):
             beam = BeamInterface(beam)
 
         # Factor of 0.5 accounts for splitting Stokes between polarization channels
@@ -208,10 +199,11 @@ class GPUSimulationEngine(SimulationEngine):
             **coord_method_params,
         )
         
-        # Transfer simulation data to GPU once before task distribution.
-        # TODO: Move these into components (coord_mgr or a dedicated GPU data
-        # holder) so each component manages its own GPU state, following the
-        # matvis pattern where components handle transfers in their setup().
+        # Transfer simulation data to GPU once before the main loop.
+        # These arrays come from prepare_simulation_inputs() (shared CPU/GPU
+        # setup) and don't belong to any single component: coord_mgr owns sky
+        # coordinates and flux (transferred via gpu=True), while these are
+        # antenna-geometry and observation arrays used directly by the NUFFT.
         rotation_matrix_gpu = cp.asarray(rotation_matrix_cpu)
         bls_gpu = cp.asarray(bls_cpu)
         freqs_gpu = cp.asarray(freqs)
