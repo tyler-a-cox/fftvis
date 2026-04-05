@@ -170,3 +170,6 @@ memray-*.txt
 memray-*.csv
 memray-*.jsonl
 before-puts.txt
+
+# Benchmark output directories
+docs/tutorials/*_benchmark/

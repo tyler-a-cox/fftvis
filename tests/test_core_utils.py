@@ -178,41 +178,8 @@ def test_utils_module_imports():
         assert hasattr(fftvis.utils, func_name)
 
 
-@pytest.mark.parametrize("with_cupy", [False, True])
-def test_use_gpu_function(with_cupy, monkeypatch):
-    """Test the _use_gpu function with mocked imports."""
-    # Mock the cupy import behavior
-    if with_cupy:
-        # Mock successful import of cupy
-        import sys
-        mock_cupy = type('MockCuPy', (), {})()
-        sys.modules['cupy'] = mock_cupy
-        
-        # Clean up utils module's cached result if any
-        if hasattr(fftvis.utils, "_cached_use_gpu"):
-            delattr(fftvis.utils, "_cached_use_gpu")
-            
-        # The function should return True now
-        assert fftvis.utils._use_gpu() is True
-        
-        # Clean up mock
-        del sys.modules['cupy']
-    else:
-        # Mock failed import by raising ImportError when importing cupy
-        def mock_import_error(name, *args, **kwargs):
-            if name == 'cupy':
-                raise ImportError("No module named 'cupy'")
-            return orig_import(name, *args, **kwargs)
-        
-        orig_import = __import__
-        monkeypatch.setattr('builtins.__import__', mock_import_error)
-        
-        # Clean up utils module's cached result if any
-        if hasattr(fftvis.utils, "_cached_use_gpu"):
-            delattr(fftvis.utils, "_cached_use_gpu")
-        
-        # The function should return False now
-        assert fftvis.utils._use_gpu() is False
-        
-        # Restore original import
-        monkeypatch.undo()
+def test_gpu_available_is_boolean():
+    """Test that GPU_AVAILABLE is a boolean indicating GPU availability."""
+    # GPU_AVAILABLE is determined at module import time based on cupy + hardware availability
+    import fftvis
+    assert isinstance(fftvis.GPU_AVAILABLE, bool)

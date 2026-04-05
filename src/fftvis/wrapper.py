@@ -9,7 +9,7 @@ from matvis.core.beams import prepare_beam_unpolarized
 from .core.beams import BeamEvaluator
 from .cpu.beams import CPUBeamEvaluator
 from .core.simulate import SimulationEngine, default_accuracy_dict
-from .cpu.cpu_simulate import CPUSimulationEngine
+from .cpu.cpu import CPUSimulationEngine
 
 
 def create_beam_evaluator(
@@ -36,13 +36,11 @@ def create_beam_evaluator(
         If the specified backend is not supported.
     """
     if backend == "cpu":
-        evaluator = CPUBeamEvaluator(**kwargs)
-        # Ensure the beam_list is properly initialized since this is required by matvis
-        evaluator.beam_list = []
-        evaluator.beam_idx = None
-        return evaluator
+        return CPUBeamEvaluator(**kwargs)
     elif backend == "gpu":
-        raise NotImplementedError("GPU backend not yet implemented")
+        from .gpu.beams import GPUBeamEvaluator
+
+        return GPUBeamEvaluator(**kwargs)
     else:
         raise ValueError(f"Unsupported backend: {backend}")
 
@@ -56,8 +54,7 @@ def create_simulation_engine(
     ----------
     backend
         The backend to use for simulation.
-        Currently supported: "cpu".
-        "gpu" is defined but not yet implemented.
+        Currently supported: "cpu", "gpu".
     **kwargs
         Additional keyword arguments to pass to the simulation engine constructor.
 
@@ -74,7 +71,7 @@ def create_simulation_engine(
     if backend == "cpu":
         return CPUSimulationEngine(**kwargs)
     elif backend == "gpu":
-        from .gpu.gpu_simulate import GPUSimulationEngine
+        from .gpu.gpu import GPUSimulationEngine
 
         return GPUSimulationEngine(**kwargs)
     else:
@@ -216,7 +213,7 @@ def simulate_vis(
     # interpolation in the simulation engine
     if isinstance(beam, UVBeam):
         if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
-            beam = beam.interp(freq_array=freqs, new_object=True, run_check=False) # pragma: no cover
+            beam = beam.interp(freq_array=freqs, new_object=True, run_check=False)
     elif isinstance(beam, BeamInterface) and beam._isuvbeam:
         if hasattr(beam.beam, "Nfreqs") and beam.beam.Nfreqs > 1:
             beam.beam = beam.beam.interp(freq_array=freqs, new_object=True, run_check=False)
@@ -230,29 +227,38 @@ def simulate_vis(
     # Create the simulation engine for the desired backend
     engine = create_simulation_engine(backend=backend)
 
-    # Run the simulation
-    return engine.simulate(
-        ants=ants,
-        freqs=freqs,
-        fluxes=fluxes,
-        beam=beam,
-        ra=ra,
-        dec=dec,
-        times=times,
-        telescope_loc=telescope_loc,
-        baselines=baselines,
-        precision=precision,
-        polarized=polarized,
-        eps=eps,
-        upsample_factor=upsample_factor,
-        beam_spline_opts=beam_spline_opts,
-        flat_array_tol=flat_array_tol,
-        interpolation_function=interpolation_function,
-        nprocesses=nprocesses,
-        nthreads=nthreads,
-        coord_method=coord_method,
-        coord_method_params=coord_method_params,
-        force_use_type3=force_use_type3,
-        force_use_ray=force_use_ray,
-        trace_mem=trace_mem,
-    )
+    # Common parameters for both backends
+    common_params = {
+        'ants': ants,
+        'freqs': freqs,
+        'fluxes': fluxes,
+        'beam': beam,
+        'ra': ra,
+        'dec': dec,
+        'times': times,
+        'telescope_loc': telescope_loc,
+        'baselines': baselines,
+        'precision': precision,
+        'polarized': polarized,
+        'eps': eps,
+        'beam_spline_opts': beam_spline_opts,
+        'flat_array_tol': flat_array_tol,
+        'interpolation_function': interpolation_function,
+        'nprocesses': nprocesses,
+        'nthreads': nthreads,
+        'coord_method': coord_method,
+        'coord_method_params': coord_method_params,
+        'force_use_ray': force_use_ray,
+        'trace_mem': trace_mem,
+    }
+
+    # Backend-specific parameters
+    if backend == 'cpu':
+        backend_params = {
+            'upsample_factor': upsample_factor,
+            'force_use_type3': force_use_type3,
+        }
+    elif backend == 'gpu':
+        backend_params = {}
+
+    return engine.simulate(**(common_params | backend_params))
