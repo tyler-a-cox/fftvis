@@ -90,6 +90,7 @@ def simulate_vis(
     times: Union[np.ndarray, Time],
     beam,
     telescope_loc: EarthLocation,
+    beam_idx: list[int] = None,
     baselines: list[tuple] = None,
     precision: int = 2,
     polarized: bool = False,
@@ -131,10 +132,16 @@ def simulate_vis(
         Frequencies to evaluate visibilities in Hz.
     times : astropy.Time instance or array_like
         Times of the observation (can be a numpy array of Julian dates or astropy.Time object).
-    beam : UVBeam
-        Beam object to use for the array. Per-antenna beams are not yet supported.
+    beam : UVBeam | BeamInterface, or list of UVBeam | BeamInterface
+        Beam object to use for the array. If a single beam object is provided, it will be assumed that all antennas have the same beam. 
+        If a list of beam objects is provided, the length of the list should be equal to the number of unique beams in the array, 
+        and the beam_idx parameter should be used to specify which beam corresponds to each antenna.
     telescope_loc
         An EarthLocation object representing the center of the array.
+    beam_idx : list of int, default = None
+        An array of integers, of the same length as ``ants``. Each entry is for an antenna of the same index, and 
+        its value should be the index of the beam in the beam list that corresponds to the antenna. If None, all 
+        antennas will be assumed to have the same beam, and the beam list will be ignored.
     baselines : list of tuples, default = None
         If provided, only the baselines within the list will be simulated and array of shape
         (nbls, nfreqs, ntimes) will be returned if polarized is False, and (nbls, nfreqs, ntimes, 2, 2) if polarized is True.
@@ -212,20 +219,30 @@ def simulate_vis(
     # Make sure antpos has the right format
     ants = {k: np.array(v) for k, v in ants.items()}
 
-    # Interpolate the beam to the desired frequencies to avoid redundant
-    # interpolation in the simulation engine
-    if isinstance(beam, UVBeam):
-        if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
-            beam = beam.interp(freq_array=freqs, new_object=True, run_check=False) # pragma: no cover
-    elif isinstance(beam, BeamInterface) and beam._isuvbeam:
-        if hasattr(beam.beam, "Nfreqs") and beam.beam.Nfreqs > 1:
-            beam.beam = beam.beam.interp(freq_array=freqs, new_object=True, run_check=False)
+    if not isinstance(beam, list):
+        _beam_list = [beam]
+    else:
+        _beam_list = beam
 
-    beam = BeamInterface(beam)
+    beam_list = []
 
-    # Prepare the beam
-    if not polarized:
-        beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
+    for beam in _beam_list:
+        # Interpolate the beam to the desired frequencies to avoid redundant
+        # interpolation in the simulation engine
+        if isinstance(beam, UVBeam):
+            if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
+                beam = beam.interp(freq_array=freqs, new_object=True, run_check=False) # pragma: no cover
+        elif isinstance(beam, BeamInterface) and beam._isuvbeam:
+            if hasattr(beam.beam, "Nfreqs") and beam.beam.Nfreqs > 1:
+                beam.beam = beam.beam.interp(freq_array=freqs, new_object=True, run_check=False)
+
+        beam = BeamInterface(beam)
+
+        # Prepare the beam
+        if not polarized:
+            beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
+
+        beam_list.append(beam)
 
     # Create the simulation engine for the desired backend
     engine = create_simulation_engine(backend=backend)
@@ -235,7 +252,7 @@ def simulate_vis(
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
-        beam=beam,
+        beam_list=beam_list,
         ra=ra,
         dec=dec,
         times=times,

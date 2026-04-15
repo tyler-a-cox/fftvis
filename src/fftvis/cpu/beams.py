@@ -87,6 +87,31 @@ class CPUBeamEvaluator(BeamEvaluator):
                 raise ValueError("Beam interpolation resulted in an invalid value")
 
         return interp_beam
+    
+    @staticmethod
+    def prepare_beam_evaluation(antnums, baselines, beam_idx):
+        """
+        Compute the minimal flips for the given baselines and beam indices.
+        """
+        # Get number of unique beams
+        nbeams = len(np.unique(beam_idx))
+
+        # Get the unique beam pairs that we need to evaluate the apparent flux for
+        unique_beam_pairs = [(bi, bj) for bi in range(nbeams) for bj in range(bi, nbeams)]
+
+        # Determine which baselines correspond to which beam pairs, and whether they need to be flipped
+        antnum_to_beam_idx = {ai: bidx for ai, bidx in zip(antnums, beam_idx)}
+        flipped = []
+
+        for (ai, aj) in baselines:
+            if (antnum_to_beam_idx[ai], antnum_to_beam_idx[aj]) in unique_beam_pairs:
+                flipped.append(False)
+            elif (antnum_to_beam_idx[aj], antnum_to_beam_idx[ai]) in unique_beam_pairs:
+                flipped.append(True)
+            else:
+                raise ValueError("Beam pair not in beam pair list")
+            
+        return unique_beam_pairs, flipped
 
     @staticmethod
     @nb.jit(nopython=True, parallel=False, nogil=False)
