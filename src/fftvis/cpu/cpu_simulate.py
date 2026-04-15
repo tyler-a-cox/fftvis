@@ -529,8 +529,8 @@ class CPUSimulationEngine(SimulationEngine):
 
                                 # Compute the polarized apparent flux
                                 _cpu_beam_evaluator.get_apparent_flux_polarized_pair(
-                                    beam1=np.flip(beam_evaluations[bi], axis=0), 
-                                    beam2=np.flip(beam_evaluations[bj], axis=0),
+                                    beam_i=np.flip(beam_evaluations[bi], axis=0), 
+                                    beam_j=np.flip(beam_evaluations[bj], axis=0),
                                     coherency=np.transpose(flux[:nsim_sources, freqidx], (1, 2, 0)),
                                     out=apparent_coherency
                                 )
@@ -549,11 +549,12 @@ class CPUSimulationEngine(SimulationEngine):
                             )
                         
                             if is_cross_pair:
+                                logger.info("Processing cross pair")
                                 apparent_coherency = np.zeros_like(beam_evaluations[bi])
 
-                                _cpu_beam_evaluator.get_apparent_flux_polarized_beam(
-                                    beam1=beam_evaluations[bi], 
-                                    beam2=beam_evaluations[bj],
+                                _cpu_beam_evaluator.get_apparent_flux_polarized_beam_pair(
+                                    beam_i=beam_evaluations[bi], 
+                                    beam_j=beam_evaluations[bj],
                                     flux=flux[:nsim_sources, freqidx],
                                     out=apparent_coherency
                                 )
@@ -629,8 +630,10 @@ class CPUSimulationEngine(SimulationEngine):
                         # which is what we do for the beam evaluation, but since the beam evaluation is done separately for each antenna, 
                         # we have to do the flipping at the end when we combine them.
                         _vis_here = np.where(flipped, np.conj(_vis_here), _vis_here)
+
+                        nbls_here = len(bls_idxs)
                         vis[time_index, bls_idxs, ..., freqidx] = np.swapaxes(
-                            _vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0
+                            _vis_here.reshape(nfeeds, nfeeds, nbls_here), 2, 0
                         )
 
         return vis

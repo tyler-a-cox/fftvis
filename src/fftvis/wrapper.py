@@ -269,6 +269,7 @@ def simulate_vis(
         freqs=freqs,
         fluxes=fluxes,
         beam_list=beam_list,
+        beam_idx=beam_idx,
         ra=ra,
         dec=dec,
         times=times,
