@@ -300,6 +300,7 @@ class CPUSimulationEngine(SimulationEngine):
 
             # Put data into shared-memory pool
             antnums = ray.put(antnums)
+            baselines = ray.put(baselines)
             bls = ray.put(bls)
             rotation_matrix = ray.put(rotation_matrix)
             freqs = ray.put(freqs)
@@ -346,6 +347,7 @@ class CPUSimulationEngine(SimulationEngine):
                     coord_mgr=coord_mgr,
                     rotation_matrix=rotation_matrix,
                     antnums=antnums,
+                    baselines=baselines,
                     bls=bls,
                     freqs=freqs,
                     complex_dtype=complex_dtype,
@@ -399,6 +401,7 @@ class CPUSimulationEngine(SimulationEngine):
         coord_mgr: CoordinateRotation,
         rotation_matrix: np.ndarray,
         antnums: list,
+        baselines: list[tuple],
         bls: np.ndarray,
         freqs: np.ndarray,
         complex_dtype: np.dtype,
@@ -442,9 +445,13 @@ class CPUSimulationEngine(SimulationEngine):
         coord_mgr.setup()
 
         # Get beam indices for this chunk
-        unique_beam_pairs, flipped = _cpu_beam_evaluator.prepare_beam_evaluation(
+        ( 
+            unique_beam_pairs, 
+            beam_pair_to_bls_idxs, 
+            beam_pair_to_flipped,
+        ) = _cpu_beam_evaluator.prepare_beam_evaluation(
             antnums=antnums,
-            baselines=bls,
+            baselines=baselines,
             beam_idx=beam_idx,
         )
 
@@ -499,8 +506,18 @@ class CPUSimulationEngine(SimulationEngine):
                         ).astype(complex_dtype)
                         beam_evaluations.append(apparent_coherency)
 
-                    for (bi, bj) in zip(unique_beam_pairs):
+                    for (bi, bj) in unique_beam_pairs:
                         is_cross_pair = bi != bj
+                        bls_idxs = beam_pair_to_bls_idxs[(bi, bj)]
+                        flipped = beam_pair_to_flipped[(bi, bj)]
+
+                        # Select the appropriate UVW coordinates for this beam pair. 
+                        # If the pair is flipped, we need to flip the UVW coordinates as well to get the correct apparent flux.
+                        if not use_type1:
+                            _uvw = np.where(flipped, -uvw[:, bls_idxs], uvw[:, bls_idxs])
+                        else:
+                            bls_here = np.where(flipped, -bls[:, bls_idxs], bls[:, bls_idxs])
+
                         if polarized and polarized_sky_model:
                             logger.info(
                                 "Using polarized sky model. "
@@ -535,8 +552,8 @@ class CPUSimulationEngine(SimulationEngine):
                                 apparent_coherency = np.zeros_like(beam_evaluations[bi])
 
                                 _cpu_beam_evaluator.get_apparent_flux_polarized_beam(
-                                    beam1=np.flip(beam_evaluations[bi], axis=0), 
-                                    beam2=np.flip(np.conj(beam_evaluations[bj]), axis=0),
+                                    beam1=beam_evaluations[bi], 
+                                    beam2=beam_evaluations[bj],
                                     flux=flux[:nsim_sources, freqidx],
                                     out=apparent_coherency
                                 )
@@ -550,7 +567,7 @@ class CPUSimulationEngine(SimulationEngine):
                                 "Computing apparent flux for unpolarized sources."
                             )
                             if is_cross_pair:
-                                apparent_coherency = beam_evaluations[bi] * np.conj(beam_evaluations[bj])
+                                apparent_coherency = np.sqrt(beam_evaluations[bi] * beam_evaluations[bj])
                                 apparent_coherency *= flux[:nsim_sources, freqidx]
                             else:
                                 apparent_coherency = beam_evaluations[bi] * flux[:nsim_sources, freqidx]
@@ -576,7 +593,7 @@ class CPUSimulationEngine(SimulationEngine):
                                 topo[1] * freq,
                                 apparent_coherency,
                                 n_modes=type1_n_modes,
-                                index=bls,
+                                index=bls_here,
                                 eps=eps,
                                 n_threads=n_threads,
                                 upsample_factor=upsample_factor,
@@ -587,8 +604,8 @@ class CPUSimulationEngine(SimulationEngine):
                                     topo[0],
                                     topo[1],
                                     apparent_coherency,
-                                    np.where(flipped, -uvw[0], uvw[0]),
-                                    np.where(flipped, -uvw[1], uvw[1]),
+                                    _uvw[0],
+                                    _uvw[1],
                                     eps=eps,
                                     n_threads=n_threads,
                                     upsample_factor=upsample_factor,
@@ -599,9 +616,9 @@ class CPUSimulationEngine(SimulationEngine):
                                     topo[1],
                                     topo[2],
                                     apparent_coherency,
-                                    np.where(flipped, -uvw[0], uvw[0]),
-                                    np.where(flipped, -uvw[1], uvw[1]),
-                                    np.where(flipped, -uvw[2], uvw[2]),
+                                    _uvw[0],
+                                    _uvw[1],
+                                    _uvw[2],
                                     eps=eps,
                                     n_threads=n_threads,
                                     upsample_factor=upsample_factor,
@@ -611,9 +628,7 @@ class CPUSimulationEngine(SimulationEngine):
                         # which is what we do for the beam evaluation, but since the beam evaluation is done separately for each antenna, 
                         # we have to do the flipping at the end when we combine them.
                         _vis_here = np.where(flipped, np.conj(_vis_here), _vis_here)
-
-                        # TODO: Need to do something like nbls_here
-                        vis[time_index, ..., freqidx] = np.swapaxes(
+                        vis[time_index, bls_idxs, ..., freqidx] = np.swapaxes(
                             _vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0
                         )
 

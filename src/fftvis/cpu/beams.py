@@ -93,6 +93,9 @@ class CPUBeamEvaluator(BeamEvaluator):
         """
         Compute the minimal flips for the given baselines and beam indices.
         """
+        if beam_idx is None:
+            return [(0, 0)], {(0, 0): np.arange(len(baselines))}, {(0, 0): [False] * len(baselines)}
+        
         # Get number of unique beams
         nbeams = len(np.unique(beam_idx))
 
@@ -101,17 +104,22 @@ class CPUBeamEvaluator(BeamEvaluator):
 
         # Determine which baselines correspond to which beam pairs, and whether they need to be flipped
         antnum_to_beam_idx = {ai: bidx for ai, bidx in zip(antnums, beam_idx)}
-        flipped = []
+        beam_pair_to_bls_idxs = {bp: [] for bp in unique_beam_pairs}
+        beam_pair_to_flipped = {bp: [] for bp in unique_beam_pairs}
 
-        for (ai, aj) in baselines:
-            if (antnum_to_beam_idx[ai], antnum_to_beam_idx[aj]) in unique_beam_pairs:
-                flipped.append(False)
-            elif (antnum_to_beam_idx[aj], antnum_to_beam_idx[ai]) in unique_beam_pairs:
-                flipped.append(True)
+        for idx, (ai, aj) in enumerate(baselines):
+            bi, bj = antnum_to_beam_idx[ai], antnum_to_beam_idx[aj]
+            if (bi, bj) in unique_beam_pairs:
+                bp, flipped = (bi, bj), False
+            elif (bj, bi) in unique_beam_pairs:
+                bp, flipped = (bj, bi), True
             else:
                 raise ValueError("Beam pair not in beam pair list")
             
-        return unique_beam_pairs, flipped
+            beam_pair_to_bls_idxs[bp].append(idx)
+            beam_pair_to_flipped[bp].append(flipped)
+            
+        return unique_beam_pairs, beam_pair_to_bls_idxs, beam_pair_to_flipped
 
     @staticmethod
     @nb.jit(nopython=True, parallel=False, nogil=False)
