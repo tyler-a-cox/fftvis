@@ -558,6 +558,7 @@ class CPUSimulationEngine(SimulationEngine):
                                     out=apparent_coherency
                                 )
                             else:
+                                apparent_coherency = np.copy(beam_evaluations[bi])
                                 _cpu_beam_evaluator.get_apparent_flux_polarized_beam(
                                     apparent_coherency, flux[:nsim_sources, freqidx]
                                 )
