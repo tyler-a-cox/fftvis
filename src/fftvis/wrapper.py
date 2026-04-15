@@ -90,7 +90,7 @@ def simulate_vis(
     times: Union[np.ndarray, Time],
     beam,
     telescope_loc: EarthLocation,
-    beam_idx: list[int] = None,
+    beam_idx: np.ndarray = None,
     baselines: list[tuple] = None,
     precision: int = 2,
     polarized: bool = False,
@@ -138,7 +138,7 @@ def simulate_vis(
         and the beam_idx parameter should be used to specify which beam corresponds to each antenna.
     telescope_loc
         An EarthLocation object representing the center of the array.
-    beam_idx : list of int, default = None
+    beam_idx : np.ndarray, default = None
         An array of integers, of the same length as ``ants``. Each entry is for an antenna of the same index, and 
         its value should be the index of the beam in the beam list that corresponds to the antenna. If None, all 
         antennas will be assumed to have the same beam, and the beam list will be ignored.
@@ -223,6 +223,22 @@ def simulate_vis(
         _beam_list = [beam]
     else:
         _beam_list = beam
+
+    nbeam = len(_beam_list)
+    nant = len(ants)
+
+    # Check the beam indices
+    if beam_idx is None and nbeam not in (1, nant):
+        raise ValueError(
+            "If number of beams provided is not 1 or nant, beam_idx must be provided."
+        )
+    if beam_idx is not None:
+        if beam_idx.shape != (nant,):
+            raise ValueError("beam_idx must be length nant")
+        if not all(0 <= i < nbeam for i in beam_idx):
+            raise ValueError(
+                "beam_idx contains indices greater than the number of beams"
+            )
 
     beam_list = []
 
