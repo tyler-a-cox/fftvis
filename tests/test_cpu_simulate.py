@@ -906,7 +906,7 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
     beam = UVBeam()
     beam.data_array = np.ones((1,1,1))
     params = dict(
-        beam=beam,
+        beam_list=[beam],
         coord_method_params={"source_buffer": 0.5},
         ants=ants,
         freqs=freqs,
@@ -956,7 +956,7 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
     direct = engine._evaluate_vis_chunk(
         time_idx=slice(None),
         freq_idx=slice(None),
-        beam=beam,
+        beam_list=[beam],
         coord_mgr=coord_mgr,
         rotation_matrix=rotation_matrix,
         bls=bls,
@@ -977,7 +977,7 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
     fut = _evaluate_vis_chunk_remote.remote(
         time_idx=slice(None),
         freq_idx=slice(None),
-        beam=beam,
+        beam_list=[beam],
         coord_mgr=coord_mgr,
         rotation_matrix=rotation_matrix,
         bls=bls,
@@ -1093,7 +1093,7 @@ def test_chunk_eval_trace_mem(tmp_path):
     vis = engine._evaluate_vis_chunk(
         time_idx=slice(None),
         freq_idx=slice(None),
-        beam=beam,
+        beam_list=[beam],
         coord_mgr=coord_mgr,
         rotation_matrix=rotation_matrix,
         bls=bls,
