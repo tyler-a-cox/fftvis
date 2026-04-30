@@ -303,11 +303,6 @@ def test_sim_multiple_beams(use_analytic_beam, polarized, precision):
     if isinstance(beam0, UVBeam):
         beam1 = beam0.copy()
         beam1.data_array *= 0.5
-    elif isinstance(beam0, BeamInterface) and beam0._isuvbeam:
-        # Unwrap, copy, scale, and rewrap
-        raw = beam0.beam.copy()
-        raw.data_array *= 0.5
-        beam1 = raw                        # wrapper adds it back inside simulate_vis
     elif hasattr(beam0, "diameter"):       # e.g. AiryBeam
         beam1 = type(beam0)(diameter=beam0.diameter * 0.75)
     elif hasattr(beam0, "sigma"):          # e.g. GaussianBeam
