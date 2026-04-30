@@ -270,10 +270,134 @@ def test_simulate_gridded_type1_vs_type3(polarized, precision, shear_array, rota
         fvis_type1, fvis_type3, atol=1e-5 if precision == 2 else 1e-4
     )
 
+@pytest.mark.parametrize("polarized", [False, True])
+@pytest.mark.parametrize("precision", [2, 1])
 @pytest.mark.parametrize("use_analytic_beam", [True, False])
-def test_sim_multiple_beams():
-    pass
+def test_sim_multiple_beams(use_analytic_beam, polarized, precision):
+    """Test fftvis vs matvis with per-antenna (multiple) beams.
 
+    Runs two sub-cases back to back:
+
+    1. **Identical beams** – two beam slots, but both point at the same object.
+       Checks that the beam_idx dispatch path doesn't corrupt results compared
+       to the matvis reference.
+
+    2. **Different beams** – beam1 is a genuinely modified copy of beam0.
+       Checks that (a) fftvis still matches matvis, and (b) the result is
+       actually different from the identical-beam case, proving that beam
+       diversity propagates through the NUFFT correctly.
+    """
+    params, *_ = get_standard_sim_params(
+        use_analytic_beam=use_analytic_beam, polarized=polarized
+    )
+    ants = params.pop("ants")
+    nant = len(ants)
+    sim_baselines = np.array([[0, 1]])
+    # Alternate antennas between the two beam slots so both are exercised.
+    beam_idx = np.array([i % 2 for i in range(nant)])
+
+    beam0 = params["beams"][0]
+
+    # Build a second beam that is genuinely different from beam0.
+    # Strategy depends on beam type so we stay robust across both parametrise branches.
+    if isinstance(beam0, UVBeam):
+        beam1 = beam0.copy()
+        beam1.data_array *= 0.5
+    elif isinstance(beam0, BeamInterface) and beam0._isuvbeam:
+        # Unwrap, copy, scale, and rewrap
+        raw = beam0.beam.copy()
+        raw.data_array *= 0.5
+        beam1 = raw                        # wrapper adds it back inside simulate_vis
+    elif hasattr(beam0, "diameter"):       # e.g. AiryBeam
+        beam1 = type(beam0)(diameter=beam0.diameter * 0.75)
+    elif hasattr(beam0, "sigma"):          # e.g. GaussianBeam
+        beam1 = type(beam0)(sigma=beam0.sigma * 0.75)
+    else:
+        # Unknown analytic type: fall back to a scaled UVBeam from the test data
+        beam1 = UVBeam()
+        beam1.read_cst_beam(
+            str(TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"),
+            frequency=[150e6],
+            telescope_name="HERA",
+            feed_name="Dipole",
+            feed_version="1.0",
+            feed_pol=["x"],
+            model_name="Test",
+            model_version="1.0",
+        )
+        beam1.data_array *= 0.5
+
+    identical_beam_list = [beam0, beam0]
+    different_beam_list = [beam0, beam1]
+
+    # ---------------------------------------------------------------
+    # Run both matvis reference calls while params["times"] is still
+    # an astropy.Time (matvis requires it; fftvis accepts JD floats).
+    # ---------------------------------------------------------------
+    shared_matvis_kwargs = dict(
+        ants=ants,
+        precision=precision,
+        antpairs=sim_baselines,
+        coord_method="CoordinateRotationERFA",
+        source_buffer=0.75,
+        beam_idx=beam_idx,
+    )
+
+    params["beams"] = identical_beam_list
+    mvis_identical = matvis.simulate_vis(**shared_matvis_kwargs, **params)
+
+    params["beams"] = different_beam_list
+    mvis_different = matvis.simulate_vis(**shared_matvis_kwargs, **params)
+
+    # Now safe to pop times and beams for the fftvis calls.
+    times = params.pop("times").jd
+    _ = params.pop("beams")
+    freqs = params["freqs"]
+
+    atol = 1e-5 if precision == 2 else 1e-4
+    expected_shape = (
+        (len(freqs), len(times), 2, 2, len(sim_baselines))
+        if polarized
+        else (len(freqs), len(times), len(sim_baselines))
+    )
+
+    shared_fftvis_kwargs = dict(
+        ants=ants,
+        eps=1e-10 if precision == 2 else 6e-8,
+        baselines=sim_baselines,
+        precision=precision,
+        coord_method_params={"source_buffer": 0.75},
+        beam_idx=beam_idx,
+        times=times,
+        backend="cpu",
+        **params,
+    )
+
+    # ---- Sub-case 1: identical beams ----
+    fvis_identical = simulate_vis(beam=identical_beam_list, **shared_fftvis_kwargs)
+
+    assert fvis_identical.shape == expected_shape
+    for bi in range(len(sim_baselines)):
+        np.testing.assert_allclose(
+            fvis_identical[..., bi], mvis_identical[:, :, bi], atol=atol
+        )
+
+    # ---- Sub-case 2: different beams ----
+    fvis_different = simulate_vis(beam=different_beam_list, **shared_fftvis_kwargs)
+
+    assert fvis_different.shape == expected_shape
+    for bi in range(len(sim_baselines)):
+        np.testing.assert_allclose(
+            fvis_different[..., bi], mvis_different[:, :, bi], atol=atol
+        )
+
+    # ---- Sanity check: beam diversity must actually change the answer ----
+    # For an unpolarized sky, V_ij ∝ sqrt(B_i · B_j). Scaling B_j by 0.5 / 0.75
+    # changes that product, so the two arrays should not be close.
+    assert not np.allclose(fvis_different, fvis_identical, atol=atol), (
+        "Visibilities with different beams should not match those with identical beams"
+    )
+    
 @pytest.mark.parametrize("use_analytic_beam", [True, False])
 def test_sim_polarized_sky(use_analytic_beam):
     """
