@@ -271,6 +271,10 @@ def test_simulate_gridded_type1_vs_type3(polarized, precision, shear_array, rota
     )
 
 @pytest.mark.parametrize("use_analytic_beam", [True, False])
+def test_sim_multiple_beams():
+    pass
+
+@pytest.mark.parametrize("use_analytic_beam", [True, False])
 def test_sim_polarized_sky(use_analytic_beam):
     """
     """
@@ -938,6 +942,7 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
     # Flatten antenna positions
     antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
     antvecs = np.array([ants[ant] for ant in ants], dtype=np.float64)
+    antnums = list(ants.keys())
     
     # Rotate the array to the xy-plane
     rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
@@ -959,6 +964,8 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
         beam_list=[beam],
         coord_mgr=coord_mgr,
         rotation_matrix=rotation_matrix,
+        antnums=antnums,
+        baselines=[(0, 1),],
         bls=bls,
         freqs=freqs,
         complex_dtype=np.complex128,
@@ -981,6 +988,8 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
         coord_mgr=coord_mgr,
         rotation_matrix=rotation_matrix,
         bls=bls,
+        antnums=antnums,
+        baselines=[(0, 1),],
         freqs=freqs,
         complex_dtype=np.complex128,
         nfeeds=1,
