@@ -110,6 +110,7 @@ def simulate_vis(
     force_use_ray: bool = False,
     trace_mem: bool = False,
     backend: Literal["cpu", "gpu"] = "cpu",
+    nchunks: int = 1,
 ) -> np.ndarray:
     """
     Parameters:
@@ -205,6 +206,9 @@ def simulate_vis(
         Whether to show progress bar during simulation.
     backend : str
         Backend to use for simulation ("cpu" or "gpu").
+    nchunks : int, default = 1
+        Number of chunks to split the sources into for simulation. This can be used to reduce memory usage at the cost of increased computation time. 
+        The optimal number of chunks will depend on the number of sources, the available memory, and the desired accuracy. If the number of sources is very large, using more chunks can help to reduce memory usage. However, using too many chunks can increase computation time due to overhead from combining the results from each chunk. The default value is 1, which means that all sources will be simulated in a single chunk.
 
     Returns:
     -------
@@ -289,4 +293,5 @@ def simulate_vis(
         force_use_type3=force_use_type3,
         force_use_ray=force_use_ray,
         trace_mem=trace_mem,
+        nchunks=nchunks,
     )

@@ -63,6 +63,7 @@ def _evaluate_vis_chunk_remote(
     basis_matrix: np.ndarray = None,
     type1_n_modes: int = None,
     trace_mem: bool = False,
+    nchunks: int = 1,
 ):
     """Ray-compatible remote version of _evaluate_vis_chunk."""
     # Create a simulation engine instance
@@ -93,6 +94,7 @@ def _evaluate_vis_chunk_remote(
         basis_matrix=basis_matrix,
         type1_n_modes=type1_n_modes,
         trace_mem=trace_mem,
+        nchunks=nchunks,
     )
 
 
@@ -128,6 +130,7 @@ class CPUSimulationEngine(SimulationEngine):
         force_use_type3: bool = False,
         trace_mem: bool = False,
         enable_memory_monitor: bool = False,
+        nchunks: int = 1,
     ) -> np.ndarray:
         """
         Simulate visibilities using CPU implementation.
@@ -367,6 +370,7 @@ class CPUSimulationEngine(SimulationEngine):
                     basis_matrix=basis_matrix if is_gridded else None,
                     type1_n_modes=n_modes if is_gridded else None,
                     trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem,
+                    nchunks=nchunks,
                 )
             )
             if trace_mem:
@@ -421,6 +425,7 @@ class CPUSimulationEngine(SimulationEngine):
         basis_matrix: float = None,
         type1_n_modes: int = None,
         trace_mem: bool = False,
+        nchunks: int = 1,
     ) -> np.ndarray:
         """
         Evaluate a chunk of visibility data using CPU.
@@ -487,6 +492,7 @@ class CPUSimulationEngine(SimulationEngine):
                     cpu_utils.inplace_rot(basis_matrix.T, topo)
 
                 topo *= 2 * np.pi
+                chunks = np.array_split(range(nsim_sources), nchunks)
 
                 for freqidx in range(nfreqs)[freq_idx]:
                     freq = freqs[freqidx]
@@ -494,148 +500,151 @@ class CPUSimulationEngine(SimulationEngine):
                     if not use_type1:
                         uvw = bls * freq
 
-                    # Interpolate each beam at the source positions
-                    beam_evaluations = []
-                    for beam in beam_list:
-                        apparent_coherency = _cpu_beam_evaluator.evaluate_beam(
-                            beam,
-                            az,
-                            za,
-                            polarized,
-                            freq,
-                            spline_opts=beam_spline_opts,
-                            interpolation_function=interpolation_function,
-                        ).astype(complex_dtype)
-                        beam_evaluations.append(apparent_coherency)
-
-                    for (bi, bj) in unique_beam_pairs:
-                        is_cross_pair = bi != bj
-                        bls_idxs = beam_pair_to_bls_idxs[(bi, bj)]
-                        flipped = beam_pair_to_flipped[(bi, bj)]
-
-                        # Select the appropriate UVW coordinates for this beam pair. 
-                        # If the pair is flipped, we need to flip the UVW coordinates as well to get the correct apparent flux.
-                        if not use_type1:
-                            _uvw = np.where(flipped, -uvw[:, bls_idxs], uvw[:, bls_idxs])
-                        else:
-                            bls_here = np.where(flipped, -bls[:, bls_idxs], bls[:, bls_idxs])
-
-                        if polarized and polarized_sky_model:
-                            logger.info(
-                                "Using polarized sky model. "
-                                "Computing apparent flux for polarized sources."
-                            )
-                            
-                            if is_cross_pair:
-                                apparent_coherency = np.zeros_like(beam_evaluations[bi])
-
-                                # Compute the polarized apparent flux
-                                _cpu_beam_evaluator.get_apparent_flux_polarized_pair(
-                                    beam_i=np.flip(beam_evaluations[bi], axis=0), 
-                                    beam_j=np.flip(beam_evaluations[bj], axis=0),
-                                    coherency=np.transpose(flux[:nsim_sources, freqidx], (1, 2, 0)),
-                                    out=apparent_coherency
-                                )
-                            else:
-                                # Flip to match the expected order
-                                apparent_coherency = np.flip(np.copy(beam_evaluations[bi]), axis=0)
                     
-                                # Compute the polarized apparent flux
-                                _cpu_beam_evaluator.get_apparent_flux_polarized(
-                                    apparent_coherency, np.transpose(flux[:nsim_sources, freqidx], (1, 2, 0))
-                                )
-                        elif polarized:
-                            logger.info(
-                                "Using polarized beam. "
-                                "Computing apparent flux for unpolarized sources."
-                            )
-                        
-                            if is_cross_pair:
-                                logger.info("Processing cross pair")
-                                apparent_coherency = np.zeros_like(beam_evaluations[bi])
 
-                                _cpu_beam_evaluator.get_apparent_flux_polarized_beam_pair(
-                                    beam_i=beam_evaluations[bi], 
-                                    beam_j=beam_evaluations[bj],
-                                    flux=flux[:nsim_sources, freqidx],
-                                    out=apparent_coherency
-                                )
-                            else:
-                                apparent_coherency = np.copy(beam_evaluations[bi])
-                                _cpu_beam_evaluator.get_apparent_flux_polarized_beam(
-                                    apparent_coherency, flux[:nsim_sources, freqidx]
-                                )
-                        else:
-                            logger.info(
-                                "Using unpolarized beam. "
-                                "Computing apparent flux for unpolarized sources."
-                            )
-                            if is_cross_pair:
-                                apparent_coherency = np.sqrt(beam_evaluations[bi] * beam_evaluations[bj])
-                                apparent_coherency *= flux[:nsim_sources, freqidx]
-                            else:
-                                apparent_coherency = beam_evaluations[bi] * flux[:nsim_sources, freqidx]
-                        
-                        # Try to reshape safely
-                        try:
-                            apparent_coherency = np.reshape(
-                                apparent_coherency, (nfeeds**2, nsim_sources)
-                            )
-                            pass
-                        except ValueError: # pragma: no cover
-                            logger.error(f"Cannot reshape A_s with shape {apparent_coherency.shape} to {(nfeeds**2, nsim_sources)}") # pragma: no cover
-                            continue # pragma: no cover
-                        
-                        # Check if the dtype is complex
-                        if apparent_coherency.dtype != complex_dtype:
-                            apparent_coherency = apparent_coherency.astype(complex_dtype)
+                    for chunk in chunks:
+                        # Interpolate each beam at the source positions
+                        beam_evaluations = []
+                        for beam in beam_list:
+                            apparent_coherency = _cpu_beam_evaluator.evaluate_beam(
+                                beam,
+                                az[chunk],
+                                za[chunk],
+                                polarized,
+                                freq,
+                                spline_opts=beam_spline_opts,
+                                interpolation_function=interpolation_function,
+                            ).astype(complex_dtype)
+                            beam_evaluations.append(apparent_coherency)
 
-                        # Compute visibilities w/ non-uniform FFT
-                        if use_type1:
-                            _vis_here = cpu_nufft2d_type1(
-                                topo[0] * freq,
-                                topo[1] * freq,
-                                apparent_coherency,
-                                n_modes=type1_n_modes,
-                                index=bls_here,
-                                eps=eps,
-                                n_threads=n_threads,
-                                upsample_factor=upsample_factor,
-                            )
-                        else:
-                            if is_coplanar:
-                                _vis_here = cpu_nufft2d(
-                                    topo[0],
-                                    topo[1],
+                        for (bi, bj) in unique_beam_pairs:
+                            is_cross_pair = bi != bj
+                            bls_idxs = beam_pair_to_bls_idxs[(bi, bj)]
+                            flipped = beam_pair_to_flipped[(bi, bj)]
+
+                            # Select the appropriate UVW coordinates for this beam pair. 
+                            # If the pair is flipped, we need to flip the UVW coordinates as well to get the correct apparent flux.
+                            if not use_type1:
+                                _uvw = np.where(flipped, -uvw[:, bls_idxs], uvw[:, bls_idxs])
+                            else:
+                                bls_here = np.where(flipped, -bls[:, bls_idxs], bls[:, bls_idxs])
+
+                            if polarized and polarized_sky_model:
+                                logger.info(
+                                    "Using polarized sky model. "
+                                    "Computing apparent flux for polarized sources."
+                                )
+                                
+                                if is_cross_pair:
+                                    apparent_coherency = np.zeros_like(beam_evaluations[bi])
+
+                                    # Compute the polarized apparent flux
+                                    _cpu_beam_evaluator.get_apparent_flux_polarized_pair(
+                                        beam_i=np.flip(beam_evaluations[bi], axis=0), 
+                                        beam_j=np.flip(beam_evaluations[bj], axis=0),
+                                        coherency=np.transpose(flux[chunk, freqidx], (1, 2, 0)),
+                                        out=apparent_coherency
+                                    )
+                                else:
+                                    # Flip to match the expected order
+                                    apparent_coherency = np.flip(np.copy(beam_evaluations[bi]), axis=0)
+                        
+                                    # Compute the polarized apparent flux
+                                    _cpu_beam_evaluator.get_apparent_flux_polarized(
+                                        apparent_coherency, np.transpose(flux[chunk, freqidx], (1, 2, 0))
+                                    )
+                            elif polarized:
+                                logger.info(
+                                    "Using polarized beam. "
+                                    "Computing apparent flux for unpolarized sources."
+                                )
+                            
+                                if is_cross_pair:
+                                    logger.info("Processing cross pair")
+                                    apparent_coherency = np.zeros_like(beam_evaluations[bi])
+
+                                    _cpu_beam_evaluator.get_apparent_flux_polarized_beam_pair(
+                                        beam_i=beam_evaluations[bi], 
+                                        beam_j=beam_evaluations[bj],
+                                        flux=flux[chunk, freqidx],
+                                        out=apparent_coherency
+                                    )
+                                else:
+                                    apparent_coherency = np.copy(beam_evaluations[bi])
+                                    _cpu_beam_evaluator.get_apparent_flux_polarized_beam(
+                                        apparent_coherency, flux[chunk, freqidx]
+                                    )
+                            else:
+                                logger.info(
+                                    "Using unpolarized beam. "
+                                    "Computing apparent flux for unpolarized sources."
+                                )
+                                if is_cross_pair:
+                                    apparent_coherency = np.sqrt(beam_evaluations[bi] * beam_evaluations[bj])
+                                    apparent_coherency *= flux[chunk, freqidx]
+                                else:
+                                    apparent_coherency = beam_evaluations[bi] * flux[chunk, freqidx]
+                            
+                            # Try to reshape safely
+                            try:
+                                apparent_coherency = np.reshape(
+                                    apparent_coherency, (nfeeds**2, chunk.size)
+                                )
+                                pass
+                            except ValueError: # pragma: no cover
+                                logger.error(f"Cannot reshape A_s with shape {apparent_coherency.shape} to {(nfeeds**2, chunk.size)}") # pragma: no cover
+                                continue # pragma: no cover
+                            
+                            # Check if the dtype is complex
+                            if apparent_coherency.dtype != complex_dtype:
+                                apparent_coherency = apparent_coherency.astype(complex_dtype)
+
+                            # Compute visibilities w/ non-uniform FFT
+                            if use_type1:
+                                _vis_here = cpu_nufft2d_type1(
+                                    topo[0][chunk] * freq,
+                                    topo[1][chunk] * freq,
                                     apparent_coherency,
-                                    _uvw[0],
-                                    _uvw[1],
+                                    n_modes=type1_n_modes,
+                                    index=bls_here,
                                     eps=eps,
                                     n_threads=n_threads,
                                     upsample_factor=upsample_factor,
                                 )
                             else:
-                                _vis_here = cpu_nufft3d(
-                                    topo[0],
-                                    topo[1],
-                                    topo[2],
-                                    apparent_coherency,
-                                    _uvw[0],
-                                    _uvw[1],
-                                    _uvw[2],
-                                    eps=eps,
-                                    n_threads=n_threads,
-                                    upsample_factor=upsample_factor,
-                                )
+                                if is_coplanar:
+                                    _vis_here = cpu_nufft2d(
+                                        topo[0][chunk],
+                                        topo[1][chunk],
+                                        apparent_coherency,
+                                        _uvw[0],
+                                        _uvw[1],
+                                        eps=eps,
+                                        n_threads=n_threads,
+                                        upsample_factor=upsample_factor,
+                                    )
+                                else:
+                                    _vis_here = cpu_nufft3d(
+                                        topo[0][chunk],
+                                        topo[1][chunk],
+                                        topo[2][chunk],
+                                        apparent_coherency,
+                                        _uvw[0],
+                                        _uvw[1],
+                                        _uvw[2],
+                                        eps=eps,
+                                        n_threads=n_threads,
+                                        upsample_factor=upsample_factor,
+                                    )
 
-                        # Flip visibilities for flipped baselines. This is equivalent to conjugating the beam for the flipped antenna, 
-                        # which is what we do for the beam evaluation, but since the beam evaluation is done separately for each antenna, 
-                        # we have to do the flipping at the end when we combine them.
-                        _vis_here = np.where(flipped, np.conj(_vis_here), _vis_here)
+                            # Flip visibilities for flipped baselines. This is equivalent to conjugating the beam for the flipped antenna, 
+                            # which is what we do for the beam evaluation, but since the beam evaluation is done separately for each antenna, 
+                            # we have to do the flipping at the end when we combine them.
+                            _vis_here = np.where(flipped, np.conj(_vis_here), _vis_here)
 
-                        nbls_here = len(bls_idxs)
-                        vis[time_index, bls_idxs, ..., freqidx] = np.swapaxes(
-                            _vis_here.reshape(nfeeds, nfeeds, nbls_here), 2, 0
-                        )
+                            nbls_here = len(bls_idxs)
+                            vis[time_index, bls_idxs, ..., freqidx] += np.swapaxes(
+                                _vis_here.reshape(nfeeds, nfeeds, nbls_here), 2, 0
+                            )
 
         return vis
