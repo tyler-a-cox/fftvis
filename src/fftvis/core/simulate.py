@@ -11,12 +11,102 @@ import numpy as np
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
 from matvis.core.coords import CoordinateRotation
+from .. import utils
 
 # Default accuracy for the non-uniform fast fourier transform based on precision
 default_accuracy_dict = {
     1: 6e-8,
     2: 1e-13,
 }
+
+
+def prepare_simulation_inputs(
+    ants: dict,
+    freqs: np.ndarray,
+    ra: np.ndarray,
+    dec: np.ndarray,
+    precision: int,
+    eps: float | None,
+    baselines: list[tuple] | None,
+    flat_array_tol: float,
+    times,
+):
+    """Prepare common simulation inputs shared by CPU and GPU backends.
+
+    Returns a dict with: nfreqs, ntimes, nfeeds (always 1 here — caller sets
+    polarized), real_dtype, complex_dtype, eps, baselines, nbls, antkey_to_idx,
+    antvecs, rotation_matrix, bls, is_coplanar, times (as Time object).
+    """
+    nfreqs = np.size(freqs)
+    ntimes = len(times)
+
+    if precision == 1:
+        real_dtype = np.float32
+        complex_dtype = np.complex64
+    else:
+        real_dtype = np.float64
+        complex_dtype = np.complex128
+
+    if eps is None:
+        eps = default_accuracy_dict[precision]
+
+    # Cast arrays to correct dtype
+    if ra.dtype != real_dtype:
+        ra = ra.astype(real_dtype)
+    if dec.dtype != real_dtype:
+        dec = dec.astype(real_dtype)
+    if freqs.dtype != real_dtype:
+        freqs = freqs.astype(real_dtype)
+
+    # Get the redundant groups
+    if baselines is None:
+        reds = utils.get_pos_reds(ants, include_autos=True)
+        baselines = [red[0] for red in reds]
+    nbls = len(baselines)
+
+    # Flatten antenna positions
+    antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
+    antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
+
+    # Rotate the array to the xy-plane
+    rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
+    rotation_matrix = np.ascontiguousarray(rotation_matrix.astype(real_dtype).T)
+    rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
+    rotated_ants = {ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants}
+
+    # Compute baseline vectors
+    bls = np.array(
+        [rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines]
+    )[:, :].T.astype(real_dtype)
+
+    # Coplanarity check
+    is_coplanar = np.all(np.less_equal(np.abs(bls[2]), flat_array_tol))
+
+    # Scale baselines by 1/c
+    bls /= utils.speed_of_light
+
+    # Ensure times is an astropy Time object
+    if isinstance(times, np.ndarray):
+        times = Time(times, format="jd")
+
+    return {
+        "nfreqs": nfreqs,
+        "ntimes": ntimes,
+        "real_dtype": real_dtype,
+        "complex_dtype": complex_dtype,
+        "eps": eps,
+        "ra": ra,
+        "dec": dec,
+        "freqs": freqs,
+        "baselines": baselines,
+        "nbls": nbls,
+        "antkey_to_idx": antkey_to_idx,
+        "antvecs": antvecs,
+        "rotation_matrix": rotation_matrix,
+        "bls": bls,
+        "is_coplanar": is_coplanar,
+        "times": times,
+    }
 
 
 class SimulationEngine(ABC):

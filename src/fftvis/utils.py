@@ -15,20 +15,6 @@ from .core.utils import (
 )
 
 
-# This is a simple check to determine which implementation to use
-# This could be enhanced to check for actual CUDA availability
-def _use_gpu():
-    """Check if GPU implementation should be used."""
-    # This is a placeholder. In a real implementation,
-    # you might check for CUDA availability or a config setting
-    try:
-        import cupy
-
-        return True
-    except ImportError:
-        return False
-
-
 __all__ = [
     "IDEALIZED_BL_TOL",
     "speed_of_light",

@@ -14,32 +14,36 @@ cst_file = TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"
 
 def test_cpu_beam_evaluator_init():
     """Test that the CPUBeamEvaluator initializes correctly."""
-    # Create a concrete evaluator since BeamEvaluator is an abstract class
+    # Create evaluator
     evaluator = CPUBeamEvaluator()
-    
+
     # Check initialization values
-    assert evaluator.beam_list == []
-    assert evaluator.beam_idx is None
-    assert evaluator.polarized is False
-    assert evaluator.nant == 0
-    assert evaluator.freq == 0.0
-    assert evaluator.nsrc == 0
     assert evaluator.precision == 2
+    assert evaluator._initialized == False
+    assert evaluator._current_beam_id is None
+    assert evaluator._current_freq is None
+    assert evaluator._current_polarized is None
+    assert evaluator._interpolator is None
 
 
 def test_cpu_evaluator_attributes():
-    """Test that the CPUBeamEvaluator inherits all required attributes from base class."""
+    """Test that the CPUBeamEvaluator has required attributes."""
     cpu_evaluator = CPUBeamEvaluator()
-    
-    # Check that it has all the attributes from the parent class
+
+    # Check implementation-specific attributes
+    assert hasattr(cpu_evaluator, 'precision')
+    assert hasattr(cpu_evaluator, '_initialized')
+    assert hasattr(cpu_evaluator, '_interpolator')
+    assert hasattr(cpu_evaluator, 'evaluate_beam')
+
+    # Check base class compatibility attributes
     assert hasattr(cpu_evaluator, 'beam_list')
-    assert hasattr(cpu_evaluator, 'beam_idx')
     assert hasattr(cpu_evaluator, 'polarized')
-    assert hasattr(cpu_evaluator, 'nant')
     assert hasattr(cpu_evaluator, 'freq')
     assert hasattr(cpu_evaluator, 'nsrc')
+    assert hasattr(cpu_evaluator, 'nant')
     assert hasattr(cpu_evaluator, 'spline_opts')
-    assert hasattr(cpu_evaluator, 'precision')
+    assert hasattr(cpu_evaluator, 'beam_idx')
     
     # Check default values
     assert cpu_evaluator.beam_list == []
@@ -82,7 +86,7 @@ def test_evaluate_beam_with_check():
     nsrcs = 20
     az = np.linspace(0, 2 * np.pi, nsrcs)
     za = np.linspace(0, np.pi / 2.0, nsrcs)
-    freq = np.array([150e6])
+    freq = 150e6  # Scalar frequency as required by evaluate_beam signature
 
     # Create a CPU beam evaluator instance
     cpu_evaluator = CPUBeamEvaluator()
@@ -164,13 +168,35 @@ def test_interp_method():
     assert result is out  # Should return the same array
     assert not np.isnan(result).any()  # No NaN values
     
-    # Now test with polarized=True
+    # Now test with polarized=True using an efield beam
+    efield_beam = UVBeam()
+    efield_beam.read_cst_beam(
+        str(cst_file),
+        frequency=[150e6],
+        telescope_name="HERA",
+        feed_name="Dipole",
+        feed_version="1.0",
+        feed_pol=["x"],
+        model_name="Dipole - Rigging height 4.9 m",
+        model_version="1.0",
+        x_orientation="east",
+        reference_impedance=100,
+        history=(
+            "Derived from https://github.com/Nicolas-Fagnoni/Simulations."
+            "\nOnly 1 file included to keep test data volume low."
+        ),
+        extra_keywords=extra_keywords,
+        beam_type="efield",
+    )
+    efield_interface = BeamInterface(efield_beam)
+
+    cpu_evaluator.beam_list = [efield_interface]
     cpu_evaluator.polarized = True
     out_pol = np.zeros((1, 2, 2, nsrcs), dtype=np.complex128)
-    
+
     # Call the interp method
     result_pol = cpu_evaluator.interp(tx, ty, out_pol)
-    
+
     # Verify the result
     assert result_pol is out_pol  # Should return the same array
 

@@ -3,7 +3,7 @@ import numba as nb
 
 
 @nb.jit(nopython=True)
-def inplace_rot(rot: np.ndarray, b: np.ndarray):  # pragma: no cover
+def inplace_rot(rot: np.ndarray, b: np.ndarray):
     """
     CPU implementation of in-place rotation of coordinates using Numba.
 

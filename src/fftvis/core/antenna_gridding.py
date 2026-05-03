@@ -9,8 +9,9 @@ def find_integer_multiplier(
     max_denominator: int = 10**6
 ) -> int:
     """
-    Return the smallest positive integer f such that f * arr[i] is integral
-    for all entries (up to rational approximation). Zeros in arr are ignored.
+    Find the smallest integer product that makes all array values integral.
+
+    This function ignores any zero-values in ``arr``.
 
     Parameters
     ----------
