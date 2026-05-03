@@ -131,6 +131,7 @@ class CPUSimulationEngine(SimulationEngine):
         trace_mem: bool = False,
         enable_memory_monitor: bool = False,
         nchunks: int = 1,
+        source_buffer=1.0
     ) -> np.ndarray:
         """
         Simulate visibilities using CPU implementation.
@@ -236,6 +237,8 @@ class CPUSimulationEngine(SimulationEngine):
         if isinstance(times, np.ndarray):
             times = Time(times, format="jd")
 
+        chunk_size = int(np.ceil(dec.size / nchunks))
+
         coord_method = CoordinateRotation._methods[coord_method]
         coord_method_params = coord_method_params or {}
         coord_mgr = coord_method(
@@ -244,6 +247,8 @@ class CPUSimulationEngine(SimulationEngine):
             telescope_loc=telescope_loc,
             skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs"),
             precision=precision,
+            source_buffer=source_buffer,
+            chunk_size=chunk_size,
             **coord_method_params,
         )
 
@@ -468,48 +473,46 @@ class CPUSimulationEngine(SimulationEngine):
         with threadpool_limits(limits=n_threads, user_api="blas"):
             for time_index, ti in enumerate(range(ntimes)[time_idx]):
                 coord_mgr.rotate(ti)
-                topo, flux, nsim_sources = coord_mgr.select_chunk(0, ti)
 
-                # truncate to nsim_sources
-                topo = topo[:, :nsim_sources]
-                flux = flux[:nsim_sources]
+                for chunk in range(nchunks):
+                    topo, flux, nsim_sources = coord_mgr.select_chunk(chunk, ti)
 
-                if nsim_sources == 0:
-                    continue
+                    # truncate to nsim_sources
+                    topo = topo[:, :nsim_sources]
+                    flux = flux[:nsim_sources]
 
-                # Compute azimuth and zenith angles
-                az, za = coordinates.enu_to_az_za(
-                    enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
-                )
+                    if nsim_sources == 0:
+                        continue
 
-                # Rotate source coordinates with rotation matrix.
-                if not is_rotation_identity:
-                    cpu_utils.inplace_rot(rotation_matrix, topo)
-                
-                # Rotate the basis matrix
-                if basis_matrix is not None:
-                    # Rotate antenna positions with basis matrix
-                    cpu_utils.inplace_rot(basis_matrix.T, topo)
+                    # Compute azimuth and zenith angles
+                    az, za = coordinates.enu_to_az_za(
+                        enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
+                    )
 
-                topo *= 2 * np.pi
-                chunks = np.array_split(range(nsim_sources), nchunks)
-
-                for freqidx in range(nfreqs)[freq_idx]:
-                    freq = freqs[freqidx]
-
-                    if not use_type1:
-                        uvw = bls * freq
-
+                    # Rotate source coordinates with rotation matrix.
+                    if not is_rotation_identity:
+                        cpu_utils.inplace_rot(rotation_matrix, topo)
                     
+                    # Rotate the basis matrix
+                    if basis_matrix is not None:
+                        # Rotate antenna positions with basis matrix
+                        cpu_utils.inplace_rot(basis_matrix.T, topo)
 
-                    for chunk in chunks:
+                    topo *= 2 * np.pi
+        
+                    for freqidx in range(nfreqs)[freq_idx]:
+                        freq = freqs[freqidx]
+
+                        if not use_type1:
+                            uvw = bls * freq
+
                         # Interpolate each beam at the source positions
                         beam_evaluations = []
                         for beam in beam_list:
                             apparent_coherency = _cpu_beam_evaluator.evaluate_beam(
                                 beam,
-                                az[chunk],
-                                za[chunk],
+                                az,
+                                za,
                                 polarized,
                                 freq,
                                 spline_opts=beam_spline_opts,
@@ -542,7 +545,7 @@ class CPUSimulationEngine(SimulationEngine):
                                     _cpu_beam_evaluator.get_apparent_flux_polarized_pair(
                                         beam_i=np.flip(beam_evaluations[bi], axis=0), 
                                         beam_j=np.flip(beam_evaluations[bj], axis=0),
-                                        coherency=np.transpose(flux[chunk, freqidx], (1, 2, 0)),
+                                        coherency=np.transpose(flux[:, freqidx], (1, 2, 0)),
                                         out=apparent_coherency
                                     )
                                 else:
@@ -551,7 +554,7 @@ class CPUSimulationEngine(SimulationEngine):
                         
                                     # Compute the polarized apparent flux
                                     _cpu_beam_evaluator.get_apparent_flux_polarized(
-                                        apparent_coherency, np.transpose(flux[chunk, freqidx], (1, 2, 0))
+                                        apparent_coherency, np.transpose(flux[:, freqidx], (1, 2, 0))
                                     )
                             elif polarized:
                                 logger.info(
@@ -566,13 +569,13 @@ class CPUSimulationEngine(SimulationEngine):
                                     _cpu_beam_evaluator.get_apparent_flux_polarized_beam_pair(
                                         beam_i=beam_evaluations[bi], 
                                         beam_j=beam_evaluations[bj],
-                                        flux=flux[chunk, freqidx],
+                                        flux=flux[:, freqidx],
                                         out=apparent_coherency
                                     )
                                 else:
                                     apparent_coherency = np.copy(beam_evaluations[bi])
                                     _cpu_beam_evaluator.get_apparent_flux_polarized_beam(
-                                        apparent_coherency, flux[chunk, freqidx]
+                                        apparent_coherency, flux[:, freqidx]
                                     )
                             else:
                                 logger.info(
@@ -581,18 +584,18 @@ class CPUSimulationEngine(SimulationEngine):
                                 )
                                 if is_cross_pair:
                                     apparent_coherency = np.sqrt(beam_evaluations[bi] * beam_evaluations[bj])
-                                    apparent_coherency *= flux[chunk, freqidx]
+                                    apparent_coherency *= flux[:, freqidx]
                                 else:
-                                    apparent_coherency = beam_evaluations[bi] * flux[chunk, freqidx]
+                                    apparent_coherency = beam_evaluations[bi] * flux[:, freqidx]
                             
                             # Try to reshape safely
                             try:
                                 apparent_coherency = np.reshape(
-                                    apparent_coherency, (nfeeds**2, chunk.size)
+                                    apparent_coherency, (nfeeds**2, nsim_sources)
                                 )
                                 pass
                             except ValueError: # pragma: no cover
-                                logger.error(f"Cannot reshape A_s with shape {apparent_coherency.shape} to {(nfeeds**2, chunk.size)}") # pragma: no cover
+                                logger.error(f"Cannot reshape A_s with shape {apparent_coherency.shape} to {(nfeeds**2, nsim_sources)}") # pragma: no cover
                                 continue # pragma: no cover
                             
                             # Check if the dtype is complex
@@ -602,8 +605,8 @@ class CPUSimulationEngine(SimulationEngine):
                             # Compute visibilities w/ non-uniform FFT
                             if use_type1:
                                 _vis_here = cpu_nufft2d_type1(
-                                    topo[0][chunk] * freq,
-                                    topo[1][chunk] * freq,
+                                    topo[0] * freq,
+                                    topo[1] * freq,
                                     apparent_coherency,
                                     n_modes=type1_n_modes,
                                     index=bls_here,
@@ -614,8 +617,8 @@ class CPUSimulationEngine(SimulationEngine):
                             else:
                                 if is_coplanar:
                                     _vis_here = cpu_nufft2d(
-                                        topo[0][chunk],
-                                        topo[1][chunk],
+                                        topo[0],
+                                        topo[1],
                                         apparent_coherency,
                                         _uvw[0],
                                         _uvw[1],
@@ -625,9 +628,9 @@ class CPUSimulationEngine(SimulationEngine):
                                     )
                                 else:
                                     _vis_here = cpu_nufft3d(
-                                        topo[0][chunk],
-                                        topo[1][chunk],
-                                        topo[2][chunk],
+                                        topo[0],
+                                        topo[1],
+                                        topo[2],
                                         apparent_coherency,
                                         _uvw[0],
                                         _uvw[1],
