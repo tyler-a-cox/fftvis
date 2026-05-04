@@ -141,7 +141,7 @@ class CPUBeamEvaluator(BeamEvaluator):
 
     @staticmethod
     @nb.jit(nopython=True, parallel=False, nogil=False)
-    def get_apparent_flux_polarized(beam, coherency):
+    def get_apparent_flux_polarized(beam, coherency): # pragma: no cover
         """
         Calculate the apparent flux of the sources using the beam and coherency matrices.
         
@@ -181,7 +181,7 @@ class CPUBeamEvaluator(BeamEvaluator):
         beam_j: np.ndarray,
         flux: np.ndarray,
         out: np.ndarray,
-    ):
+    ): # pragma: no cover
         """Compute A_i^H * diag(flux) * A_j for an unpolarized sky with two beams.
 
         Generalises get_apparent_flux_polarized_beam to the case where the two
@@ -214,7 +214,7 @@ class CPUBeamEvaluator(BeamEvaluator):
         beam_j: np.ndarray,
         coherency: np.ndarray,
         out: np.ndarray,
-    ):
+    ): # pragma: no cover
         """Compute A_i^H @ C @ A_j for a polarized sky with two beams.
 
         Generalises get_apparent_flux_polarized to the cross-beam case.
