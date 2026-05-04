@@ -300,32 +300,15 @@ def test_sim_multiple_beams(use_analytic_beam, polarized, precision):
 
     # Build a second beam that is genuinely different from beam0.
     # Strategy depends on beam type so we stay robust across both parametrise branches.
-    if isinstance(beam0, UVBeam):
-        beam1 = beam0.copy()
-        beam1.data_array *= 0.5
-    elif isinstance(beam0, BeamInterface) and beam0._isuvbeam:
+    if isinstance(beam0, BeamInterface) and beam0._isuvbeam:
         # Unwrap, copy, scale, and rewrap
         raw = beam0.beam.copy()
         raw.data_array *= 0.5
         beam1 = raw                        # wrapper adds it back inside simulate_vis
-    elif hasattr(beam0, "diameter"):       # e.g. AiryBeam
-        beam1 = type(beam0)(diameter=beam0.diameter * 0.75)
-    elif hasattr(beam0, "sigma"):          # e.g. GaussianBeam
-        beam1 = type(beam0)(sigma=beam0.sigma * 0.75)
+    elif isinstance(beam0, BeamInterface) and not beam0._isuvbeam:       # e.g. AiryBeam
+        beam1 = BeamInterface(type(beam0.beam)(diameter=beam0.beam.diameter * 0.75))
     else:
-        # Unknown analytic type: fall back to a scaled UVBeam from the test data
-        beam1 = UVBeam()
-        beam1.read_cst_beam(
-            str(TEST_DIR / "data" / "HERA_NicCST_150MHz.txt"),
-            frequency=[150e6],
-            telescope_name="HERA",
-            feed_name="Dipole",
-            feed_version="1.0",
-            feed_pol=["x"],
-            model_name="Test",
-            model_version="1.0",
-        )
-        beam1.data_array *= 0.5
+        raise ValueError("Unrecognized beam")
 
     identical_beam_list = [beam0, beam0]
     different_beam_list = [beam0, beam1]
