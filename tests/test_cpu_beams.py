@@ -699,3 +699,300 @@ def test_evaluate_beam_additional_paths():
     )
     
     assert not np.isnan(result_simple).any()
+
+
+# ===========================================================================
+# prepare_beam_evaluation
+# ===========================================================================
+
+class TestPrepareBeamEvaluation:
+    """Tests for CPUBeamEvaluator.prepare_beam_evaluation."""
+
+    # -----------------------------------------------------------------------
+    # beam_idx is None  →  trivial single-beam result
+    # -----------------------------------------------------------------------
+
+    def test_none_beam_idx_returns_single_pair(self):
+        antnums = [0, 1, 2]
+        baselines = [(0, 1), (1, 2), (0, 2)]
+        unique_pairs, _, _ = CPUBeamEvaluator.prepare_beam_evaluation(
+            antnums, baselines, beam_idx=None
+        )
+        assert unique_pairs == [(0, 0)]
+
+    def test_none_beam_idx_maps_all_baselines(self):
+        antnums = [0, 1, 2]
+        baselines = [(0, 1), (1, 2), (0, 2)]
+        _, pair_to_idxs, _ = CPUBeamEvaluator.prepare_beam_evaluation(
+            antnums, baselines, beam_idx=None
+        )
+        np.testing.assert_array_equal(pair_to_idxs[(0, 0)], np.arange(len(baselines)))
+
+    def test_none_beam_idx_no_flipped(self):
+        antnums = [0, 1, 2]
+        baselines = [(0, 1), (1, 2), (0, 2)]
+        _, _, pair_to_flipped = CPUBeamEvaluator.prepare_beam_evaluation(
+            antnums, baselines, beam_idx=None
+        )
+        assert pair_to_flipped[(0, 0)] == [False, False, False]
+
+    # -----------------------------------------------------------------------
+    # Single beam type  →  only pair (0, 0) via the real logic path
+    # -----------------------------------------------------------------------
+
+    def test_single_beam_type(self):
+        antnums = [0, 1, 2]
+        beam_idx = [0, 0, 0]
+        baselines = [(0, 1), (1, 2), (0, 2)]
+        unique_pairs, pair_to_idxs, pair_to_flipped = (
+            CPUBeamEvaluator.prepare_beam_evaluation(antnums, baselines, beam_idx)
+        )
+        assert unique_pairs == [(0, 0)]
+        assert list(pair_to_idxs[(0, 0)]) == [0, 1, 2]
+        assert pair_to_flipped[(0, 0)] == [False, False, False]
+
+    # -----------------------------------------------------------------------
+    # Two beam types  →  pairs (0,0), (0,1), (1,1)
+    # -----------------------------------------------------------------------
+
+    def test_two_beam_types_unique_pairs(self):
+        antnums = [0, 1]
+        beam_idx = [0, 1]
+        baselines = [(0, 1)]
+        unique_pairs, _, _ = CPUBeamEvaluator.prepare_beam_evaluation(
+            antnums, baselines, beam_idx
+        )
+        assert set(unique_pairs) == {(0, 0), (0, 1), (1, 1)}
+
+    def test_two_beam_types_baseline_routing(self):
+        antnums = [0, 1]
+        beam_idx = [0, 1]
+        baselines = [(0, 1)]  # beam pair (0, 1) — not flipped
+        _, pair_to_idxs, pair_to_flipped = CPUBeamEvaluator.prepare_beam_evaluation(
+            antnums, baselines, beam_idx
+        )
+        assert pair_to_idxs[(0, 1)] == [0]
+        assert pair_to_flipped[(0, 1)] == [False]
+
+    def test_flipped_baseline_detected(self):
+        """A baseline (ant_j, ant_i) where beam_j < beam_i should be recorded as flipped."""
+        antnums = [0, 1]
+        beam_idx = [0, 1]
+        # Baseline given as (ant1, ant0) → beam pair (1, 0) → stored as (0, 1) flipped
+        baselines = [(1, 0)]
+        _, pair_to_idxs, pair_to_flipped = CPUBeamEvaluator.prepare_beam_evaluation(
+            antnums, baselines, beam_idx
+        )
+        assert pair_to_idxs[(0, 1)] == [0]
+        assert pair_to_flipped[(0, 1)] == [True]
+
+    def test_mixed_flipped_and_not_flipped(self):
+        antnums = [0, 1]
+        beam_idx = [0, 1]
+        baselines = [(0, 1), (1, 0)]
+        _, pair_to_idxs, pair_to_flipped = CPUBeamEvaluator.prepare_beam_evaluation(
+            antnums, baselines, beam_idx
+        )
+        assert pair_to_idxs[(0, 1)] == [0, 1]
+        assert pair_to_flipped[(0, 1)] == [False, True]
+
+    def test_multiple_baselines_same_pair(self):
+        """Several baselines all sharing the same beam pair."""
+        antnums = [0, 1, 2, 3]
+        beam_idx = [0, 0, 1, 1]
+        baselines = [(0, 2), (0, 3), (1, 2), (1, 3)]
+        _, pair_to_idxs, pair_to_flipped = CPUBeamEvaluator.prepare_beam_evaluation(
+            antnums, baselines, beam_idx
+        )
+        assert sorted(pair_to_idxs[(0, 1)]) == [0, 1, 2, 3]
+        assert pair_to_flipped[(0, 1)] == [False, False, False, False]
+
+    def test_empty_baselines(self):
+        antnums = [0, 1]
+        beam_idx = [0, 1]
+        baselines = []
+        unique_pairs, pair_to_idxs, pair_to_flipped = (
+            CPUBeamEvaluator.prepare_beam_evaluation(antnums, baselines, beam_idx)
+        )
+        for bp in unique_pairs:
+            assert pair_to_idxs[bp] == []
+            assert pair_to_flipped[bp] == []
+
+    def test_three_beam_types_pair_count(self):
+        """3 beam types → 6 unique upper-triangle pairs."""
+        antnums = [0, 1, 2]
+        beam_idx = [0, 1, 2]
+        baselines = [(0, 1), (0, 2), (1, 2)]
+        unique_pairs, _, _ = CPUBeamEvaluator.prepare_beam_evaluation(
+            antnums, baselines, beam_idx
+        )
+        assert len(unique_pairs) == 6  # (0,0),(0,1),(0,2),(1,1),(1,2),(2,2)
+
+
+# ===========================================================================
+# get_apparent_flux_polarized_beam_pair
+# ===========================================================================
+
+class TestGetApparentFluxPolarizedBeamPair:
+    """Tests for CPUBeamEvaluator.get_apparent_flux_polarized_beam_pair.
+
+    Computes out[a, p, s] = sum_b conj(A_i[b,a,s]) * flux[s] * A_j[b,p,s],
+    i.e. einsum("bas,s,bps->aps", beam_i.conj(), flux, beam_j).
+    """
+
+    @staticmethod
+    def _reference(beam_i, beam_j, flux):
+        return np.einsum("bas,s,bps->aps", beam_i.conj(), flux, beam_j)
+
+    def _run(self, beam_i, beam_j, flux):
+        out = np.zeros_like(beam_i)
+        CPUBeamEvaluator.get_apparent_flux_polarized_beam_pair(beam_i, beam_j, flux, out)
+        return out
+
+    def test_identical_beams_matches_single_beam_method(self):
+        """When beam_i == beam_j the result should equal get_apparent_flux_polarized_beam."""
+        rng = np.random.default_rng(0)
+        beam = rng.standard_normal((2, 2, 5)) + 1j * rng.standard_normal((2, 2, 5))
+        flux = rng.standard_normal(5)
+
+        out_pair = self._run(beam.copy(), beam.copy(), flux.copy())
+
+        beam_single = beam.copy()
+        CPUBeamEvaluator.get_apparent_flux_polarized_beam(beam_single, flux.copy())
+
+        np.testing.assert_allclose(out_pair, beam_single, rtol=1e-12)
+
+    def test_different_beams_match_einsum(self):
+        rng = np.random.default_rng(1)
+        beam_i = rng.standard_normal((2, 2, 8)) + 1j * rng.standard_normal((2, 2, 8))
+        beam_j = rng.standard_normal((2, 2, 8)) + 1j * rng.standard_normal((2, 2, 8))
+        flux = rng.standard_normal(8)
+
+        out = self._run(beam_i.copy(), beam_j.copy(), flux.copy())
+        np.testing.assert_allclose(out, self._reference(beam_i, beam_j, flux), rtol=1e-12)
+
+    def test_zero_flux_gives_zero_output(self):
+        rng = np.random.default_rng(2)
+        beam_i = rng.standard_normal((2, 2, 4)) + 1j * rng.standard_normal((2, 2, 4))
+        beam_j = rng.standard_normal((2, 2, 4)) + 1j * rng.standard_normal((2, 2, 4))
+        out = self._run(beam_i.copy(), beam_j.copy(), np.zeros(4))
+        np.testing.assert_allclose(out, 0.0)
+
+    def test_identity_beams_unit_flux_gives_identity(self):
+        nsrc = 3
+        beam_i = np.zeros((2, 2, nsrc), dtype=complex)
+        beam_j = np.zeros((2, 2, nsrc), dtype=complex)
+        for s in range(nsrc):
+            beam_i[0, 0, s] = beam_i[1, 1, s] = 1.0
+            beam_j[0, 0, s] = beam_j[1, 1, s] = 1.0
+
+        out = self._run(beam_i, beam_j, np.ones(nsrc))
+
+        expected = np.zeros((2, 2, nsrc), dtype=complex)
+        expected[0, 0, :] = expected[1, 1, :] = 1.0
+        np.testing.assert_allclose(out, expected)
+
+    def test_single_source(self):
+        rng = np.random.default_rng(3)
+        beam_i = rng.standard_normal((2, 2, 1)) + 1j * rng.standard_normal((2, 2, 1))
+        beam_j = rng.standard_normal((2, 2, 1)) + 1j * rng.standard_normal((2, 2, 1))
+        flux = rng.standard_normal(1)
+
+        out = self._run(beam_i.copy(), beam_j.copy(), flux.copy())
+        np.testing.assert_allclose(out, self._reference(beam_i, beam_j, flux), rtol=1e-12)
+
+    def test_result_is_not_hermitian_for_distinct_beams(self):
+        """For different beams, out[0,1] != conj(out[1,0]) in general."""
+        rng = np.random.default_rng(4)
+        beam_i = rng.standard_normal((2, 2, 6)) + 1j * rng.standard_normal((2, 2, 6))
+        beam_j = rng.standard_normal((2, 2, 6)) + 1j * rng.standard_normal((2, 2, 6))
+        flux = np.abs(rng.standard_normal(6))
+
+        out = self._run(beam_i.copy(), beam_j.copy(), flux.copy())
+        assert not np.allclose(out[0, 1], np.conj(out[1, 0]))
+
+
+# ===========================================================================
+# get_apparent_flux_polarized_pair
+# ===========================================================================
+
+class TestGetApparentFluxPolarizedPair:
+    """Tests for CPUBeamEvaluator.get_apparent_flux_polarized_pair.
+
+    Computes out = A_i^H @ C @ A_j per source, i.e.
+    out[a,p,s] = einsum("bas,bks,kps->aps", beam_i.conj(), coherency, beam_j).
+    """
+
+    @staticmethod
+    def _reference(beam_i, beam_j, coherency):
+        return np.einsum("bas,bks,kps->aps", beam_i.conj(), coherency, beam_j)
+
+    def _run(self, beam_i, beam_j, coherency):
+        out = np.zeros_like(beam_i)
+        CPUBeamEvaluator.get_apparent_flux_polarized_pair(beam_i, beam_j, coherency, out)
+        return out
+
+    def test_identity_beams_recover_coherency(self):
+        """With identity Jones matrices, out should equal the coherency."""
+        nsrc = 4
+        beam = np.zeros((2, 2, nsrc), dtype=complex)
+        for s in range(nsrc):
+            beam[0, 0, s] = beam[1, 1, s] = 1.0
+
+        rng = np.random.default_rng(10)
+        coh = rng.standard_normal((2, 2, nsrc)) + 1j * rng.standard_normal((2, 2, nsrc))
+
+        out = self._run(beam.copy(), beam.copy(), coh.copy())
+        np.testing.assert_allclose(out, coh, rtol=1e-12)
+
+    def test_random_beams_match_einsum(self):
+        rng = np.random.default_rng(11)
+        beam_i = rng.standard_normal((2, 2, 7)) + 1j * rng.standard_normal((2, 2, 7))
+        beam_j = rng.standard_normal((2, 2, 7)) + 1j * rng.standard_normal((2, 2, 7))
+        coh = rng.standard_normal((2, 2, 7)) + 1j * rng.standard_normal((2, 2, 7))
+
+        out = self._run(beam_i.copy(), beam_j.copy(), coh.copy())
+        np.testing.assert_allclose(out, self._reference(beam_i, beam_j, coh), rtol=1e-12)
+
+    def test_same_beam_matches_get_apparent_flux_polarized(self):
+        """When beam_i == beam_j, must agree with the single-beam polarized method."""
+        rng = np.random.default_rng(12)
+        beam = rng.standard_normal((2, 2, 5)) + 1j * rng.standard_normal((2, 2, 5))
+        coh = rng.standard_normal((2, 2, 5)) + 1j * rng.standard_normal((2, 2, 5))
+
+        out_pair = self._run(beam.copy(), beam.copy(), coh.copy())
+
+        beam_single = beam.copy()
+        CPUBeamEvaluator.get_apparent_flux_polarized(beam_single, coh.copy())
+
+        np.testing.assert_allclose(out_pair, beam_single, rtol=1e-12)
+
+    def test_zero_coherency_gives_zero_output(self):
+        rng = np.random.default_rng(13)
+        beam_i = rng.standard_normal((2, 2, 6)) + 1j * rng.standard_normal((2, 2, 6))
+        beam_j = rng.standard_normal((2, 2, 6)) + 1j * rng.standard_normal((2, 2, 6))
+        out = self._run(beam_i.copy(), beam_j.copy(), np.zeros((2, 2, 6), dtype=complex))
+        np.testing.assert_allclose(out, 0.0)
+
+    def test_single_source(self):
+        rng = np.random.default_rng(14)
+        beam_i = rng.standard_normal((2, 2, 1)) + 1j * rng.standard_normal((2, 2, 1))
+        beam_j = rng.standard_normal((2, 2, 1)) + 1j * rng.standard_normal((2, 2, 1))
+        coh = rng.standard_normal((2, 2, 1)) + 1j * rng.standard_normal((2, 2, 1))
+
+        out = self._run(beam_i.copy(), beam_j.copy(), coh.copy())
+        np.testing.assert_allclose(out, self._reference(beam_i, beam_j, coh), rtol=1e-12)
+
+    def test_stokes_i_diagonal_coherency(self):
+        """Diagonal coherency (Stokes I only) should still match the reference einsum."""
+        rng = np.random.default_rng(15)
+        nsrc = 5
+        beam_i = rng.standard_normal((2, 2, nsrc)) + 1j * rng.standard_normal((2, 2, nsrc))
+        beam_j = rng.standard_normal((2, 2, nsrc)) + 1j * rng.standard_normal((2, 2, nsrc))
+        flux = rng.standard_normal(nsrc)
+
+        coh = np.zeros((2, 2, nsrc), dtype=complex)
+        coh[0, 0, :] = coh[1, 1, :] = flux / 2
+
+        out = self._run(beam_i.copy(), beam_j.copy(), coh.copy())
+        np.testing.assert_allclose(out, self._reference(beam_i, beam_j, coh), rtol=1e-12)
