@@ -1212,6 +1212,8 @@ def test_chunk_eval_trace_mem(tmp_path):
         beam_list=[beam],
         coord_mgr=coord_mgr,
         rotation_matrix=rotation_matrix,
+        antnums=list(ants.keys()),
+        baselines=[(0, 1),],
         bls=bls,
         freqs=freqs,
         complex_dtype=np.complex128,
