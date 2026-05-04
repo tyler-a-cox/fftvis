@@ -106,24 +106,39 @@ def test_simulate_vis_basic():
     
     # Ensure we get non-zero values
     assert np.any(vis != 0)
-    
-    # Test the polarized case too - disabled for now as it's causing issues
-    # vis_pol = simulate_vis(
-    #     ants=ants,
-    #     fluxes=fluxes,
-    #     ra=ra,
-    #     dec=dec,
-    #     freqs=freqs,
-    #     times=time_array,
-    #     beam=beam,
-    #     telescope_loc=telescope_loc,
-    #     baselines=baselines,
-    #     polarized=True,
-    # )
-    
-    # Check output shape for polarized
-    # assert vis_pol.shape == (nfreqs, ntimes, 2, 2, len(baselines))
 
+    params = dict(
+        ants=ants,
+        fluxes=fluxes,
+        ra=ra,
+        dec=dec,
+        freqs=freqs,
+        times=time_array,  # Using array of Julian dates
+        telescope_loc=telescope_loc,
+        baselines=baselines,
+        polarized=False,
+    )
+
+
+    with pytest.raises(ValueError, match="If number of beams provided is not 1 or nant, beam_idx must be provided."):
+        vis = simulate_vis(
+            beam=[beam, beam], # Provide 2 beams for 3 antennas to trigger error
+            **params,
+        )
+
+    with pytest.raises(ValueError, match="beam_idx must be length nant"):
+        vis = simulate_vis(
+            beam=[beam, beam],
+            beam_idx=[0, 1], # Provide 2 beam indices for 3 antennas to trigger error
+            **params,
+        )
+
+    with pytest.raises(ValueError, match="beam_idx contains indices greater than the number of beams"):
+        vis = simulate_vis(
+            beam=[beam, beam],
+            beam_idx=[0, 1, 8], 
+            **params,
+        )
 
 def test_simulate_vis_all_baselines():
     """Test simulate_vis with all baselines.
