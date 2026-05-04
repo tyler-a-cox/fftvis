@@ -212,6 +212,9 @@ def simulate_vis(
         The optimal number of chunks will depend on the number of sources, the available memory, and the desired accuracy. If the number of sources is very large, 
         using more chunks can help to reduce memory usage. However, using too many chunks can increase computation time due to overhead from combining the results from each chunk. 
         The default value is 1, which means that all sources will be simulated in a single chunk.
+    source_buffer : float, optional
+        The fraction of the total number of sources to use when allocating memory
+        for the sources above horizon. 
 
     Returns:
     -------
