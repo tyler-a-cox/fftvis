@@ -484,6 +484,16 @@ class CPUSimulationEngine(SimulationEngine):
                     if nsim_sources == 0:
                         continue
 
+                    # Pre-allocate a single work buffer for apparent_coherency that is
+                    # reused across all (freq, beam-pair) iterations within this chunk.
+                    # nsim_sources is fixed for the duration of the chunk, making this safe.
+                    if polarized:
+                        _apparent_buf = np.empty(
+                            (nfeeds, nfeeds, nsim_sources), dtype=complex_dtype
+                        )
+                    else:
+                        _apparent_buf = np.empty(nsim_sources, dtype=complex_dtype)
+
                     # Compute azimuth and zenith angles
                     az, za = coordinates.enu_to_az_za(
                         enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
@@ -506,10 +516,13 @@ class CPUSimulationEngine(SimulationEngine):
                         if not use_type1:
                             uvw = bls * freq
 
-                        # Interpolate each beam at the source positions
+                        # Interpolate each beam at the source positions. Only copy to
+                        # complex_dtype when necessary; the unconditional .astype() would
+                        # allocate a full (nfeeds, nfeeds, nsrc) copy even when the dtype
+                        # already matches.
                         beam_evaluations = []
                         for beam in beam_list:
-                            apparent_coherency = _cpu_beam_evaluator.evaluate_beam(
+                            be = _cpu_beam_evaluator.evaluate_beam(
                                 beam,
                                 az,
                                 za,
@@ -517,8 +530,18 @@ class CPUSimulationEngine(SimulationEngine):
                                 freq,
                                 spline_opts=beam_spline_opts,
                                 interpolation_function=interpolation_function,
-                            ).astype(complex_dtype)
-                            beam_evaluations.append(apparent_coherency)
+                            )
+                            beam_evaluations.append(
+                                be if be.dtype == complex_dtype else be.astype(complex_dtype)
+                            )
+
+                        # Pre-compute frequency-scaled source coordinates once per
+                        # frequency. topo and freq are identical for every beam pair,
+                        # so computing these inside the pair loop would allocate two
+                        # redundant (nsrc,) arrays per pair.
+                        if use_type1:
+                            tx = topo[0] * freq
+                            ty = topo[1] * freq
 
                         for (bi, bj) in unique_beam_pairs:
                             is_cross_pair = bi != bj
@@ -539,7 +562,10 @@ class CPUSimulationEngine(SimulationEngine):
                                 )
                                 
                                 if is_cross_pair:
-                                    apparent_coherency = np.zeros_like(beam_evaluations[bi])
+                                    # Zero the pre-allocated buffer in-place rather than
+                                    # allocating a fresh (nfeeds, nfeeds, nsrc) array.
+                                    _apparent_buf[:] = 0
+                                    apparent_coherency = _apparent_buf
 
                                     # Compute the polarized apparent flux
                                     _cpu_beam_evaluator.get_apparent_flux_polarized_pair(
@@ -549,8 +575,10 @@ class CPUSimulationEngine(SimulationEngine):
                                         out=apparent_coherency
                                     )
                                 else:
-                                    # Flip to match the expected order
-                                    apparent_coherency = np.flip(np.copy(beam_evaluations[bi]), axis=0)
+                                    # Copy into the pre-allocated buffer then take a free
+                                    # flip view, avoiding a separate np.copy allocation.
+                                    np.copyto(_apparent_buf, beam_evaluations[bi])
+                                    apparent_coherency = np.flip(_apparent_buf, axis=0)
                         
                                     # Compute the polarized apparent flux
                                     _cpu_beam_evaluator.get_apparent_flux_polarized(
@@ -564,7 +592,9 @@ class CPUSimulationEngine(SimulationEngine):
                             
                                 if is_cross_pair:
                                     logger.info("Processing cross pair")
-                                    apparent_coherency = np.zeros_like(beam_evaluations[bi])
+                                    # Zero the pre-allocated buffer in-place.
+                                    _apparent_buf[:] = 0
+                                    apparent_coherency = _apparent_buf
 
                                     _cpu_beam_evaluator.get_apparent_flux_polarized_beam_pair(
                                         beam_i=beam_evaluations[bi], 
@@ -573,7 +603,11 @@ class CPUSimulationEngine(SimulationEngine):
                                         out=apparent_coherency
                                     )
                                 else:
-                                    apparent_coherency = np.copy(beam_evaluations[bi])
+                                    # Copy into the pre-allocated buffer so the in-place
+                                    # numba kernel can mutate it without touching the
+                                    # cached beam_evaluations entry.
+                                    np.copyto(_apparent_buf, beam_evaluations[bi])
+                                    apparent_coherency = _apparent_buf
                                     _cpu_beam_evaluator.get_apparent_flux_polarized_beam(
                                         apparent_coherency, flux[:, freqidx]
                                     )
@@ -583,10 +617,23 @@ class CPUSimulationEngine(SimulationEngine):
                                     "Computing apparent flux for unpolarized sources."
                                 )
                                 if is_cross_pair:
-                                    apparent_coherency = np.sqrt(beam_evaluations[bi] * beam_evaluations[bj])
-                                    apparent_coherency *= flux[:, freqidx]
+                                    # Compute product and sqrt into the pre-allocated buffer,
+                                    # avoiding two intermediate (nsrc,) temporaries.
+                                    np.multiply(
+                                        beam_evaluations[bi], beam_evaluations[bj],
+                                        out=_apparent_buf,
+                                    )
+                                    np.sqrt(_apparent_buf, out=_apparent_buf)
+                                    _apparent_buf *= flux[:, freqidx]
+                                    apparent_coherency = _apparent_buf
                                 else:
-                                    apparent_coherency = beam_evaluations[bi] * flux[:, freqidx]
+                                    # Multiply into the pre-allocated buffer instead of
+                                    # creating a new (nsrc,) array.
+                                    np.multiply(
+                                        beam_evaluations[bi], flux[:, freqidx],
+                                        out=_apparent_buf,
+                                    )
+                                    apparent_coherency = _apparent_buf
                             
                             # Try to reshape safely
                             try:
@@ -605,8 +652,8 @@ class CPUSimulationEngine(SimulationEngine):
                             # Compute visibilities w/ non-uniform FFT
                             if use_type1:
                                 _vis_here = cpu_nufft2d_type1(
-                                    topo[0] * freq,
-                                    topo[1] * freq,
+                                    tx,
+                                    ty,
                                     apparent_coherency,
                                     n_modes=type1_n_modes,
                                     index=bls_here,
