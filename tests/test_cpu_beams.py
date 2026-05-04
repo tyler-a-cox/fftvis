@@ -828,6 +828,31 @@ class TestPrepareBeamEvaluation:
         )
         assert len(unique_pairs) == 6  # (0,0),(0,1),(0,2),(1,1),(1,2),(2,2)
 
+    def test_non_contiguous_beam_idx(self):
+        """Non-contiguous beam_idx (e.g. [0, 2, 2]) must not raise.
+
+        Previously ``nbeams = len(np.unique(beam_idx))`` gave 2, so
+        ``unique_beam_pairs`` only covered indices 0 and 1, causing a
+        ``ValueError`` when a baseline with beam index 2 was encountered.
+        The fix uses ``int(np.max(beam_idx)) + 1`` so that all indices up
+        to the maximum are included.
+        """
+        # Antenna 0 has beam 0; antennas 1 and 2 share beam 2 (index 1 unused).
+        antnums = [0, 1, 2]
+        beam_idx = [0, 2, 2]
+        baselines = [(0, 1), (0, 2), (1, 2)]
+        # Should not raise a ValueError
+        unique_pairs, pair_to_idxs, pair_to_flipped = (
+            CPUBeamEvaluator.prepare_beam_evaluation(antnums, baselines, beam_idx)
+        )
+        # Beam indices go up to 2, so nbeams = 3 → 6 upper-triangle pairs
+        assert len(unique_pairs) == 6
+        # Baseline (0,1): beams (0,2) → pair (0,2), not flipped
+        assert 0 in pair_to_idxs[(0, 2)]
+        assert pair_to_flipped[(0, 2)][pair_to_idxs[(0, 2)].index(0)] is False
+        # Baseline (1,2): both beam 2 → pair (2,2), not flipped
+        assert 2 in pair_to_idxs[(2, 2)]
+
 
 # ===========================================================================
 # get_apparent_flux_polarized_beam_pair

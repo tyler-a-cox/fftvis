@@ -96,8 +96,9 @@ class CPUBeamEvaluator(BeamEvaluator):
         if beam_idx is None:
             return [(0, 0)], {(0, 0): np.arange(len(baselines))}, {(0, 0): [False] * len(baselines)}
         
-        # Get number of unique beams
-        nbeams = len(np.unique(beam_idx))
+        # Get number of beams: use max index + 1 so non-contiguous indices
+        # (e.g. [0, 2, 2]) still produce the correct set of beam pairs.
+        nbeams = int(np.max(beam_idx)) + 1
 
         # Get the unique beam pairs that we need to evaluate the apparent flux for
         unique_beam_pairs = [(bi, bj) for bi in range(nbeams) for bj in range(bi, nbeams)]
