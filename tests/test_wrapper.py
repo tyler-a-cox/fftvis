@@ -129,14 +129,14 @@ def test_simulate_vis_basic():
     with pytest.raises(ValueError, match="beam_idx must be length nant"):
         vis = simulate_vis(
             beam=[beam, beam],
-            beam_idx=[0, 1], # Provide 2 beam indices for 3 antennas to trigger error
+            beam_idx=np.array([0, 1]), # Provide 2 beam indices for 3 antennas to trigger error
             **params,
         )
 
     with pytest.raises(ValueError, match="beam_idx contains indices greater than the number of beams"):
         vis = simulate_vis(
             beam=[beam, beam],
-            beam_idx=[0, 1, 8], 
+            beam_idx=np.array([0, 1, 8]), 
             **params,
         )
 
