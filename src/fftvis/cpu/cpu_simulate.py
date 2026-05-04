@@ -558,7 +558,7 @@ class CPUSimulationEngine(SimulationEngine):
                                 bls_here = np.where(flipped, -bls[:, bls_idxs], bls[:, bls_idxs])
 
                             if polarized and polarized_sky_model:
-                                logger.info(
+                                logger.debug(
                                     "Using polarized sky model. "
                                     "Computing apparent flux for polarized sources."
                                 )
@@ -587,13 +587,13 @@ class CPUSimulationEngine(SimulationEngine):
                                         apparent_coherency, np.transpose(flux[:, freqidx], (1, 2, 0))
                                     )
                             elif polarized:
-                                logger.info(
+                                logger.debug(
                                     "Using polarized beam. "
                                     "Computing apparent flux for unpolarized sources."
                                 )
                             
                                 if is_cross_pair:
-                                    logger.info("Processing cross pair")
+                                    logger.debug("Processing cross pair")
                                     # Zero the pre-allocated buffer in-place.
                                     _apparent_buf[:] = 0
                                     apparent_coherency = _apparent_buf
@@ -614,7 +614,7 @@ class CPUSimulationEngine(SimulationEngine):
                                         apparent_coherency, flux[:, freqidx]
                                     )
                             else:
-                                logger.info(
+                                logger.debug(
                                     "Using unpolarized beam. "
                                     "Computing apparent flux for unpolarized sources."
                                 )
