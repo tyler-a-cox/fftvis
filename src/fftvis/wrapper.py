@@ -238,10 +238,13 @@ def simulate_vis(
     nant = len(ants)
 
     # Check the beam indices
-    if beam_idx is None and nbeam not in (1, nant):
-        raise ValueError(
-            "If number of beams provided is not 1 or nant, beam_idx must be provided."
-        )
+    if beam_idx is None:
+        if nbeam == nant:
+            beam_idx = np.arange(nant)
+        elif nbeam != 1:
+            raise ValueError(
+                "If number of beams provided is not 1 or nant, beam_idx must be provided."
+            )
     if beam_idx is not None:
         if beam_idx.shape != (nant,):
             raise ValueError("beam_idx must be length nant")
