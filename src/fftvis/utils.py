@@ -12,6 +12,8 @@ from .core.utils import (
     get_pos_reds,
     get_plane_to_xy_rotation_matrix,
     get_task_chunks,
+    get_desired_chunks,
+    get_required_chunks,
 )
 
 
@@ -36,4 +38,6 @@ __all__ = [
     "get_plane_to_xy_rotation_matrix",
     "get_task_chunks",
     "inplace_rot",
+    "get_desired_chunks",
+    "get_required_chunks",
 ]

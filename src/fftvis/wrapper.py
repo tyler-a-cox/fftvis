@@ -1,4 +1,5 @@
 from typing import Literal, Union
+import psutil
 import numpy as np
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
@@ -10,7 +11,7 @@ from .core.beams import BeamEvaluator
 from .cpu.beams import CPUBeamEvaluator
 from .core.simulate import SimulationEngine, default_accuracy_dict
 from .cpu.cpu_simulate import CPUSimulationEngine
-
+from .core.utils import get_desired_chunks
 
 def create_beam_evaluator(
     backend: Literal["cpu", "gpu"] = "cpu", **kwargs
@@ -110,7 +111,8 @@ def simulate_vis(
     force_use_ray: bool = False,
     trace_mem: bool = False,
     backend: Literal["cpu", "gpu"] = "cpu",
-    nchunks: int = 1,
+    max_memory: int | float = np.inf,
+    min_chunks: int = 1,
     source_buffer=1.0,
 ) -> np.ndarray:
     """
@@ -207,11 +209,13 @@ def simulate_vis(
         Whether to show progress bar during simulation.
     backend : str
         Backend to use for simulation ("cpu" or "gpu").
-    nchunks : int, default = 1
-        Number of chunks to split the sources into for simulation. This can be used to reduce memory usage at the cost of increased computation time. 
-        The optimal number of chunks will depend on the number of sources, the available memory, and the desired accuracy. If the number of sources is very large, 
-        using more chunks can help to reduce memory usage. However, using too many chunks can increase computation time due to overhead from combining the results from each chunk. 
-        The default value is 1, which means that all sources will be simulated in a single chunk.
+    max_memory : int, optional
+        The maximum memory (in bytes) to use for the visibility calculation. This is
+        not a hard-set limit, but rather a guideline for how much memory to use. If the
+        expected memory usage is more than this, the calculation will be broken up into
+        chunks.
+    min_chunks : int, optional
+        The minimum number of chunks to break the source axis into.
     source_buffer : float, optional
         The fraction of the total number of sources to use when allocating memory
         for the sources above horizon. 
@@ -272,6 +276,23 @@ def simulate_vis(
             beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
 
         beam_list.append(beam)
+
+    if polarized:
+        nax = nfeed = 2
+    else:
+        nax = nfeed = 1
+
+    nchunks, _ = get_desired_chunks(
+        min(max_memory, psutil.virtual_memory().available),
+        min_chunks,
+        beam_list,
+        nax,
+        nfeed,
+        nant,
+        len(fluxes),
+        precision,
+        source_buffer=source_buffer,
+    )
 
     # Create the simulation engine for the desired backend
     engine = create_simulation_engine(backend=backend)
