@@ -1,4 +1,5 @@
 from typing import Literal, Union
+import psutil
 import numpy as np
 from astropy.coordinates import EarthLocation
 from astropy.time import Time
@@ -10,7 +11,7 @@ from .core.beams import BeamEvaluator
 from .cpu.beams import CPUBeamEvaluator
 from .core.simulate import SimulationEngine, default_accuracy_dict
 from .cpu.cpu_simulate import CPUSimulationEngine
-
+from .core.utils import get_desired_chunks
 
 def create_beam_evaluator(
     backend: Literal["cpu", "gpu"] = "cpu", **kwargs
@@ -90,6 +91,7 @@ def simulate_vis(
     times: Union[np.ndarray, Time],
     beam,
     telescope_loc: EarthLocation,
+    beam_idx: np.ndarray = None,
     baselines: list[tuple] = None,
     precision: int = 2,
     polarized: bool = False,
@@ -109,6 +111,9 @@ def simulate_vis(
     force_use_ray: bool = False,
     trace_mem: bool = False,
     backend: Literal["cpu", "gpu"] = "cpu",
+    max_memory: int | float = np.inf,
+    min_chunks: int = 1,
+    source_buffer=1.0,
 ) -> np.ndarray:
     """
     Parameters:
@@ -131,10 +136,16 @@ def simulate_vis(
         Frequencies to evaluate visibilities in Hz.
     times : astropy.Time instance or array_like
         Times of the observation (can be a numpy array of Julian dates or astropy.Time object).
-    beam : UVBeam
-        Beam object to use for the array. Per-antenna beams are not yet supported.
+    beam : UVBeam | BeamInterface, or list of UVBeam | BeamInterface
+        Beam object to use for the array. If a single beam object is provided, it will be assumed that all antennas have the same beam. 
+        If a list of beam objects is provided, the length of the list should be equal to the number of unique beams in the array, 
+        and the beam_idx parameter should be used to specify which beam corresponds to each antenna.
     telescope_loc
         An EarthLocation object representing the center of the array.
+    beam_idx : np.ndarray, default = None
+        An array of integers, of the same length as ``ants``. Each entry is for an antenna of the same index, and 
+        its value should be the index of the beam in the beam list that corresponds to the antenna. If None, all 
+        antennas will be assumed to have the same beam, and the beam list will be ignored.
     baselines : list of tuples, default = None
         If provided, only the baselines within the list will be simulated and array of shape
         (nbls, nfreqs, ntimes) will be returned if polarized is False, and (nbls, nfreqs, ntimes, 2, 2) if polarized is True.
@@ -198,6 +209,16 @@ def simulate_vis(
         Whether to show progress bar during simulation.
     backend : str
         Backend to use for simulation ("cpu" or "gpu").
+    max_memory : int, optional
+        The maximum memory (in bytes) to use for the visibility calculation. This is
+        not a hard-set limit, but rather a guideline for how much memory to use. If the
+        expected memory usage is more than this, the calculation will be broken up into
+        chunks.
+    min_chunks : int, optional
+        The minimum number of chunks to break the source axis into.
+    source_buffer : float, optional
+        The fraction of the total number of sources to use when allocating memory
+        for the sources above horizon. 
 
     Returns:
     -------
@@ -212,20 +233,66 @@ def simulate_vis(
     # Make sure antpos has the right format
     ants = {k: np.array(v) for k, v in ants.items()}
 
-    # Interpolate the beam to the desired frequencies to avoid redundant
-    # interpolation in the simulation engine
-    if isinstance(beam, UVBeam):
-        if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
-            beam = beam.interp(freq_array=freqs, new_object=True, run_check=False) # pragma: no cover
-    elif isinstance(beam, BeamInterface) and beam._isuvbeam:
-        if hasattr(beam.beam, "Nfreqs") and beam.beam.Nfreqs > 1:
-            beam.beam = beam.beam.interp(freq_array=freqs, new_object=True, run_check=False)
+    if not isinstance(beam, list):
+        _beam_list = [beam]
+    else:
+        _beam_list = beam
 
-    beam = BeamInterface(beam)
+    nbeam = len(_beam_list)
+    nant = len(ants)
 
-    # Prepare the beam
-    if not polarized:
-        beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
+    # Check the beam indices
+    if beam_idx is None:
+        if nbeam == nant:
+            beam_idx = np.arange(nant)
+        elif nbeam != 1:
+            raise ValueError(
+                "If number of beams provided is not 1 or nant, beam_idx must be provided."
+            )
+    if beam_idx is not None:
+        if beam_idx.shape != (nant,):
+            raise ValueError("beam_idx must be length nant")
+        if not all(0 <= i < nbeam for i in beam_idx):
+            raise ValueError(
+                "beam_idx contains indices greater than the number of beams"
+            )
+
+    beam_list = []
+
+    for beam in _beam_list:
+        # Interpolate the beam to the desired frequencies to avoid redundant
+        # interpolation in the simulation engine
+        if isinstance(beam, UVBeam):
+            if hasattr(beam, "Nfreqs") and beam.Nfreqs > 1:
+                beam = beam.interp(freq_array=freqs, new_object=True, run_check=False) # pragma: no cover
+        elif isinstance(beam, BeamInterface) and beam._isuvbeam:
+            if hasattr(beam.beam, "Nfreqs") and beam.beam.Nfreqs > 1:
+                beam.beam = beam.beam.interp(freq_array=freqs, new_object=True, run_check=False)
+
+        beam = BeamInterface(beam)
+
+        # Prepare the beam
+        if not polarized:
+            beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
+
+        beam_list.append(beam)
+
+    if polarized:
+        nax = nfeed = 2
+    else:
+        nax = nfeed = 1
+
+    nchunks, _ = get_desired_chunks(
+        min(max_memory, psutil.virtual_memory().available),
+        min_chunks,
+        beam_list,
+        nax,
+        nfeed,
+        nant,
+        len(fluxes),
+        precision,
+        source_buffer=source_buffer,
+    )
 
     # Create the simulation engine for the desired backend
     engine = create_simulation_engine(backend=backend)
@@ -235,7 +302,8 @@ def simulate_vis(
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
-        beam=beam,
+        beam_list=beam_list,
+        beam_idx=beam_idx,
         ra=ra,
         dec=dec,
         times=times,
@@ -255,4 +323,6 @@ def simulate_vis(
         force_use_type3=force_use_type3,
         force_use_ray=force_use_ray,
         trace_mem=trace_mem,
+        nchunks=nchunks,
+        source_buffer=source_buffer,
     )

@@ -18,6 +18,7 @@ from astropy.coordinates import EarthLocation, SkyCoord
 from astropy import units as un
 from astropy.time import Time
 from pyuvdata import UVBeam
+from pyuvdata.beam_interface import BeamInterface
 from matvis import coordinates
 from matvis.core.coords import CoordinateRotation
 
@@ -40,13 +41,16 @@ _cpu_beam_evaluator = CPUBeamEvaluator()
 def _evaluate_vis_chunk_remote(
     time_idx: slice,
     freq_idx: slice,
-    beam,
+    beam_list: list[Union[UVBeam, BeamInterface]],
     coord_mgr,
     rotation_matrix: np.ndarray,
+    antnums: list,
     bls: np.ndarray,
+    baselines: list[tuple],
     freqs: np.ndarray,
     complex_dtype: np.dtype,
     nfeeds: int,
+    beam_idx: np.ndarray = None,
     polarized: bool = False,
     polarized_sky_model: bool = False,
     eps: float = None,
@@ -59,6 +63,7 @@ def _evaluate_vis_chunk_remote(
     basis_matrix: np.ndarray = None,
     type1_n_modes: int = None,
     trace_mem: bool = False,
+    nchunks: int = 1,
 ):
     """Ray-compatible remote version of _evaluate_vis_chunk."""
     # Create a simulation engine instance
@@ -67,10 +72,13 @@ def _evaluate_vis_chunk_remote(
     return engine._evaluate_vis_chunk( # pragma: no cover
         time_idx=time_idx,
         freq_idx=freq_idx,
-        beam=beam,
+        beam_list=beam_list,
+        beam_idx=beam_idx,
         coord_mgr=coord_mgr,
         rotation_matrix=rotation_matrix,
+        antnums=antnums,
         bls=bls,
+        baselines=baselines,
         freqs=freqs,
         complex_dtype=complex_dtype,
         nfeeds=nfeeds,
@@ -86,6 +94,7 @@ def _evaluate_vis_chunk_remote(
         basis_matrix=basis_matrix,
         type1_n_modes=type1_n_modes,
         trace_mem=trace_mem,
+        nchunks=nchunks,
     )
 
 
@@ -97,12 +106,13 @@ class CPUSimulationEngine(SimulationEngine):
         ants: dict,
         freqs: np.ndarray,
         fluxes: np.ndarray,
-        beam,
+        beam_list: list[Union[UVBeam, BeamInterface]],
         ra: np.ndarray,
         dec: np.ndarray,
         times: Union[np.ndarray, Time],
         telescope_loc: EarthLocation,
         baselines: list[tuple] = None,
+        beam_idx: np.ndarray = None,
         precision: int = 2,
         polarized: bool = False,
         eps: float = None,
@@ -120,6 +130,8 @@ class CPUSimulationEngine(SimulationEngine):
         force_use_type3: bool = False,
         trace_mem: bool = False,
         enable_memory_monitor: bool = False,
+        nchunks: int = 1,
+        source_buffer=1.0
     ) -> np.ndarray:
         """
         Simulate visibilities using CPU implementation.
@@ -165,6 +177,7 @@ class CPUSimulationEngine(SimulationEngine):
             coherency = coherency.astype(complex_dtype)
 
         # Flatten antenna positions
+        antnums = list(ants.keys())
         antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
         antvecs = np.array([ants[ant] for ant in ants], dtype=real_dtype)
 
@@ -224,6 +237,8 @@ class CPUSimulationEngine(SimulationEngine):
         if isinstance(times, np.ndarray):
             times = Time(times, format="jd")
 
+        chunk_size = int(np.ceil(dec.size / nchunks))
+
         coord_method = CoordinateRotation._methods[coord_method]
         coord_method_params = coord_method_params or {}
         coord_mgr = coord_method(
@@ -232,6 +247,8 @@ class CPUSimulationEngine(SimulationEngine):
             telescope_loc=telescope_loc,
             skycoords=SkyCoord(ra=ra * un.rad, dec=dec * un.rad, frame="icrs"),
             precision=precision,
+            source_buffer=source_buffer,
+            chunk_size=chunk_size,
             **coord_method_params,
         )
 
@@ -253,8 +270,9 @@ class CPUSimulationEngine(SimulationEngine):
                 if isinstance(val, np.ndarray):
                     required_shm += val.nbytes
 
-            if isinstance(beam, UVBeam):
-                required_shm += beam.data_array.nbytes
+            for beam in beam_list:
+                if isinstance(beam, BeamInterface) and getattr(beam, "_isuvbeam", False):
+                    required_shm += beam.beam.data_array.nbytes
 
             # Add visibility memory
             required_shm += (ntimes * nfreqs * nbls * nax * nfeeds) * np.dtype(
@@ -291,10 +309,12 @@ class CPUSimulationEngine(SimulationEngine):
                 os.system("ray memory --units MB > before-puts.txt")
 
             # Put data into shared-memory pool
+            antnums = ray.put(antnums)
+            baselines = ray.put(baselines)
             bls = ray.put(bls)
             rotation_matrix = ray.put(rotation_matrix)
             freqs = ray.put(freqs)
-            beam = ray.put(beam)
+            beam_list = ray.put(beam_list)
             coord_mgr = ray.put(coord_mgr)
             if trace_mem:
                 os.system("ray memory --units MB > after-puts.txt")
@@ -333,13 +353,16 @@ class CPUSimulationEngine(SimulationEngine):
                 fnc(
                     time_idx=tc,
                     freq_idx=fc,
-                    beam=beam,
+                    beam_list=beam_list,
                     coord_mgr=coord_mgr,
                     rotation_matrix=rotation_matrix,
+                    antnums=antnums,
+                    baselines=baselines,
                     bls=bls,
                     freqs=freqs,
                     complex_dtype=complex_dtype,
                     nfeeds=nfeeds,
+                    beam_idx=beam_idx,
                     polarized=polarized,
                     polarized_sky_model=polarized_sky_model,
                     eps=eps,
@@ -352,6 +375,7 @@ class CPUSimulationEngine(SimulationEngine):
                     basis_matrix=basis_matrix if is_gridded else None,
                     type1_n_modes=n_modes if is_gridded else None,
                     trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem,
+                    nchunks=nchunks,
                 )
             )
             if trace_mem:
@@ -384,13 +408,16 @@ class CPUSimulationEngine(SimulationEngine):
         self,
         time_idx: slice,
         freq_idx: slice,
-        beam,
+        beam_list: list[Union[UVBeam, BeamInterface]],
         coord_mgr: CoordinateRotation,
         rotation_matrix: np.ndarray,
+        antnums: list,
+        baselines: list[tuple],
         bls: np.ndarray,
         freqs: np.ndarray,
         complex_dtype: np.dtype,
         nfeeds: int,
+        beam_idx: np.ndarray = None,
         polarized: bool = False,
         polarized_sky_model: bool = False,
         eps: float = None,
@@ -403,6 +430,7 @@ class CPUSimulationEngine(SimulationEngine):
         basis_matrix: float = None,
         type1_n_modes: int = None,
         trace_mem: bool = False,
+        nchunks: int = 1,
     ) -> np.ndarray:
         """
         Evaluate a chunk of visibility data using CPU.
@@ -425,7 +453,19 @@ class CPUSimulationEngine(SimulationEngine):
             dtype=complex_dtype, shape=(nt_here, nbls, nfeeds, nfeeds, nf_here)
         )
 
+        # Set up the coordinate manager for this chunk
         coord_mgr.setup()
+
+        # Get beam indices for this chunk
+        ( 
+            unique_beam_pairs, 
+            beam_pair_to_bls_idxs, 
+            beam_pair_to_flipped,
+        ) = _cpu_beam_evaluator.prepare_beam_evaluation(
+            antnums=antnums,
+            baselines=baselines,
+            beam_idx=beam_idx,
+        )
 
         # Check to see if the rotation matrix is an identity matrix
         is_rotation_identity = np.allclose(rotation_matrix, np.eye(3))
@@ -433,133 +473,228 @@ class CPUSimulationEngine(SimulationEngine):
         with threadpool_limits(limits=n_threads, user_api="blas"):
             for time_index, ti in enumerate(range(ntimes)[time_idx]):
                 coord_mgr.rotate(ti)
-                topo, flux, nsim_sources = coord_mgr.select_chunk(0, ti)
 
-                # truncate to nsim_sources
-                topo = topo[:, :nsim_sources]
-                flux = flux[:nsim_sources]
+                for chunk in range(nchunks):
+                    topo, flux, nsim_sources = coord_mgr.select_chunk(chunk, ti)
 
-                if nsim_sources == 0:
-                    continue
+                    # truncate to nsim_sources
+                    topo = topo[:, :nsim_sources]
+                    flux = flux[:nsim_sources]
 
-                # Compute azimuth and zenith angles
-                az, za = coordinates.enu_to_az_za(
-                    enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
-                )
+                    if nsim_sources == 0:
+                        continue
 
-                # Rotate source coordinates with rotation matrix.
-                if not is_rotation_identity:
-                    cpu_utils.inplace_rot(rotation_matrix, topo)
-                
-                # Rotate the basis matrix
-                if basis_matrix is not None:
-                    # Rotate antenna positions with basis matrix
-                    cpu_utils.inplace_rot(basis_matrix.T, topo)
-
-                topo *= 2 * np.pi
-
-                for freqidx in range(nfreqs)[freq_idx]:
-                    freq = freqs[freqidx]
-
-                    if not use_type1:
-                        uvw = bls * freq
-
-                    # Update beam evaluator for matvis compatibility
-                    _cpu_beam_evaluator.beam_list = [beam]
-                    _cpu_beam_evaluator.nsrc = len(az)
-                    _cpu_beam_evaluator.polarized = polarized
-                    _cpu_beam_evaluator.freq = freq
-
-                    apparent_coherency = _cpu_beam_evaluator.evaluate_beam(
-                        beam,
-                        az,
-                        za,
-                        polarized,
-                        freq,
-                        spline_opts=beam_spline_opts,
-                        interpolation_function=interpolation_function,
-                    ).astype(complex_dtype)
-
-                    if polarized and polarized_sky_model:
-                        logger.info(
-                            "Using polarized sky model. "
-                            "Computing apparent flux for polarized sources."
-                        )
-                        # Flip to match the expected order
-                        apparent_coherency = np.flip(apparent_coherency, axis=0)
-            
-                        # Compute the polarized apparent flux
-                        _cpu_beam_evaluator.get_apparent_flux_polarized(
-                            apparent_coherency, np.transpose(flux[:nsim_sources, freqidx], (1, 2, 0))
-                        )
-                    elif polarized:
-                        logger.info(
-                            "Using polarized beam. "
-                            "Computing apparent flux for unpolarized sources."
-                        )
-                        _cpu_beam_evaluator.get_apparent_flux_polarized_beam(
-                            apparent_coherency, flux[:nsim_sources, freqidx]
+                    # Pre-allocate a single work buffer for apparent_coherency that is
+                    # reused across all (freq, beam-pair) iterations within this chunk.
+                    # nsim_sources is fixed for the duration of the chunk, making this safe.
+                    if polarized:
+                        _apparent_buf = np.empty(
+                            (nfeeds, nfeeds, nsim_sources), dtype=complex_dtype
                         )
                     else:
-                        logger.info(
-                            "Using unpolarized beam. "
-                            "Computing apparent flux for unpolarized sources."
-                        )
-                        apparent_coherency *= flux[:nsim_sources, freqidx]
-                    
-                    # Try to reshape safely
-                    try:
-                        apparent_coherency = np.reshape(
-                            apparent_coherency, (nfeeds**2, nsim_sources)
-                        )
-                        pass
-                    except ValueError: # pragma: no cover
-                        logger.error(f"Cannot reshape A_s with shape {apparent_coherency.shape} to {(nfeeds**2, nsim_sources)}") # pragma: no cover
-                        continue # pragma: no cover
-                    
-                    # Check if the dtype is complex
-                    if apparent_coherency.dtype != complex_dtype:
-                        apparent_coherency = apparent_coherency.astype(complex_dtype)
+                        _apparent_buf = np.empty(nsim_sources, dtype=complex_dtype)
 
-                    # Compute visibilities w/ non-uniform FFT
-                    if use_type1:
-                        _vis_here = cpu_nufft2d_type1(
-                            topo[0] * freq,
-                            topo[1] * freq,
-                            apparent_coherency,
-                            n_modes=type1_n_modes,
-                            index=bls,
-                            eps=eps,
-                            n_threads=n_threads,
-                            upsample_factor=upsample_factor,
-                        )
-                    else:
-                        if is_coplanar:
-                            _vis_here = cpu_nufft2d(
-                                topo[0],
-                                topo[1],
-                                apparent_coherency,
-                                uvw[0],
-                                uvw[1],
-                                eps=eps,
-                                n_threads=n_threads,
-                                upsample_factor=upsample_factor,
-                            )
-                        else:
-                            _vis_here = cpu_nufft3d(
-                                topo[0],
-                                topo[1],
-                                topo[2],
-                                apparent_coherency,
-                                uvw[0],
-                                uvw[1],
-                                uvw[2],
-                                eps=eps,
-                                n_threads=n_threads,
-                                upsample_factor=upsample_factor,
-                            )
-                    vis[time_index, ..., freqidx] = np.swapaxes(
-                        _vis_here.reshape(nfeeds, nfeeds, nbls), 2, 0
+                    # Compute azimuth and zenith angles
+                    az, za = coordinates.enu_to_az_za(
+                        enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
                     )
+
+                    # Rotate source coordinates with rotation matrix.
+                    if not is_rotation_identity:
+                        cpu_utils.inplace_rot(rotation_matrix, topo)
+                    
+                    # Rotate the basis matrix
+                    if basis_matrix is not None:
+                        # Rotate antenna positions with basis matrix
+                        cpu_utils.inplace_rot(basis_matrix.T, topo)
+
+                    topo *= 2 * np.pi
+        
+                    for freqidx in range(nfreqs)[freq_idx]:
+                        freq = freqs[freqidx]
+
+                        if not use_type1:
+                            uvw = bls * freq
+
+                        # Interpolate each beam at the source positions. Only copy to
+                        # complex_dtype when necessary; the unconditional .astype() would
+                        # allocate a full (nfeeds, nfeeds, nsrc) copy even when the dtype
+                        # already matches.
+                        beam_evaluations = []
+                        for beam in beam_list:
+                            be = _cpu_beam_evaluator.evaluate_beam(
+                                beam,
+                                az,
+                                za,
+                                polarized,
+                                freq,
+                                spline_opts=beam_spline_opts,
+                                interpolation_function=interpolation_function,
+                            )
+                            beam_evaluations.append(
+                                be if be.dtype == complex_dtype else be.astype(complex_dtype)
+                            )
+
+                        # Pre-compute frequency-scaled source coordinates once per
+                        # frequency. topo and freq are identical for every beam pair,
+                        # so computing these inside the pair loop would allocate two
+                        # redundant (nsrc,) arrays per pair.
+                        if use_type1:
+                            tx = topo[0] * freq
+                            ty = topo[1] * freq
+
+                        for (bi, bj) in unique_beam_pairs:
+                            is_cross_pair = bi != bj
+                            bls_idxs = beam_pair_to_bls_idxs[(bi, bj)]
+                            flipped = beam_pair_to_flipped[(bi, bj)]
+
+                            # Select the appropriate UVW coordinates for this beam pair. 
+                            # If the pair is flipped, we need to flip the UVW coordinates as well to get the correct apparent flux.
+                            if not use_type1:
+                                _uvw = np.where(flipped, -uvw[:, bls_idxs], uvw[:, bls_idxs])
+                            else:
+                                bls_here = np.where(flipped, -bls[:, bls_idxs], bls[:, bls_idxs])
+
+                            if polarized and polarized_sky_model:
+                                logger.debug(
+                                    "Using polarized sky model. "
+                                    "Computing apparent flux for polarized sources."
+                                )
+                                
+                                if is_cross_pair:
+                                    # Zero the pre-allocated buffer in-place rather than
+                                    # allocating a fresh (nfeeds, nfeeds, nsrc) array.
+                                    _apparent_buf[:] = 0
+                                    apparent_coherency = _apparent_buf
+
+                                    # Compute the polarized apparent flux
+                                    _cpu_beam_evaluator.get_apparent_flux_polarized_pair(
+                                        beam_i=np.flip(beam_evaluations[bi], axis=0), 
+                                        beam_j=np.flip(beam_evaluations[bj], axis=0),
+                                        coherency=np.transpose(flux[:, freqidx], (1, 2, 0)),
+                                        out=apparent_coherency
+                                    )
+                                else:
+                                    # Copy into the pre-allocated buffer then take a free
+                                    # flip view, avoiding a separate np.copy allocation.
+                                    np.copyto(_apparent_buf, beam_evaluations[bi])
+                                    apparent_coherency = np.flip(_apparent_buf, axis=0)
+                        
+                                    # Compute the polarized apparent flux
+                                    _cpu_beam_evaluator.get_apparent_flux_polarized(
+                                        apparent_coherency, np.transpose(flux[:, freqidx], (1, 2, 0))
+                                    )
+                            elif polarized:
+                                logger.debug(
+                                    "Using polarized beam. "
+                                    "Computing apparent flux for unpolarized sources."
+                                )
+                            
+                                if is_cross_pair:
+                                    logger.debug("Processing cross pair")
+                                    # Zero the pre-allocated buffer in-place.
+                                    _apparent_buf[:] = 0
+                                    apparent_coherency = _apparent_buf
+
+                                    _cpu_beam_evaluator.get_apparent_flux_polarized_beam_pair(
+                                        beam_i=beam_evaluations[bi], 
+                                        beam_j=beam_evaluations[bj],
+                                        flux=flux[:, freqidx],
+                                        out=apparent_coherency
+                                    )
+                                else:
+                                    # Copy into the pre-allocated buffer so the in-place
+                                    # numba kernel can mutate it without touching the
+                                    # cached beam_evaluations entry.
+                                    np.copyto(_apparent_buf, beam_evaluations[bi])
+                                    apparent_coherency = _apparent_buf
+                                    _cpu_beam_evaluator.get_apparent_flux_polarized_beam(
+                                        apparent_coherency, flux[:, freqidx]
+                                    )
+                            else:
+                                logger.debug(
+                                    "Using unpolarized beam. "
+                                    "Computing apparent flux for unpolarized sources."
+                                )
+                                if is_cross_pair:
+                                    # Compute product and sqrt into the pre-allocated buffer,
+                                    # avoiding two intermediate (nsrc,) temporaries.
+                                    np.multiply(
+                                        beam_evaluations[bi], beam_evaluations[bj],
+                                        out=_apparent_buf,
+                                    )
+                                    np.sqrt(_apparent_buf, out=_apparent_buf)
+                                    _apparent_buf *= flux[:, freqidx]
+                                    apparent_coherency = _apparent_buf
+                                else:
+                                    # Multiply into the pre-allocated buffer instead of
+                                    # creating a new (nsrc,) array.
+                                    np.multiply(
+                                        beam_evaluations[bi], flux[:, freqidx],
+                                        out=_apparent_buf,
+                                    )
+                                    apparent_coherency = _apparent_buf
+                            
+                            # Try to reshape safely
+                            try:
+                                apparent_coherency = np.reshape(
+                                    apparent_coherency, (nfeeds**2, nsim_sources)
+                                )
+                                pass
+                            except ValueError: # pragma: no cover
+                                logger.error(f"Cannot reshape A_s with shape {apparent_coherency.shape} to {(nfeeds**2, nsim_sources)}") # pragma: no cover
+                                continue # pragma: no cover
+                            
+                            # Check if the dtype is complex
+                            if apparent_coherency.dtype != complex_dtype:
+                                apparent_coherency = apparent_coherency.astype(complex_dtype)
+
+                            # Compute visibilities w/ non-uniform FFT
+                            if use_type1:
+                                _vis_here = cpu_nufft2d_type1(
+                                    tx,
+                                    ty,
+                                    apparent_coherency,
+                                    n_modes=type1_n_modes,
+                                    index=bls_here,
+                                    eps=eps,
+                                    n_threads=n_threads,
+                                    upsample_factor=upsample_factor,
+                                )
+                            else:
+                                if is_coplanar:
+                                    _vis_here = cpu_nufft2d(
+                                        topo[0],
+                                        topo[1],
+                                        apparent_coherency,
+                                        _uvw[0],
+                                        _uvw[1],
+                                        eps=eps,
+                                        n_threads=n_threads,
+                                        upsample_factor=upsample_factor,
+                                    )
+                                else:
+                                    _vis_here = cpu_nufft3d(
+                                        topo[0],
+                                        topo[1],
+                                        topo[2],
+                                        apparent_coherency,
+                                        _uvw[0],
+                                        _uvw[1],
+                                        _uvw[2],
+                                        eps=eps,
+                                        n_threads=n_threads,
+                                        upsample_factor=upsample_factor,
+                                    )
+
+                            # Flip visibilities for flipped baselines. This is equivalent to conjugating the beam for the flipped antenna, 
+                            # which is what we do for the beam evaluation, but since the beam evaluation is done separately for each antenna, 
+                            # we have to do the flipping at the end when we combine them.
+                            _vis_here = np.where(flipped, np.conj(_vis_here), _vis_here)
+
+                            nbls_here = len(bls_idxs)
+                            vis[time_index, bls_idxs, ..., freqidx] += np.swapaxes(
+                                _vis_here.reshape(nfeeds, nfeeds, nbls_here), 2, 0
+                            )
 
         return vis

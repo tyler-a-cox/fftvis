@@ -8,7 +8,7 @@ from astropy.time import Time
 from astropy.coordinates import EarthLocation, SkyCoord, Latitude, Longitude
 from astropy import units as un
 from astropy.units import Quantity
-from pyuvdata import UVBeam
+from pyuvdata import UVBeam, BeamInterface
 from matvis.core.coords import CoordinateRotation
 
 from fftvis.core.simulate import SimulationEngine
@@ -153,7 +153,7 @@ def test_simulate(
         baselines=sim_baselines,
         precision=precision,
         nprocesses=nprocesses,
-        coord_method_params={"source_buffer": 0.75},
+        source_buffer=0.75,
         trace_mem=False,
         beam=beam,
         times=times,
@@ -167,7 +167,7 @@ def test_simulate(
         eps=1e-10 if precision == 2 else 6e-8,
         precision=precision,
         nprocesses=nprocesses,
-        coord_method_params={"source_buffer": 0.75},
+        source_buffer=0.75,
         trace_mem=False,
         beam=beam,
         times=times,
@@ -244,7 +244,7 @@ def test_simulate_gridded_type1_vs_type3(polarized, precision, shear_array, rota
         ants=ants,
         eps=1e-10 if precision == 2 else 6e-8,
         precision=precision,
-        coord_method_params={"source_buffer": 0.75},
+        source_buffer=0.75,
         beam=beam,
         times=times,
         force_use_type3=False,
@@ -257,7 +257,7 @@ def test_simulate_gridded_type1_vs_type3(polarized, precision, shear_array, rota
         ants=ants,
         eps=1e-10 if precision == 2 else 6e-8,
         precision=precision,
-        coord_method_params={"source_buffer": 0.75},
+        source_buffer=0.75,
         beam=beam,
         times=times,
         force_use_type3=True,
@@ -270,6 +270,117 @@ def test_simulate_gridded_type1_vs_type3(polarized, precision, shear_array, rota
         fvis_type1, fvis_type3, atol=1e-5 if precision == 2 else 1e-4
     )
 
+@pytest.mark.parametrize("polarized", [False, True])
+@pytest.mark.parametrize("precision", [2, 1])
+@pytest.mark.parametrize("use_analytic_beam", [True, False])
+def test_sim_multiple_beams(use_analytic_beam, polarized, precision):
+    """Test fftvis vs matvis with per-antenna (multiple) beams.
+
+    Runs two sub-cases back to back:
+
+    1. **Identical beams** – two beam slots, but both point at the same object.
+       Checks that the beam_idx dispatch path doesn't corrupt results compared
+       to the matvis reference.
+
+    2. **Different beams** – beam1 is a genuinely modified copy of beam0.
+       Checks that (a) fftvis still matches matvis, and (b) the result is
+       actually different from the identical-beam case, proving that beam
+       diversity propagates through the NUFFT correctly.
+    """
+    params, *_ = get_standard_sim_params(
+        use_analytic_beam=use_analytic_beam, polarized=polarized
+    )
+    ants = params.pop("ants")
+    nant = len(ants)
+    sim_baselines = np.array([[0, 1]])
+    # Alternate antennas between the two beam slots so both are exercised.
+    beam_idx = np.array([i % 2 for i in range(nant)])
+
+    beam0 = params["beams"][0]
+
+    # Build a second beam that is genuinely different from beam0.
+    # Strategy depends on beam type so we stay robust across both parametrise branches.
+    if isinstance(beam0, BeamInterface) and beam0._isuvbeam:
+        # Unwrap, copy, scale, and rewrap
+        raw = beam0.beam.copy()
+        raw.data_array *= 0.5
+        beam1 = raw                        # wrapper adds it back inside simulate_vis
+    elif isinstance(beam0, BeamInterface) and not beam0._isuvbeam:       # e.g. AiryBeam
+        beam1 = BeamInterface(type(beam0.beam)(diameter=beam0.beam.diameter * 0.75))
+    else:
+        raise ValueError("Unrecognized beam")
+
+    identical_beam_list = [beam0, beam0]
+    different_beam_list = [beam0, beam1]
+
+    # ---------------------------------------------------------------
+    # Run both matvis reference calls while params["times"] is still
+    # an astropy.Time (matvis requires it; fftvis accepts JD floats).
+    # ---------------------------------------------------------------
+    shared_matvis_kwargs = dict(
+        ants=ants,
+        precision=precision,
+        antpairs=sim_baselines,
+        coord_method="CoordinateRotationERFA",
+        source_buffer=0.75,
+        beam_idx=beam_idx,
+    )
+
+    params["beams"] = identical_beam_list
+    mvis_identical = matvis.simulate_vis(**shared_matvis_kwargs, **params)
+
+    params["beams"] = different_beam_list
+    mvis_different = matvis.simulate_vis(**shared_matvis_kwargs, **params)
+
+    # Now safe to pop times and beams for the fftvis calls.
+    times = params.pop("times").jd
+    _ = params.pop("beams")
+    freqs = params["freqs"]
+
+    atol = 1e-5 if precision == 2 else 1e-4
+    expected_shape = (
+        (len(freqs), len(times), 2, 2, len(sim_baselines))
+        if polarized
+        else (len(freqs), len(times), len(sim_baselines))
+    )
+
+    shared_fftvis_kwargs = dict(
+        ants=ants,
+        eps=1e-10 if precision == 2 else 6e-8,
+        baselines=sim_baselines,
+        precision=precision,
+        source_buffer=0.75,
+        beam_idx=beam_idx,
+        times=times,
+        backend="cpu",
+        **params,
+    )
+
+    # ---- Sub-case 1: identical beams ----
+    fvis_identical = simulate_vis(beam=identical_beam_list, **shared_fftvis_kwargs)
+
+    assert fvis_identical.shape == expected_shape
+    for bi in range(len(sim_baselines)):
+        np.testing.assert_allclose(
+            fvis_identical[..., bi], mvis_identical[:, :, bi], atol=atol
+        )
+
+    # ---- Sub-case 2: different beams ----
+    fvis_different = simulate_vis(beam=different_beam_list, **shared_fftvis_kwargs)
+
+    assert fvis_different.shape == expected_shape
+    for bi in range(len(sim_baselines)):
+        np.testing.assert_allclose(
+            fvis_different[..., bi], mvis_different[:, :, bi], atol=atol
+        )
+
+    # ---- Sanity check: beam diversity must actually change the answer ----
+    # For an unpolarized sky, V_ij ∝ sqrt(B_i · B_j). Scaling B_j by 0.5 / 0.75
+    # changes that product, so the two arrays should not be close.
+    assert not np.allclose(fvis_different, fvis_identical, atol=atol), (
+        "Visibilities with different beams should not match those with identical beams"
+    )
+    
 @pytest.mark.parametrize("use_analytic_beam", [True, False])
 def test_sim_polarized_sky(use_analytic_beam):
     """
@@ -519,7 +630,7 @@ def test_simulate_with_basic_beam():
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
-        beam=beam,
+        beam_list=[beam],
         ra=ra,
         dec=dec,
         times=times,
@@ -537,7 +648,7 @@ def test_simulate_with_basic_beam():
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
-        beam=beam,
+        beam_list=[beam],
         ra=ra,
         dec=dec,
         times=times,
@@ -600,7 +711,7 @@ def test_simulate_with_specified_baselines():
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
-        beam=beam,
+        beam_list=[beam],
         ra=ra,
         dec=dec,
         times=times,
@@ -660,7 +771,7 @@ def test_beam_interpolation():
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
-        beam=beam,
+        beam_list=[beam],
         ra=ra,
         dec=dec,
         times=times,
@@ -726,7 +837,7 @@ def test_simulation_with_empty_baselines():
             ants=ants,
             freqs=freqs,
             fluxes=fluxes,
-            beam=beam,
+            beam_list=[beam],
             ra=ra,
             dec=dec,
             times=times,
@@ -864,7 +975,7 @@ def test_time_array_handling():
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
-        beam=beam,
+        beam_list=[beam],
         ra=ra,
         dec=dec,
         times=scalar_time,
@@ -881,7 +992,7 @@ def test_time_array_handling():
         ants=ants,
         freqs=freqs,
         fluxes=fluxes,
-        beam=beam,
+        beam_list=[beam],
         ra=ra,
         dec=dec,
         times=array_time,
@@ -906,7 +1017,7 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
     beam = UVBeam()
     beam.data_array = np.ones((1,1,1))
     params = dict(
-        beam=beam,
+        beam_list=[beam],
         coord_method_params={"source_buffer": 0.5},
         ants=ants,
         freqs=freqs,
@@ -938,6 +1049,7 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
     # Flatten antenna positions
     antkey_to_idx = dict(zip(ants.keys(), range(len(ants))))
     antvecs = np.array([ants[ant] for ant in ants], dtype=np.float64)
+    antnums = list(ants.keys())
     
     # Rotate the array to the xy-plane
     rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
@@ -956,9 +1068,11 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
     direct = engine._evaluate_vis_chunk(
         time_idx=slice(None),
         freq_idx=slice(None),
-        beam=beam,
+        beam_list=[beam],
         coord_mgr=coord_mgr,
         rotation_matrix=rotation_matrix,
+        antnums=antnums,
+        baselines=[(0, 1),],
         bls=bls,
         freqs=freqs,
         complex_dtype=np.complex128,
@@ -977,10 +1091,12 @@ def test_evaluate_vis_chunk_remote_matches_direct(tmp_path):
     fut = _evaluate_vis_chunk_remote.remote(
         time_idx=slice(None),
         freq_idx=slice(None),
-        beam=beam,
+        beam_list=[beam],
         coord_mgr=coord_mgr,
         rotation_matrix=rotation_matrix,
         bls=bls,
+        antnums=antnums,
+        baselines=[(0, 1),],
         freqs=freqs,
         complex_dtype=np.complex128,
         nfeeds=1,
@@ -1093,9 +1209,11 @@ def test_chunk_eval_trace_mem(tmp_path):
     vis = engine._evaluate_vis_chunk(
         time_idx=slice(None),
         freq_idx=slice(None),
-        beam=beam,
+        beam_list=[beam],
         coord_mgr=coord_mgr,
         rotation_matrix=rotation_matrix,
+        antnums=list(ants.keys()),
+        baselines=[(0, 1),],
         bls=bls,
         freqs=freqs,
         complex_dtype=np.complex128,

@@ -87,6 +87,44 @@ class CPUBeamEvaluator(BeamEvaluator):
                 raise ValueError("Beam interpolation resulted in an invalid value")
 
         return interp_beam
+    
+    @staticmethod
+    def prepare_beam_evaluation(antnums, baselines, beam_idx):
+        """
+        Compute the minimal flips for the given baselines and beam indices.
+        """
+        if beam_idx is None:
+            return [(0, 0)], {(0, 0): np.arange(len(baselines))}, {(0, 0): [False] * len(baselines)}
+        
+        # Get unique beam indices and the number of beams we need to evaluate
+        unique_beam_idx = np.unique(beam_idx)
+        nbeams = len(unique_beam_idx)
+
+        # Get the unique beam pairs that we need to evaluate the apparent flux for
+        unique_beam_pairs = [
+            (unique_beam_idx[bi], unique_beam_idx[bj]) 
+            for bi in range(nbeams) 
+            for bj in range(bi, nbeams)
+        ]
+
+        # Determine which baselines correspond to which beam pairs, and whether they need to be flipped
+        antnum_to_beam_idx = {ai: bidx for ai, bidx in zip(antnums, beam_idx)}
+        beam_pair_to_bls_idxs = {bp: [] for bp in unique_beam_pairs}
+        beam_pair_to_flipped = {bp: [] for bp in unique_beam_pairs}
+
+        for idx, (ai, aj) in enumerate(baselines):
+            bi, bj = antnum_to_beam_idx[ai], antnum_to_beam_idx[aj]
+            if (bi, bj) in unique_beam_pairs:
+                bp, flipped = (bi, bj), False
+            elif (bj, bi) in unique_beam_pairs:
+                bp, flipped = (bj, bi), True
+            else:
+                raise ValueError("Beam pair not in beam pair list")
+            
+            beam_pair_to_bls_idxs[bp].append(idx)
+            beam_pair_to_flipped[bp].append(flipped)
+            
+        return unique_beam_pairs, beam_pair_to_bls_idxs, beam_pair_to_flipped
 
     @staticmethod
     @nb.jit(nopython=True, parallel=False, nogil=False)
@@ -108,7 +146,7 @@ class CPUBeamEvaluator(BeamEvaluator):
 
     @staticmethod
     @nb.jit(nopython=True, parallel=False, nogil=False)
-    def get_apparent_flux_polarized(beam, coherency):
+    def get_apparent_flux_polarized(beam, coherency): # pragma: no cover
         """
         Calculate the apparent flux of the sources using the beam and coherency matrices.
         
@@ -140,3 +178,69 @@ class CPUBeamEvaluator(BeamEvaluator):
             beam[0,1,i] = tmp00*a01 + tmp01*a11
             beam[1,0,i] = tmp10*a00 + tmp11*a10
             beam[1,1,i] = tmp10*a01 + tmp11*a11
+
+    @staticmethod
+    @nb.jit(nopython=True, parallel=False, nogil=False)
+    def get_apparent_flux_polarized_beam_pair(
+        beam_i: np.ndarray,
+        beam_j: np.ndarray,
+        flux: np.ndarray,
+        out: np.ndarray,
+    ): # pragma: no cover
+        """Compute A_i^H * diag(flux) * A_j for an unpolarized sky with two beams.
+
+        Generalises get_apparent_flux_polarized_beam to the case where the two
+        antennas forming a baseline have different beam patterns.  When beam_i is
+        beam_j this gives the same result as the existing in-place method.
+
+        Unlike the existing method, i10 cannot be inferred from i01 by conjugation
+        since A_i^H A_j is not Hermitian in general, so all four elements are
+        computed explicitly.
+        """
+        nax, nfd, nsrc = beam_i.shape
+        for isrc in range(nsrc):
+            ci = np.conj(beam_i[:, :, isrc])   # ci[a, p] = conj(A_i[a, p])
+
+            i00 = ci[0, 0] * beam_j[0, 0, isrc] + ci[1, 0] * beam_j[1, 0, isrc]
+            i01 = ci[0, 0] * beam_j[0, 1, isrc] + ci[1, 0] * beam_j[1, 1, isrc]
+            i10 = ci[0, 1] * beam_j[0, 0, isrc] + ci[1, 1] * beam_j[1, 0, isrc]
+            i11 = ci[0, 1] * beam_j[0, 1, isrc] + ci[1, 1] * beam_j[1, 1, isrc]
+
+            out[0, 0, isrc] = i00 * flux[isrc]
+            out[0, 1, isrc] = i01 * flux[isrc]
+            out[1, 0, isrc] = i10 * flux[isrc]
+            out[1, 1, isrc] = i11 * flux[isrc]
+
+
+    @staticmethod
+    @nb.jit(nopython=True, parallel=False, nogil=False)
+    def get_apparent_flux_polarized_pair(
+        beam_i: np.ndarray,
+        beam_j: np.ndarray,
+        coherency: np.ndarray,
+        out: np.ndarray,
+    ): # pragma: no cover
+        """Compute A_i^H @ C @ A_j for a polarized sky with two beams.
+
+        Generalises get_apparent_flux_polarized to the cross-beam case.
+        The left Jones matrix is A_i (conjugate transpose applied) and the right
+        is A_j, giving the measurement equation for a mixed-beam baseline.
+        """
+        nsources = beam_i.shape[2]
+        for i in range(nsources):
+            ai00, ai01 = beam_i[0, 0, i], beam_i[0, 1, i]
+            ai10, ai11 = beam_i[1, 0, i], beam_i[1, 1, i]
+            aj00, aj01 = beam_j[0, 0, i], beam_j[0, 1, i]
+            aj10, aj11 = beam_j[1, 0, i], beam_j[1, 1, i]
+
+            # A_i^H @ C
+            tmp00 = np.conj(ai00) * coherency[0, 0, i] + np.conj(ai10) * coherency[1, 0, i]
+            tmp01 = np.conj(ai00) * coherency[0, 1, i] + np.conj(ai10) * coherency[1, 1, i]
+            tmp10 = np.conj(ai01) * coherency[0, 0, i] + np.conj(ai11) * coherency[1, 0, i]
+            tmp11 = np.conj(ai01) * coherency[0, 1, i] + np.conj(ai11) * coherency[1, 1, i]
+
+            # (A_i^H C) @ A_j
+            out[0, 0, i] = tmp00 * aj00 + tmp01 * aj10
+            out[0, 1, i] = tmp00 * aj01 + tmp01 * aj11
+            out[1, 0, i] = tmp10 * aj00 + tmp11 * aj10
+            out[1, 1, i] = tmp10 * aj01 + tmp11 * aj11
