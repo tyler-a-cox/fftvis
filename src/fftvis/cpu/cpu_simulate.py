@@ -271,9 +271,7 @@ class CPUSimulationEngine(SimulationEngine):
                     required_shm += val.nbytes
 
             for beam in beam_list:
-                if isinstance(beam, UVBeam):
-                    required_shm += beam.data_array.nbytes
-                elif isinstance(beam, BeamInterface) and getattr(beam, "_isuvbeam", False):
+                if isinstance(beam, BeamInterface) and getattr(beam, "_isuvbeam", False):
                     required_shm += beam.beam.data_array.nbytes
 
             # Add visibility memory

@@ -98,10 +98,15 @@ class CPUBeamEvaluator(BeamEvaluator):
         
         # Get number of beams: use max index + 1 so non-contiguous indices
         # (e.g. [0, 2, 2]) still produce the correct set of beam pairs.
-        nbeams = int(np.max(beam_idx)) + 1
+        unique_beam_idx = np.unique(beam_idx)
+        nbeams = len(unique_beam_idx)
 
         # Get the unique beam pairs that we need to evaluate the apparent flux for
-        unique_beam_pairs = [(bi, bj) for bi in range(nbeams) for bj in range(bi, nbeams)]
+        unique_beam_pairs = [
+            (unique_beam_idx[bi], unique_beam_idx[bj]) 
+            for bi in range(nbeams) 
+            for bj in range(bi, nbeams)
+        ]
 
         # Determine which baselines correspond to which beam pairs, and whether they need to be flipped
         antnum_to_beam_idx = {ai: bidx for ai, bidx in zip(antnums, beam_idx)}
