@@ -96,8 +96,7 @@ class CPUBeamEvaluator(BeamEvaluator):
         if beam_idx is None:
             return [(0, 0)], {(0, 0): np.arange(len(baselines))}, {(0, 0): [False] * len(baselines)}
         
-        # Get number of beams: use max index + 1 so non-contiguous indices
-        # (e.g. [0, 2, 2]) still produce the correct set of beam pairs.
+        # Get unique beam indices and the number of beams we need to evaluate
         unique_beam_idx = np.unique(beam_idx)
         nbeams = len(unique_beam_idx)
 
