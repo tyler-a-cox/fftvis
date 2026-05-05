@@ -845,7 +845,7 @@ class TestPrepareBeamEvaluation:
         unique_pairs, pair_to_idxs, pair_to_flipped = (
             CPUBeamEvaluator.prepare_beam_evaluation(antnums, baselines, beam_idx)
         )
-        # Beam indices go up to 2, so nbeams = 3 → 6 upper-triangle pairs
+        # Beam indices go up to 2
         assert len(unique_pairs) == 3
         # Baseline (0,1): beams (0,2) → pair (0,2), not flipped
         assert 0 in pair_to_idxs[(0, 2)]
