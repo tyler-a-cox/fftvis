@@ -416,7 +416,7 @@ def _compute_basis_visibilities(
     # Gather coefficients once, outside the loop.
     # The measurement equation is V_ij = A_i^H C A_j, so the left (ant1)
     # coefficients are conjugated and the right (ant2) are not.
-    ant1_c = beam_coefs[ant1_idxs, :, freqidx]  # C_ik^*  (nbls, K)
+    ant1_c = beam_coefs[ant1_idxs, :, freqidx].conj()  # C_ik^*  (nbls, K)
     ant2_c = beam_coefs[ant2_idxs, :, freqidx]          # C_jl    (nbls, K)
 
     # Only iterate over the upper triangle (k <= l) and use the conjugate
@@ -467,7 +467,7 @@ def _compute_basis_visibilities(
                 # (l, k) contribution: V_tilde[l,k] = V_tilde[k,l]^*
                 # but the weights are different since ant1 != ant2 in general
                 w_lk = ant1_c[:, l] * ant2_c[:, k]  # (nbls,)
-                vis_out += w_lk[:, None, None] * vis_kl.conj()
+                vis_out += w_lk[:, None, None] * vis_kl.swapaxes(1, 2)
 
     return vis_out
 
