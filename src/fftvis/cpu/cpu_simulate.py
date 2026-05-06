@@ -413,13 +413,18 @@ def _compute_basis_visibilities(
     else:
         _apparent_buf = np.empty(nsim_sources, dtype=complex_dtype)
 
-    # Gather coefficients once, outside the loop
-    ant1_c = beam_coeffs[ant1_idxs, :]         # (nbls, K)
-    ant2_c = beam_coeffs[ant2_idxs, :]  # (nbls, K)
+    # Gather coefficients once, outside the loop.
+    # The measurement equation is V_ij = A_i^H C A_j, so the left (ant1)
+    # coefficients are conjugated and the right (ant2) are not.
+    ant1_c = beam_coeffs[ant1_idxs, :].conj()  # C_ik^*  (nbls, K)
+    ant2_c = beam_coeffs[ant2_idxs, :]          # C_jl    (nbls, K)
 
+    # Only iterate over the upper triangle (k <= l) and use the conjugate
+    # symmetry V_tilde[l, k] = V_tilde[k, l]^* to handle the lower triangle
+    # without an extra NUFFT.  This halves the number of NUFFTs from K^2 to
+    # K*(K+1)/2 at no cost to accuracy.
     for k in range(nbasis):
-        for l in range(nbasis):
-            # Reuse the same optimized kernels as the standard path.
+        for l in range(k, nbasis):
             phi_kl = _compute_apparent_coherency(
                 beam_evaluations=beam_evaluations,
                 bi=k,
@@ -452,45 +457,19 @@ def _compute_basis_visibilities(
                 n_threads=n_threads,
                 upsample_factor=upsample_factor,
                 nfeeds=nfeeds,
-            )
+            )  # (nbls, nfeeds, nfeeds)
 
-            weight = ant1_c[:, k] * ant2_c[:, l]  # (nbls,)
-            vis_out += weight[:, None, None] * vis_kl
+            # (k, l) contribution: weight = C1[b,k] * C2[b,l]^*
+            w_kl = ant1_c[:, k] * ant2_c[:, l]   # (nbls,)
+            vis_out += w_kl[:, None, None] * vis_kl
+
+            if l != k:
+                # (l, k) contribution: V_tilde[l,k] = V_tilde[k,l]^*
+                # but the weights are different since ant1 != ant2 in general
+                w_lk = ant1_c[:, l] * ant2_c[:, k]  # (nbls,)
+                vis_out += w_lk[:, None, None] * vis_kl.conj()
 
     return vis_out
-
-
-def _postprocess_basis_visibilities(
-    vis_basis: np.ndarray,
-    beam_coeffs: np.ndarray,
-    ant1_idxs: np.ndarray,
-    ant2_idxs: np.ndarray,
-) -> np.ndarray:
-    """Contract basis visibilities with per-antenna SVD coefficients.
-
-    For each baseline b connecting antennas i and j:
-        V_b = sum_{k,l} C[i,k] * C[j,l]^* * V_tilde[k, l, b]
-
-    Parameters
-    ----------
-    vis_basis : np.ndarray
-        Basis visibility tensor, shape (nbasis, nbasis, nbls, nfeeds, nfeeds).
-    beam_coeffs : np.ndarray
-        Per-antenna SVD coefficients, shape (N_ant, nbasis).
-    ant1_idxs, ant2_idxs : np.ndarray
-        Antenna index per baseline, each shape (nbls,).
-
-    Returns
-    -------
-    np.ndarray
-        Visibilities shaped (nbls, nfeeds, nfeeds).
-    """
-    # Gather coefficients for each baseline's antenna pair
-    C1 = beam_coeffs[ant1_idxs, :]         # (nbls, nbasis)
-    C2 = beam_coeffs[ant2_idxs, :].conj()  # (nbls, nbasis)
-
-    # V_b,p,q = sum_{k,l} C1[b,k] * C2[b,l] * vis_basis[k,l,b,p,q]
-    return np.einsum('bk,bl,klbpq->bpq', C1, C2, vis_basis)
 
 
 @ray.remote

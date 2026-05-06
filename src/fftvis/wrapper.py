@@ -336,5 +336,5 @@ def simulate_vis(
         trace_mem=trace_mem,
         nchunks=nchunks,
         source_buffer=source_buffer,
-        eigenbeam_coefs=eigenbeam_coefs,
+        beam_coefs=eigenbeam_coefs,
     )
