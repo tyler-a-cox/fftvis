@@ -308,7 +308,7 @@ def _compute_basis_visibilities(
     flux_here: np.ndarray,
     ant1_idxs: np.ndarray,
     ant2_idxs: np.ndarray,
-    beam_coeffs: np.ndarray,
+    beam_coefs: np.ndarray,
     freqidx: int,
     topo: np.ndarray,
     uvw: np.ndarray,
@@ -358,7 +358,7 @@ def _compute_basis_visibilities(
         ``(nsrc, nfreqs, nfeeds, nfeeds)`` for polarized sky.
     ant1_idxs, ant2_idxs : np.ndarray
         Antenna indices for each baseline, each shape ``(nbls,)``.
-    beam_coeffs : np.ndarray
+    beam_coefs : np.ndarray
         Coefficients for each baseline, shape ``(nbls, nbasis)``. 
     freqidx : int
         Frequency index into flux_here.
@@ -416,8 +416,8 @@ def _compute_basis_visibilities(
     # Gather coefficients once, outside the loop.
     # The measurement equation is V_ij = A_i^H C A_j, so the left (ant1)
     # coefficients are conjugated and the right (ant2) are not.
-    ant1_c = beam_coeffs[ant1_idxs, :].conj()  # C_ik^*  (nbls, K)
-    ant2_c = beam_coeffs[ant2_idxs, :]          # C_jl    (nbls, K)
+    ant1_c = beam_coefs[ant1_idxs, :, freqidx].conj()  # C_ik^*  (nbls, K)
+    ant2_c = beam_coefs[ant2_idxs, :, freqidx]          # C_jl    (nbls, K)
 
     # Only iterate over the upper triangle (k <= l) and use the conjugate
     # symmetry V_tilde[l, k] = V_tilde[k, l]^* to handle the lower triangle
@@ -499,7 +499,7 @@ def _evaluate_vis_chunk_remote(
     type1_n_modes: int = None,
     trace_mem: bool = False,
     nchunks: int = 1,
-    beam_coeffs: np.ndarray = None,
+    beam_coefs: np.ndarray = None,
 ):
     """Ray-compatible remote version of _evaluate_vis_chunk."""
     engine = CPUSimulationEngine()  # pragma: no cover
@@ -529,7 +529,7 @@ def _evaluate_vis_chunk_remote(
         type1_n_modes=type1_n_modes,
         trace_mem=trace_mem,
         nchunks=nchunks,
-        beam_coeffs=beam_coeffs,
+        beam_coefs=beam_coefs,
     )
 
 
@@ -567,18 +567,18 @@ class CPUSimulationEngine(SimulationEngine):
         enable_memory_monitor: bool = False,
         nchunks: int = 1,
         source_buffer=1.0,
-        beam_coeffs: np.ndarray = None,
+        beam_coefs: np.ndarray = None,
     ) -> np.ndarray:
         """
         Simulate visibilities using CPU implementation.
 
         Parameters
         ----------
-        beam_coeffs : np.ndarray, optional
+        beam_coefs : np.ndarray, optional
             Per-antenna SVD coefficients of shape (N_ant, K). When provided,
             beam_list is interpreted as K basis beams rather than per-antenna
             beams. Visibilities are computed over all K^2 basis pairs and then
-            contracted with beam_coeffs in post-processing.
+            contracted with beam_coefs in post-processing.
 
         See base class for all other parameter descriptions.
         """
@@ -743,8 +743,8 @@ class CPUSimulationEngine(SimulationEngine):
             freqs = ray.put(freqs)
             beam_list = ray.put(beam_list)
             coord_mgr = ray.put(coord_mgr)
-            if beam_coeffs is not None:
-                beam_coeffs = ray.put(beam_coeffs)
+            if beam_coefs is not None:
+                beam_coefs = ray.put(beam_coefs)
             if trace_mem:
                 os.system("ray memory --units MB > after-puts.txt")
 
@@ -803,7 +803,7 @@ class CPUSimulationEngine(SimulationEngine):
                     type1_n_modes=n_modes if is_gridded else None,
                     trace_mem=(nprocesses > 1 or force_use_ray) and trace_mem,
                     nchunks=nchunks,
-                    beam_coeffs=beam_coeffs,
+                    beam_coefs=beam_coefs,
                 )
             )
             if trace_mem:
@@ -856,14 +856,14 @@ class CPUSimulationEngine(SimulationEngine):
         type1_n_modes: int = None,
         trace_mem: bool = False,
         nchunks: int = 1,
-        beam_coeffs: np.ndarray = None,
+        beam_coefs: np.ndarray = None,
     ) -> np.ndarray:
         """
         Evaluate a chunk of visibility data using CPU.
 
         Parameters
         ----------
-        beam_coeffs : np.ndarray, optional
+        beam_coefs : np.ndarray, optional
             Per-antenna SVD coefficients, shape (N_ant, K). When provided,
             beam_list contains the K basis beams and the standard beam-pair
             loop is replaced by the basis visibility path.
@@ -888,11 +888,11 @@ class CPUSimulationEngine(SimulationEngine):
 
         coord_mgr.setup()
 
-        use_basis = beam_coeffs is not None
+        use_basis = beam_coefs is not None
 
         if use_basis:
             # Pre-compute the per-baseline antenna index arrays once.
-            # These are used in post-processing to gather the right rows of beam_coeffs.
+            # These are used in post-processing to gather the right rows of beam_coefs.
             ant1_idxs = np.array([antnums.index(bl[0]) for bl in baselines])
             ant2_idxs = np.array([antnums.index(bl[1]) for bl in baselines])
         else:
@@ -972,7 +972,7 @@ class CPUSimulationEngine(SimulationEngine):
                                 flux_here=flux,
                                 ant1_idxs=ant1_idxs,
                                 ant2_idxs=ant2_idxs,
-                                beam_coeffs=beam_coeffs,
+                                beam_coefs=beam_coefs,
                                 freqidx=freqidx,
                                 topo=topo,
                                 uvw=uvw if not use_type1 else None,
