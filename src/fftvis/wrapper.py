@@ -114,6 +114,7 @@ def simulate_vis(
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
     source_buffer=1.0,
+    eigenbeam_coefs: np.ndarray = None,
 ) -> np.ndarray:
     """
     Parameters:
@@ -335,4 +336,5 @@ def simulate_vis(
         trace_mem=trace_mem,
         nchunks=nchunks,
         source_buffer=source_buffer,
+        eigenbeam_coefs=eigenbeam_coefs,
     )

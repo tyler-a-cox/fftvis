@@ -306,6 +306,9 @@ def _run_nufft(
 def _compute_basis_visibilities(
     beam_evaluations: list,
     flux_here: np.ndarray,
+    ant1_idxs: np.ndarray,
+    ant2_idxs: np.ndarray,
+    beam_coeffs: np.ndarray,
     freqidx: int,
     topo: np.ndarray,
     uvw: np.ndarray,
@@ -353,6 +356,10 @@ def _compute_basis_visibilities(
     flux_here : np.ndarray
         Source flux, shape ``(nsrc, nfreqs)`` for unpolarized sky or
         ``(nsrc, nfreqs, nfeeds, nfeeds)`` for polarized sky.
+    ant1_idxs, ant2_idxs : np.ndarray
+        Antenna indices for each baseline, each shape ``(nbls,)``.
+    beam_coeffs : np.ndarray
+        Coefficients for each baseline, shape ``(nbls, nbasis)``. 
     freqidx : int
         Frequency index into flux_here.
     topo : np.ndarray
@@ -391,7 +398,9 @@ def _compute_basis_visibilities(
         Basis visibility tensor, shape ``(nbasis, nbasis, nbls, nfeeds, nfeeds)``.
     """
     nbasis = len(beam_evaluations)
-    vis_basis = np.zeros((nbasis, nbasis, nbls, nfeeds, nfeeds), dtype=complex_dtype)
+    
+    # Output accumulator — only (nbls, nfeeds, nfeeds) instead of (K, K, nbls, nfeeds, nfeeds)
+    vis_out = np.zeros((nbls, nfeeds, nfeeds), dtype=complex_dtype)
 
     # No baseline flipping in the basis path — we run all baselines at once.
     flipped = np.zeros(nbls, dtype=bool)
@@ -403,6 +412,10 @@ def _compute_basis_visibilities(
         _apparent_buf = np.empty((nfeeds, nfeeds, nsim_sources), dtype=complex_dtype)
     else:
         _apparent_buf = np.empty(nsim_sources, dtype=complex_dtype)
+
+    # Gather coefficients once, outside the loop
+    ant1_c = beam_coeffs[ant1_idxs, :]         # (nbls, K)
+    ant2_c = beam_coeffs[ant2_idxs, :]  # (nbls, K)
 
     for k in range(nbasis):
         for l in range(nbasis):
@@ -423,7 +436,7 @@ def _compute_basis_visibilities(
             if phi_kl is None:  # pragma: no cover
                 continue
 
-            vis_basis[k, l] = _run_nufft(
+            vis_kl = _run_nufft(
                 apparent_coherency=phi_kl,
                 topo=topo,
                 uvw=uvw,
@@ -441,7 +454,10 @@ def _compute_basis_visibilities(
                 nfeeds=nfeeds,
             )
 
-    return vis_basis
+            weight = ant1_c[:, k] * ant2_c[:, l]  # (nbls,)
+            vis_out += weight[:, None, None] * vis_kl
+
+    return vis_out
 
 
 def _postprocess_basis_visibilities(
@@ -975,6 +991,9 @@ class CPUSimulationEngine(SimulationEngine):
                             vis_basis = _compute_basis_visibilities(
                                 beam_evaluations=beam_evaluations,
                                 flux_here=flux,
+                                ant1_idxs=ant1_idxs,
+                                ant2_idxs=ant2_idxs,
+                                beam_coeffs=beam_coeffs,
                                 freqidx=freqidx,
                                 topo=topo,
                                 uvw=uvw if not use_type1 else None,
@@ -995,16 +1014,7 @@ class CPUSimulationEngine(SimulationEngine):
                                 polarized_sky_model=polarized_sky_model,
                             )
 
-                            # Contract (K, K, nbls, nfeeds, nfeeds) with per-antenna
-                            # coefficients to produce (nbls, nfeeds, nfeeds)
-                            vis_contracted = _postprocess_basis_visibilities(
-                                vis_basis=vis_basis,
-                                beam_coeffs=beam_coeffs,
-                                ant1_idxs=ant1_idxs,
-                                ant2_idxs=ant2_idxs,
-                            )
-
-                            vis[time_index, :, :, :, freqidx] += vis_contracted
+                            vis[time_index, :, :, :, freqidx] += vis_basis
 
                         # -------------------------------------------------------
                         # Standard beam-pair path
