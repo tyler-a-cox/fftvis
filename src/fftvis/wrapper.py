@@ -141,7 +141,7 @@ def simulate_vis(
         Beam object to use for the array. If a single beam object is provided, it will be assumed that all antennas have the same beam. 
         If a list of beam objects is provided, the length of the list should be equal to the number of unique beams in the array, 
         and the beam_idx parameter should be used to specify which beam corresponds to each antenna. The beam parameter can
-        also be used to pass "eigenbeams" or "characteristic beams" that are not necessarily associated with the antennas, 
+        also be used to pass "eigenbeams" or "beam basis functions" that are not necessarily associated with the antennas, 
         but can be used to construct the beams for each antenna through linear combinations. In this case, the beam_idx parameter 
         should not be used, and the beam_coefs parameter should be used to specify the coefficients for the linear combinations 
         for each antenna.
