@@ -9,12 +9,12 @@
 ## Features
 
 - Utilizes the Flatiron Institute NUFFT (finufft) [algorithm](https://arxiv.org/abs/1808.06736) for fast visibility simulations that agree with similar methods ([`matvis`](https://github.com/HERA-team/matvis)) to high precision.
-- Designed to be a near drop-in replacement to `matvis` with a ~10x improvement in runtime
+- Designed to be a near drop-in replacement to `matvis` with a ~10-100x improvement in runtime
 - Extensible design that allows for easy addition of new backends
 - Support for polarized beam patterns and polarized sky models
+- Support for per-antenna beams w/ functionality to support representing per-antenna beams with a linear basis
 
 ## Current Limitations
-- No support for per-antenna beams 
 - GPU backend exists only as a stub implementation (coming soon!)
 - Diffuse sky models must be pixelized
 

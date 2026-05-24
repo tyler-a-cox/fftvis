@@ -180,14 +180,11 @@ def _compute_apparent_coherency(
         logger.debug(
             "Using unpolarized beam. Computing apparent flux for unpolarized sources."
         )
-        if is_cross_pair:
-            np.multiply(beam_evaluations[bi], beam_evaluations[bj], out=apparent_buf)
-            np.sqrt(apparent_buf, out=apparent_buf)
-            apparent_buf *= flux_here[:, freqidx]
-            apparent_coherency = apparent_buf
-        else:
-            np.multiply(beam_evaluations[bi], flux_here[:, freqidx], out=apparent_buf)
-            apparent_coherency = apparent_buf
+        np.multiply(beam_evaluations[bi], beam_evaluations[bj], out=apparent_buf)
+        np.sqrt(apparent_buf, out=apparent_buf)
+
+        apparent_buf *= flux_here[:, freqidx]
+        apparent_coherency = apparent_buf
 
     # Reshape to (nfeeds**2, nsrc) for the NUFFT
     try:
@@ -438,9 +435,10 @@ def _compute_basis_visibilities(
                 complex_dtype=complex_dtype,
                 apparent_buf=_apparent_buf,
             )
-            if phi_kl is None:  # pragma: no cover
-                continue
 
+            if phi_kl is None:  # pragma: no cover (polarized path only)
+                continue
+            
             vis_kl = _run_nufft(
                 apparent_coherency=phi_kl,
                 topo=topo,

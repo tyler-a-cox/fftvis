@@ -8,7 +8,8 @@ suitable for use with the basis-visibility path in CPUSimulationEngine.
 
 import logging
 import numpy as np
-from pyuvdata import UVBeam
+from pyuvdata import UVBeam, BeamInterface
+from matvis.core.beams import prepare_beam_unpolarized
 
 logger = logging.getLogger(__name__)
 
@@ -16,63 +17,106 @@ logger = logging.getLogger(__name__)
 def compute_beam_basis(
     beam_list,
     freq: float,
+    polarized: bool,
     threshold: float = 1e-12,
+    axis1_array=None,
+    axis2_array=None,
+    n_axis1: int = 361,
+    n_axis2: int = 181,
 ):
-    """
-    """
     if len(beam_list) == 0:
         raise ValueError("beam_list must contain at least one beam.")
+    if not (0.0 < threshold <= 1.0):
+        raise ValueError("threshold must be in the interval (0, 1].")
 
-    n_beams = len(beam_list)
-    freq_grid = np.atleast_1d(freq)
+    freq_grid = np.atleast_1d(freq).astype(float)
+    if freq_grid.size != 1:
+        raise ValueError("compute_beam_basis currently expects a scalar freq.")
+
+    beams = []
+    for beam in beam_list:
+        bi = BeamInterface(beam)
+
+        if polarized:
+            if bi.beam_type != "efield":
+                raise ValueError("polarized=True requires efield beams.")
+        else:
+            bi = bi.as_power_beam(include_cross_pols=False)
+            bi = prepare_beam_unpolarized(bi)
+
+        beams.append(bi if isinstance(bi, BeamInterface) else BeamInterface(bi))
+
+    if (axis1_array is None) != (axis2_array is None):
+        raise ValueError("axis1_array and axis2_array must be supplied together.")
+
+    if axis1_array is None:
+        for bi in beams:
+            b = bi.beam
+            if (
+                getattr(b, "pixel_coordinate_system", None) == "az_za"
+                and getattr(b, "axis1_array", None) is not None
+                and getattr(b, "axis2_array", None) is not None
+            ):
+                axis1_array = b.axis1_array
+                axis2_array = b.axis2_array
+                break
+        else:
+            axis1_array = np.linspace(0.0, 2.0 * np.pi, n_axis1)
+            axis2_array = np.linspace(0.0, np.pi, n_axis2)
+
+    axis1_array = np.asarray(axis1_array, dtype=float)
+    axis2_array = np.asarray(axis2_array, dtype=float)
 
     interp_beams = []
-    for idx, beam in enumerate(beam_list):
-        interp_beams.append(
-            beam.interp(freq_array=freq_grid, new_object=True)
-        )
+    for bi in beams:
+        if bi._isuvbeam:
+            uvb = bi.beam.interp(
+                az_array=axis1_array,
+                za_array=axis2_array,
+                freq_array=freq_grid,
+                az_za_grid=True,
+                new_object=True,
+            )
+        else:
+            uvb = bi.beam.to_uvbeam(
+                freq_array=freq_grid,
+                beam_type=bi.beam_type,
+                pixel_coordinate_system="az_za",
+                axis1_array=axis1_array,
+                axis2_array=axis2_array,
+            )
+        interp_beams.append(uvb)
 
     ref = interp_beams[0]
-
-    # Shape of the slice we care about: 
-    # (Naxes_vec, Nfeeds, Nfreqs, Nax1) for healpix beams
-    # (Naxes_vec, Nfeeds, Nfreqs, Nax1, Nax2) for gridded beams
     slice_shape = ref.data_array[:, :, 0].shape
-    flat_vecs = np.array(
-        [b.data_array[:, :, 0].ravel() for b in interp_beams]
-    )  # (N_beams, Naxes_vec * Nfeeds * Nfreqs * Nax1 * Nax2)
 
-    # ------------------------------------------------------------------
-    # Step 3: SVD.
-    # B = U @ diag(s) @ Vh  →  beam_i ≈ sum_k (U[i,k]*s[k]) * Vh[k]
-    # ------------------------------------------------------------------
+    slices = [b.data_array[:, :, 0] for b in interp_beams]
+    for idx, data_slice in enumerate(slices):
+        if data_slice.shape != slice_shape:
+            raise ValueError(
+                f"Beam {idx} evaluates to shape {data_slice.shape}, "
+                f"expected {slice_shape}."
+            )
+
+    flat_vecs = np.stack([data_slice.ravel() for data_slice in slices], axis=0)
+    
+    if not polarized:
+        flat_vecs = np.sqrt(flat_vecs)
+
     U, s, Vh = np.linalg.svd(flat_vecs, full_matrices=False)
+    if s[0] == 0:
+        raise ValueError("All beams evaluate to zero on the chosen grid.")
 
-    # ------------------------------------------------------------------
-    # Step 4: Truncate at normalised singular value threshold.
-    # ------------------------------------------------------------------
     s_norm = s / s[0]
     K = int(np.sum(s_norm >= threshold))
 
-    U_k  = U[:, :K]   # (N_beams, K)
-    s_k  = s[:K]       # (K,)
-    Vh_k = Vh[:K, :]  # (K, N_flat)
+    beam_coefs = U[:, :K] * s[:K][None, :]
 
-    # ------------------------------------------------------------------
-    # Step 5: Compute per-antenna coefficients.
-    # beam_coefs[i, k] = U[i, k] * s[k]  so that  flat_vecs ≈ beam_coefs @ Vh_k
-    # ------------------------------------------------------------------
-    beam_coefs = U_k * s_k[None, :]  # (N_beams, K)
-    
-    # ------------------------------------------------------------------
-    # Step 6: Build eigenbeam UVBeam objects by copying reference metadata
-    # and replacing data_array with the reshaped Vh rows.
-    # ------------------------------------------------------------------
     eigenbeams = []
     for k in range(K):
         eb = ref.copy()
-        eigenbeam_slice = Vh_k[k].reshape(slice_shape)
-        eb.data_array = eigenbeam_slice[:, :, np.newaxis]
+        eigenbeam_slice = Vh[k].reshape(slice_shape)
+        eb.data_array = eigenbeam_slice[:, :, np.newaxis, ...]
         eigenbeams.append(eb)
 
     return eigenbeams, beam_coefs

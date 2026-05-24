@@ -290,9 +290,17 @@ def simulate_vis(
 
         beam = BeamInterface(beam)
 
-        # Prepare the beam
-        if not polarized:
+        # Prepare the beam for unpolarized simulation by converting to a
+        # power beam. Skip this when eigenbeams are provided via beam_coefs:
+        # those beams must remain as efield beams because the SVD coefficients
+        # were computed in efield space, and the basis path computes
+        # NUFFT[phi_k * phi_l^* * I] directly.
+        if not polarized and beam_coefs is None:
             beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
+        elif not polarized and beam_coefs is not None:
+            raise ValueError(
+                "Basis decomposition is not compatible with unpolarized simulations. Set polarized=True to use beam_coefs."
+            )
 
         beam_list.append(beam)
 
