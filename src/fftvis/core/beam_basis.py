@@ -99,14 +99,9 @@ def compute_beam_basis(
             )
 
     flat_vecs = np.stack([data_slice.ravel() for data_slice in slices], axis=0)
-    
-    if not polarized:
-        flat_vecs = np.sqrt(flat_vecs)
 
     U, s, Vh = np.linalg.svd(flat_vecs, full_matrices=False)
-    if s[0] == 0:
-        raise ValueError("All beams evaluate to zero on the chosen grid.")
-
+    
     s_norm = s / s[0]
     K = int(np.sum(s_norm >= threshold))
 
