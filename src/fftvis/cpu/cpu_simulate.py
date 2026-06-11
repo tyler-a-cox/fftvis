@@ -356,8 +356,8 @@ def _compute_basis_visibilities(
     ant1_idxs, ant2_idxs : np.ndarray
         Antenna indices for each baseline, each shape ``(nbls,)``.
     beam_coefs : np.ndarray
-        Coefficients for each baseline, shape ``(nbls, nbasis)``. 
-    freqidx : int
+        Per-antenna basis coefficients, shape ``(nant, nbasis, nfreqs)``. Each baseline
+        uses rows ``ant1_idxs``/``ant2_idxs`` at ``freqidx`` to form weights.
         Frequency index into flux_here.
     topo : np.ndarray
         Topocentric source coordinates, shape ``(3, nsrc)``.
