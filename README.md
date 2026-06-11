@@ -70,7 +70,8 @@ This package relies on the `finufft` implementation provided by [finufft](https:
 
 If you use `fftvis` in your research, please cite our paper published in *RAS Techniques and Instruments*:
 
-> **fftvis: a non-uniform Fast Fourier Transform based interferometric visibility simulator** > Tyler A. Cox, Steven G. Murray, Aaron R. Parsons, Joshua S. Dillon, Kartik Mandar, Zachary E. Martinot, Robert Pascua, Piyanat Kittiwisit, and James E. Aguirre.  
+> **fftvis: a non-uniform Fast Fourier Transform based interferometric visibility simulator**
+> Tyler A. Cox, Steven G. Murray, Aaron R. Parsons, Joshua S. Dillon, Kartik Mandar, Zachary E. Martinot, Robert Pascua, Piyanat Kittiwisit, and James E. Aguirre.  
 > *RAS Techniques and Instruments*, Volume 4, 2025, rzaf056.  
 > DOI: [10.1093/rasti/rzaf056](https://doi.org/10.1093/rasti/rzaf056) | arXiv: [2506.02130](https://arxiv.org/abs/2506.02130)
 
