@@ -631,6 +631,7 @@ class CPUSimulationEngine(SimulationEngine):
 
         # Rotate antenna positions to XY plane if not gridded
         if not is_gridded:
+            # Get the rotation matrix to rotate the array to the XY plane
             rotation_matrix = utils.get_plane_to_xy_rotation_matrix(antvecs)
             rotation_matrix = np.ascontiguousarray(rotation_matrix.T)
             rotated_antvecs = np.dot(rotation_matrix, antvecs.T)
@@ -645,22 +646,27 @@ class CPUSimulationEngine(SimulationEngine):
             bls /= utils.speed_of_light
             bls = bls.astype(real_dtype)
 
+            # Check if the array is flat within tolerance
             is_coplanar = np.all(np.less_equal(np.abs(bls[2]), flat_array_tol))
         else:
             logger.info(
                 "Using gridded coordinates for the array. Type 1 transform will be used."
             )
+            # Compute the baseline vectors in the gridded coordinate system
             bls = np.array([
                 gridded_antpos[bl[1]] - gridded_antpos[bl[0]]
                 for bl in baselines]
             ).T
             bls = np.round(bls).astype(int)
 
+            # Find the maximum extent of the array in gridded coordinates
             n_modes = 2 * int(np.round(np.max(np.abs(bls)))) + 1
 
+            # Get the maximum baseline length for proper coordinate scaling
             basis_matrix *= 1 / utils.speed_of_light
             basis_matrix = basis_matrix.astype(real_dtype)
 
+            # Assume the array is coplanar for gridded coordinates
             is_coplanar = True
             rotation_matrix = np.eye(3, dtype=real_dtype)
 
@@ -688,6 +694,8 @@ class CPUSimulationEngine(SimulationEngine):
         )
 
         if getattr(coord_mgr, "update_bcrs_every", 0) > (times[-1] - times[0]).to(un.s):
+            # We don't need to ever update BCRS, so we get it now before sending
+            # out the jobs to multiple processes.
             coord_mgr._set_bcrs(0)  # pragma: no cover
 
         nprocesses, freq_chunks, time_chunks, nf, nt = utils.get_task_chunks(
@@ -696,6 +704,7 @@ class CPUSimulationEngine(SimulationEngine):
         use_ray = nprocesses > 1 or force_use_ray
 
         if use_ray:  # pragma: no cover
+            # Try to estimate how much shared memory will be required.
             required_shm = bls.nbytes + rotation_matrix.nbytes + freqs.nbytes
 
             for key, val in coord_mgr.__dict__.items():
@@ -720,6 +729,9 @@ class CPUSimulationEngine(SimulationEngine):
                 if not enable_memory_monitor:
                     os.environ["RAY_memory_monitor_refresh_ms"] = "0"
 
+                # Only spill shared memory objects to disk if the Store is totally full.
+                # If we don't do this, then since we need a relatively small amount of
+                # SHM, it starts writing to disk even though we never needed to.
                 os.environ["RAY_object_spilling_threshold"] = "1.0"
 
                 try:
@@ -768,11 +780,13 @@ class CPUSimulationEngine(SimulationEngine):
         futures = []
         init_time = time.time()
 
+        # Create a remote version of _evaluate_vis_chunk if needed
         if use_ray:
             fnc = _evaluate_vis_chunk_remote.remote
         else:
             fnc = self._evaluate_vis_chunk
 
+        # Create workers for each chunk
         for nthi, fc, tc in zip(nthreads_per_proc, freq_chunks, time_chunks):
             futures.append(
                 fnc(
@@ -814,13 +828,15 @@ class CPUSimulationEngine(SimulationEngine):
 
         end_time = time.time()
         logger.info(f"Main loop evaluation time: {end_time - init_time}")
-
+        
+        # Combine results from all workers
         vis = np.zeros(
             dtype=complex_dtype, shape=(ntimes, nbls, nfeeds, nfeeds, nfreqs)
         )
         for fc, tc, future in zip(freq_chunks, time_chunks, futures):
             vis[tc][..., fc] = future
 
+        # Reshape to expected output format
         return (
             np.transpose(vis, (4, 0, 2, 3, 1))
             if polarized
@@ -957,6 +973,10 @@ class CPUSimulationEngine(SimulationEngine):
                             complex_dtype=complex_dtype,
                         )
 
+                        # Pre-compute frequency-scaled source coordinates once per
+                        # frequency. topo and freq are identical for every beam pair,
+                        # so computing these inside the pair loop would allocate two
+                        # redundant (nsrc,) arrays per pair.
                         if use_type1:
                             tx = topo[0] * freq
                             ty = topo[1] * freq
