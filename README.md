@@ -90,5 +90,5 @@ If you use `fftvis` in your research, please cite our paper published in *RAS Te
   archivePrefix = {arXiv},
   eprint        = {2506.02130},
   primaryClass  = {astro-ph.IM},
-  adsurl        = {[https://ui.adsabs.harvard.edu/abs/2025RASTI...4af056C](https://ui.adsabs.harvard.edu/abs/2025RASTI...4af056C)}
+  adsurl        = {https://ui.adsabs.harvard.edu/abs/2025RASTI...4af056C}
 }
