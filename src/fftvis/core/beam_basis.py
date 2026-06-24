@@ -44,7 +44,7 @@ def compute_beam_basis(
             bi = bi.as_power_beam(include_cross_pols=False)
             bi = prepare_beam_unpolarized(bi)
 
-        beams.append(bi if isinstance(bi, BeamInterface) else BeamInterface(bi))
+        beams.append(bi)
 
     if (axis1_array is None) != (axis2_array is None):
         raise ValueError("axis1_array and axis2_array must be supplied together.")
