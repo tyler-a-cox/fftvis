@@ -24,6 +24,43 @@ def compute_beam_basis(
     n_axis1: int = 361,
     n_axis2: int = 181,
 ):
+    """Compute an SVD beam basis for a collection of antenna beams.
+
+    Each input beam is evaluated on a common azimuth/zenith-angle grid at a
+    single frequency, flattened, and decomposed with singular value
+    decomposition. The returned eigenbeams span the retained right-singular
+    vectors, while ``beam_coefs`` contains the per-input-beam coefficients
+    needed to reconstruct each beam from that basis.
+
+    Parameters
+    ----------
+    beam_list
+        Sequence of beams to decompose. Entries may be ``UVBeam`` objects or
+        analytic beams supported by ``pyuvdata.BeamInterface``.
+    freq
+        Frequency in Hz at which to evaluate the beams. Must be scalar.
+    polarized
+        Whether to compute a polarized basis. If True, all beams must be
+        efield beams. If False, beams are converted to unpolarized power beams.
+    threshold
+        Relative singular-value cutoff used to choose the number of retained
+        basis beams. Singular values with ``s / s[0] >= threshold`` are kept.
+    axis1_array, axis2_array
+        Optional azimuth and zenith-angle arrays, in radians, defining the
+        common interpolation grid. These must be supplied together.
+    n_axis1, n_axis2
+        Number of azimuth and zenith-angle grid samples to use when no grid is
+        supplied and no compatible UVBeam grid is available from ``beam_list``.
+
+    Returns
+    -------
+    eigenbeams : list of UVBeam
+        Basis beams represented as copies of the first interpolated beam with
+        each retained singular vector reshaped onto the common beam grid.
+    beam_coefs : np.ndarray
+        Array of shape ``(n_beams, n_basis)`` containing coefficients that map
+        each input beam onto the returned eigenbeam basis.
+    """
     if len(beam_list) == 0:
         raise ValueError("beam_list must contain at least one beam.")
     if not (0.0 < threshold <= 1.0):
