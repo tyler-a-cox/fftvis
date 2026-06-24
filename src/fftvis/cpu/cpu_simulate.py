@@ -573,10 +573,10 @@ class CPUSimulationEngine(SimulationEngine):
         Parameters
         ----------
         beam_coefs : np.ndarray, optional
-            Per-antenna SVD coefficients of shape (N_ant, K). When provided,
-            beam_list is interpreted as K basis beams rather than per-antenna
-            beams. Visibilities are computed over all K^2 basis pairs and then
-            contracted with beam_coefs in post-processing.
+            Per-antenna basis coefficients, shape ``(nant, K, nfreqs)``. When provided,
+            beam_list is interpreted as K basis beams rather than per-antenna beams.
+            Visibilities are computed for basis-beam pairs and contracted using these
+            coefficients at each frequency.
 
         See base class for all other parameter descriptions.
         """
