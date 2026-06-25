@@ -10,6 +10,9 @@ from .core.simulate import SimulationEngine
 from .cpu.cpu_simulate import CPUSimulationEngine
 from .wrapper import create_simulation_engine, simulate_vis
 
+# Import beam basis decomposition utility
+from .core.beam_basis import compute_beam_basis
+
 # Import utility modules
 from . import utils, logutils
 
@@ -23,4 +26,6 @@ __all__ = [
     "CPUSimulationEngine",
     "create_simulation_engine",
     "simulate_vis",
+    # Beam basis decomposition
+    "compute_beam_basis",
 ]

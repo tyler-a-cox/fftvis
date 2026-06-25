@@ -114,6 +114,7 @@ def simulate_vis(
     max_memory: int | float = np.inf,
     min_chunks: int = 1,
     source_buffer=1.0,
+    beam_coefs: np.ndarray = None,
 ) -> np.ndarray:
     """
     Parameters:
@@ -139,7 +140,11 @@ def simulate_vis(
     beam : UVBeam | BeamInterface, or list of UVBeam | BeamInterface
         Beam object to use for the array. If a single beam object is provided, it will be assumed that all antennas have the same beam. 
         If a list of beam objects is provided, the length of the list should be equal to the number of unique beams in the array, 
-        and the beam_idx parameter should be used to specify which beam corresponds to each antenna.
+        and the beam_idx parameter should be used to specify which beam corresponds to each antenna. The beam parameter can
+        also be used to pass "eigenbeams" or "beam basis functions" that are not necessarily associated with the antennas, 
+        but can be used to construct the beams for each antenna through linear combinations. In this case, the beam_idx parameter 
+        should not be used, and the beam_coefs parameter should be used to specify the coefficients for the linear combinations 
+        for each antenna.
     telescope_loc
         An EarthLocation object representing the center of the array.
     beam_idx : np.ndarray, default = None
@@ -219,6 +224,12 @@ def simulate_vis(
     source_buffer : float, optional
         The fraction of the total number of sources to use when allocating memory
         for the sources above horizon. 
+    beam_coefs : np.ndarray, optional
+        Coefficients for linear combination of eigenbeams to construct the beams for each antenna.
+        Should be of shape (nant, nbeams, nfreqs) where nant is the number of antennas and nbeams is the 
+        number of eigenbeams provided in the beam parameter. If None, it will be assumed that the 
+        beams for each antenna are not constructed from linear combinations of eigenbeams, and the 
+        beam parameter will be used directly as the beams for each antenna.
 
     Returns:
     -------
@@ -241,21 +252,29 @@ def simulate_vis(
     nbeam = len(_beam_list)
     nant = len(ants)
 
-    # Check the beam indices
-    if beam_idx is None:
-        if nbeam == nant:
-            beam_idx = np.arange(nant)
-        elif nbeam != 1:
+    # Check the beam indices — skip entirely when eigenbeams are being used,
+    # since beam_coefs maps antennas to basis beams and beam_idx is irrelevant.
+    if beam_coefs is not None:
+        if beam_idx is not None:
             raise ValueError(
-                "If number of beams provided is not 1 or nant, beam_idx must be provided."
+                "beam_idx should not be provided when beam_coefs is given. "
+                "The mapping from antennas to beams is defined by beam_coefs."
             )
-    if beam_idx is not None:
-        if beam_idx.shape != (nant,):
-            raise ValueError("beam_idx must be length nant")
-        if not all(0 <= i < nbeam for i in beam_idx):
-            raise ValueError(
-                "beam_idx contains indices greater than the number of beams"
-            )
+    else:
+        if beam_idx is None:
+            if nbeam == nant:
+                beam_idx = np.arange(nant)
+            elif nbeam != 1:
+                raise ValueError(
+                    "If number of beams provided is not 1 or nant, beam_idx must be provided."
+                )
+        if beam_idx is not None:
+            if beam_idx.shape != (nant,):
+                raise ValueError("beam_idx must be length nant")
+            if not all(0 <= i < nbeam for i in beam_idx):
+                raise ValueError(
+                    "beam_idx contains indices greater than the number of beams"
+                )
 
     beam_list = []
 
@@ -271,9 +290,17 @@ def simulate_vis(
 
         beam = BeamInterface(beam)
 
-        # Prepare the beam
-        if not polarized:
+        # Prepare the beam for unpolarized simulation by converting to a
+        # power beam. Skip this when eigenbeams are provided via beam_coefs:
+        # those beams must remain as efield beams because the SVD coefficients
+        # were computed in efield space, and the basis path computes
+        # NUFFT[phi_k * phi_l^* * I] directly.
+        if not polarized and beam_coefs is None:
             beam = prepare_beam_unpolarized(beam, use_feed=use_feed)
+        elif not polarized and beam_coefs is not None:
+            raise ValueError(
+                "Basis decomposition is not compatible with unpolarized simulations. Set polarized=True to use beam_coefs."
+            )
 
         beam_list.append(beam)
 
@@ -325,4 +352,5 @@ def simulate_vis(
         trace_mem=trace_mem,
         nchunks=nchunks,
         source_buffer=source_buffer,
+        beam_coefs=beam_coefs,
     )

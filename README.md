@@ -9,12 +9,12 @@
 ## Features
 
 - Utilizes the Flatiron Institute NUFFT (finufft) [algorithm](https://arxiv.org/abs/1808.06736) for fast visibility simulations that agree with similar methods ([`matvis`](https://github.com/HERA-team/matvis)) to high precision.
-- Designed to be a near drop-in replacement to `matvis` with a ~10x improvement in runtime
+- Designed to be a near drop-in replacement to `matvis` with a ~10-100x improvement in runtime
 - Extensible design that allows for easy addition of new backends
 - Support for polarized beam patterns and polarized sky models
+- Support for per-antenna beams w/ functionality to support representing per-antenna beams with a linear basis. See the example [notebook](./docs/tutorials/beam_decomposition.ipynb) for details.
 
 ## Current Limitations
-- No support for per-antenna beams 
 - GPU backend exists only as a stub implementation (coming soon!)
 - Diffuse sky models must be pixelized
 
@@ -65,3 +65,30 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 This package relies on the `finufft` implementation provided by [finufft](https://github.com/flatironinstitute/finufft) library. Special thanks to the contributors and maintainers of open-source libraries used in this project.
+
+## Citation
+
+If you use `fftvis` in your research, please cite our paper published in *RAS Techniques and Instruments*:
+
+> **fftvis: a non-uniform Fast Fourier Transform based interferometric visibility simulator**
+> Tyler A. Cox, Steven G. Murray, Aaron R. Parsons, Joshua S. Dillon, Kartik Mandar, Zachary E. Martinot, Robert Pascua, Piyanat Kittiwisit, and James E. Aguirre.  
+> *RAS Techniques and Instruments*, Volume 4, 2025, rzaf056.  
+> DOI: [10.1093/rasti/rzaf056](https://doi.org/10.1093/rasti/rzaf056) | arXiv: [2506.02130](https://arxiv.org/abs/2506.02130)
+
+### BibTeX
+
+```bibtex
+@article{2025RASTI...4af056C,
+  author        = {Cox, Tyler A. and Murray, Steven G. and Parsons, Aaron R. and Dillon, Joshua S. and Mandar, Kartik and Martinot, Zachary E. and Pascua, Robert and Kittiwisit, Piyanat and Aguirre, James E.},
+  title         = "{fftvis: a non-uniform Fast Fourier Transform based interferometric visibility simulator}",
+  journal       = {RAS Techniques and Instruments},
+  year          = {2025},
+  month         = {jan},
+  volume        = {4},
+  pages         = {rzaf056},
+  doi           = {10.1093/rasti/rzaf056},
+  archivePrefix = {arXiv},
+  eprint        = {2506.02130},
+  primaryClass  = {astro-ph.IM},
+  adsurl        = {https://ui.adsabs.harvard.edu/abs/2025RASTI...4af056C}
+}
