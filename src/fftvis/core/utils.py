@@ -353,3 +353,78 @@ def get_desired_chunks(
     )
 
     return nchunks, int(np.ceil(nsrc / nchunks))
+
+
+def validate_beam_idx(
+    beam_idx: np.ndarray | None,
+    beam_coefs: np.ndarray | None,
+    nbeam: int,
+    nant: int,
+) -> np.ndarray | None:
+    """Validate and normalize ``beam_idx`` against the beam/antenna counts.
+
+    This encodes the antenna-to-beam mapping rules shared by the public
+    ``simulate_vis`` wrapper and the simulation engines, so that the two entry
+    points cannot drift out of sync.
+
+    Two mutually exclusive modes are supported:
+
+    - **Per-antenna beams** (``beam_coefs is None``): ``beam_list`` holds one
+      beam per unique beam in the array, and ``beam_idx`` maps each antenna to
+      one of them. If ``beam_idx`` is omitted it is inferred when unambiguous
+      (one beam shared by all antennas, or exactly ``nant`` beams).
+    - **Eigenbeams** (``beam_coefs is not None``): ``beam_list`` holds ``K``
+      basis beams whose count need not relate to ``nant``, and the mapping is
+      defined by ``beam_coefs``. ``beam_idx`` must not be supplied in this mode.
+
+    Parameters
+    ----------
+    beam_idx : np.ndarray or None
+        Array of integers, length ``nant``, mapping each antenna to a beam in
+        the beam list. May be None to request inference (per-antenna mode only).
+    beam_coefs : np.ndarray or None
+        Per-antenna eigenbeam coefficients. When not None, the eigenbeam path is
+        in use and ``beam_idx`` is irrelevant.
+    nbeam : int
+        Number of beams in the beam list.
+    nant : int
+        Number of antennas.
+
+    Returns
+    -------
+    np.ndarray or None
+        The validated ``beam_idx``. In per-antenna mode this may be a freshly
+        inferred array; in eigenbeam mode it is returned unchanged (None).
+
+    Raises
+    ------
+    ValueError
+        If ``beam_idx`` is supplied alongside ``beam_coefs``; if it cannot be
+        inferred because ``nbeam`` is neither 1 nor ``nant``; if it has the
+        wrong shape; or if it contains out-of-range beam indices.
+    """
+    if beam_coefs is not None:
+        if beam_idx is not None:
+            raise ValueError(
+                "beam_idx should not be provided when beam_coefs is given. "
+                "The mapping from antennas to beams is defined by beam_coefs."
+            )
+        return beam_idx
+
+    if beam_idx is None:
+        if nbeam == nant:
+            beam_idx = np.arange(nant)
+        elif nbeam != 1:
+            raise ValueError(
+                "If number of beams provided is not 1 or nant, beam_idx must be provided."
+            )
+
+    if beam_idx is not None:
+        if beam_idx.shape != (nant,):
+            raise ValueError("beam_idx must be length nant")
+        if not all(0 <= i < nbeam for i in beam_idx):
+            raise ValueError(
+                "beam_idx contains indices greater than the number of beams"
+            )
+
+    return beam_idx

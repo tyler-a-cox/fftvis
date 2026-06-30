@@ -605,21 +605,10 @@ class CPUSimulationEngine(SimulationEngine):
         if freqs.dtype != real_dtype:
             freqs = freqs.astype(real_dtype)
 
-        # Check beam_idx validity against input beams and antennas.
-        if beam_idx is None:
-            if nbeam == nant:
-                beam_idx = np.arange(nant)
-            elif nbeam != 1:
-                raise ValueError(
-                    "If number of beams provided is not 1 or nant, beam_idx must be provided."
-                )
-        if beam_idx is not None:
-            if beam_idx.shape != (nant,):
-                raise ValueError("beam_idx must be length nant")
-            if not all(0 <= i < nbeam for i in beam_idx):
-                raise ValueError(
-                    "beam_idx contains indices greater than the number of beams"
-                )
+        # Validate / infer the antenna-to-beam mapping. The shared helper keeps
+        # this logic identical between the wrapper and the simulation engine, and
+        # correctly no-ops on the eigenbeam path (beam_coefs is not None).
+        beam_idx = utils.validate_beam_idx(beam_idx, beam_coefs, nbeam, nant)
 
         # Get the redundant groups
         if baselines is None:
