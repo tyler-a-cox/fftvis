@@ -583,6 +583,8 @@ class CPUSimulationEngine(SimulationEngine):
         # Get sizes of inputs
         nfreqs = np.size(freqs)
         ntimes = len(times)
+        nbeam = len(beam_list)
+        nant = len(ants)
 
         nax = nfeeds = 2 if polarized else 1
 
@@ -602,6 +604,11 @@ class CPUSimulationEngine(SimulationEngine):
             dec = dec.astype(real_dtype)
         if freqs.dtype != real_dtype:
             freqs = freqs.astype(real_dtype)
+
+        # Validate / infer the antenna-to-beam mapping. The shared helper keeps
+        # this logic identical between the wrapper and the simulation engine, and
+        # correctly no-ops on the eigenbeam path (beam_coefs is not None).
+        beam_idx = utils.validate_beam_idx(beam_idx, beam_coefs, nbeam, nant)
 
         # Get the redundant groups
         if baselines is None:

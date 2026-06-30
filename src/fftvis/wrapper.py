@@ -11,7 +11,7 @@ from .core.beams import BeamEvaluator
 from .cpu.beams import CPUBeamEvaluator
 from .core.simulate import SimulationEngine, default_accuracy_dict
 from .cpu.cpu_simulate import CPUSimulationEngine
-from .core.utils import get_desired_chunks
+from .core.utils import get_desired_chunks, validate_beam_idx
 
 def create_beam_evaluator(
     backend: Literal["cpu", "gpu"] = "cpu", **kwargs
@@ -252,29 +252,9 @@ def simulate_vis(
     nbeam = len(_beam_list)
     nant = len(ants)
 
-    # Check the beam indices — skip entirely when eigenbeams are being used,
-    # since beam_coefs maps antennas to basis beams and beam_idx is irrelevant.
-    if beam_coefs is not None:
-        if beam_idx is not None:
-            raise ValueError(
-                "beam_idx should not be provided when beam_coefs is given. "
-                "The mapping from antennas to beams is defined by beam_coefs."
-            )
-    else:
-        if beam_idx is None:
-            if nbeam == nant:
-                beam_idx = np.arange(nant)
-            elif nbeam != 1:
-                raise ValueError(
-                    "If number of beams provided is not 1 or nant, beam_idx must be provided."
-                )
-        if beam_idx is not None:
-            if beam_idx.shape != (nant,):
-                raise ValueError("beam_idx must be length nant")
-            if not all(0 <= i < nbeam for i in beam_idx):
-                raise ValueError(
-                    "beam_idx contains indices greater than the number of beams"
-                )
+    # Validate / infer the antenna-to-beam mapping. The shared helper keeps this
+    # logic identical between the wrapper and the simulation engine.
+    beam_idx = validate_beam_idx(beam_idx, beam_coefs, nbeam, nant)
 
     beam_list = []
 
