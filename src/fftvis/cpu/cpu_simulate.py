@@ -583,6 +583,8 @@ class CPUSimulationEngine(SimulationEngine):
         # Get sizes of inputs
         nfreqs = np.size(freqs)
         ntimes = len(times)
+        nbeam = len(beam_list)
+        nant = len(ants)
 
         nax = nfeeds = 2 if polarized else 1
 
@@ -602,6 +604,22 @@ class CPUSimulationEngine(SimulationEngine):
             dec = dec.astype(real_dtype)
         if freqs.dtype != real_dtype:
             freqs = freqs.astype(real_dtype)
+
+        # Check beam_idx validity against input beams and antennas.
+        if beam_idx is None:
+            if nbeam == nant:
+                beam_idx = np.arange(nant)
+            elif nbeam != 1:
+                raise ValueError(
+                    "If number of beams provided is not 1 or nant, beam_idx must be provided."
+                )
+        if beam_idx is not None:
+            if beam_idx.shape != (nant,):
+                raise ValueError("beam_idx must be length nant")
+            if not all(0 <= i < nbeam for i in beam_idx):
+                raise ValueError(
+                    "beam_idx contains indices greater than the number of beams"
+                )
 
         # Get the redundant groups
         if baselines is None:
