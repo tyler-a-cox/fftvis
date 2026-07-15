@@ -646,7 +646,7 @@ class CPUSimulationEngine(SimulationEngine):
                 ant: rotated_antvecs[:, antkey_to_idx[ant]] for ant in ants
             }
             rotation_matrix = rotation_matrix.astype(real_dtype)
-            
+
             bls = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
                 :, :
             ].T
