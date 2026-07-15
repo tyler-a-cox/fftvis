@@ -650,11 +650,14 @@ class CPUSimulationEngine(SimulationEngine):
             bls = np.array([rotated_ants[bl[1]] - rotated_ants[bl[0]] for bl in baselines])[
                 :, :
             ].T
-            bls /= utils.speed_of_light
-            bls = bls.astype(real_dtype)
 
             # Check if the array is flat within tolerance
             is_coplanar = np.all(np.less_equal(np.abs(bls[2]), flat_array_tol))
+
+            # Divide the baseline vectors by the speed of light to convert to seconds
+            bls /= utils.speed_of_light
+            bls = bls.astype(real_dtype)
+
         else:
             logger.info(
                 "Using gridded coordinates for the array. Type 1 transform will be used."
