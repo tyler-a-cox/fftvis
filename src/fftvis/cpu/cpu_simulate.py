@@ -654,7 +654,7 @@ class CPUSimulationEngine(SimulationEngine):
             # Check if the array is flat within tolerance
             is_coplanar = np.all(np.less_equal(np.abs(bls[2]), flat_array_tol))
 
-            # Scale the baseline vectors by the speed of light to convert to seconds
+            # Divide the baseline vectors by the speed of light to convert to seconds
             bls /= utils.speed_of_light
             bls = bls.astype(real_dtype)
 
