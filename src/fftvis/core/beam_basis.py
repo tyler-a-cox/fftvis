@@ -115,10 +115,13 @@ def compute_beam_basis(
                 new_object=True,
             )
         else:
+            # pixel_coordinate_system is omitted on purpose: pyuvdata 3.2.0's
+            # UVBeam initializer validates the not-yet-assigned attribute
+            # rather than the argument, so passing "az_za" explicitly raises.
+            # The default is "az_za" anyway.
             uvb = bi.beam.to_uvbeam(
                 freq_array=freq_grid,
                 beam_type=bi.beam_type,
-                pixel_coordinate_system="az_za",
                 axis1_array=axis1_array,
                 axis2_array=axis2_array,
             )

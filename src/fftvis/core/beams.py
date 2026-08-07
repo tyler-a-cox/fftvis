@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 from abc import abstractmethod
 from pyuvdata.beam_interface import BeamInterface
@@ -5,6 +6,90 @@ from typing import Dict, Optional
 
 # Import the matvis base class
 from matvis.core.beams import BeamInterpolator
+
+logger = logging.getLogger(__name__)
+
+
+def to_gridded_beam(
+    beam,
+    freqs,
+    *,
+    naz: int = 721,
+    nza: int = 361,
+    polarized: bool = True,
+    za_max: float = np.pi / 2,
+) -> BeamInterface:
+    """
+    Sample an analytic beam onto a regular az/za grid.
+
+    The GPU backend interpolates gridded ``UVBeam`` objects on the device.
+    Analytic beams have no grid to interpolate, so they are *evaluated*, and
+    pyuvdata only does that on the host -- which makes beam evaluation the
+    dominant cost of a GPU run. Sampling the analytic beam onto a grid once,
+    up front, moves the per-chunk work onto the device.
+
+    This is an approximation: the beam is now interpolated from samples rather
+    than evaluated exactly. The error is controlled by ``naz``/``nza`` and by
+    the interpolation order used at simulation time, and can be measured with
+    :func:`fftvis.gpu.beam_interpolation_error`.
+
+    Parameters
+    ----------
+    beam : AnalyticBeam or BeamInterface
+        The analytic beam to sample. A gridded ``UVBeam`` is returned
+        unchanged.
+    freqs : array_like
+        Frequencies (Hz) to sample at. Use the same frequencies you will
+        simulate, so no frequency interpolation is needed later.
+    naz, nza : int
+        Grid size in azimuth and zenith angle. The defaults give 0.5 degree
+        sampling, which is finer than most HERA-class beams need.
+    polarized : bool
+        Whether to produce an efield beam (True) or a power beam (False).
+    za_max : float
+        Maximum zenith angle in radians. The default covers the visible
+        hemisphere; do not reduce it below the horizon or sources near the
+        horizon will extrapolate.
+
+    Returns
+    -------
+    BeamInterface
+        A gridded beam suitable for the GPU interpolation path.
+
+    Examples
+    --------
+    >>> from fftvis.core.beams import to_gridded_beam  # doctest: +SKIP
+    >>> gbeam = to_gridded_beam(beam, freqs, naz=1441, nza=721)  # doctest: +SKIP
+    """
+    bi = beam if isinstance(beam, BeamInterface) else BeamInterface(beam)
+
+    if getattr(bi, "_isuvbeam", False):
+        logger.debug("Beam is already gridded; returning it unchanged.")
+        return bi
+
+    freqs = np.atleast_1d(np.asarray(freqs, dtype=float))
+    az = np.linspace(0.0, 2.0 * np.pi, naz)
+    za = np.linspace(0.0, float(za_max), nza)
+
+    # pixel_coordinate_system is deliberately not passed. pyuvdata 3.2.0's
+    # UVBeam initializer validates `uvb.pixel_coordinate_system` -- which is
+    # still None at that point -- instead of the argument, so supplying *any*
+    # non-None value raises "pixel_coordinate_system must be one of [...]".
+    # Omitting it takes the `pixel_coordinate_system or "az_za"` default, which
+    # is what we want regardless.
+    uvb = bi.beam.to_uvbeam(
+        freq_array=freqs,
+        beam_type="efield" if polarized else "power",
+        axis1_array=az,
+        axis2_array=za,
+    )
+
+    logger.info(
+        "Sampled analytic beam onto a %d x %d az/za grid at %d frequencies "
+        "(%.3g deg resolution).",
+        naz, nza, freqs.size, np.rad2deg(za[1] - za[0]),
+    )
+    return BeamInterface(uvb)
 
 
 class BeamEvaluator(BeamInterpolator):

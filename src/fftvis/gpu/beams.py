@@ -170,6 +170,71 @@ def _launch(kern, nsrc: int, args):
     kern(((nsrc + _BLOCK - 1) // _BLOCK,), (_BLOCK,), args)
 
 
+def _interp_on_device(data, daz, dza, azmin, az, za, order: int):
+    """
+    Interpolate a staged beam grid at az/za on the device.
+
+    Parameters
+    ----------
+    data : cp.ndarray
+        Staged beam grid, shape ``(nbeam, nax, nfeed, nza, naz)``, complex.
+    daz, dza, azmin : np.ndarray
+        Grid spacing and azimuth origin, one entry per beam.
+    az, za : array_like
+        Coordinates to evaluate at.
+    order : int
+        Spline order. ``1`` uses matvis's fused bilinear kernel (one launch for
+        all planes). Any other order uses
+        :func:`cupyx.scipy.ndimage.map_coordinates`, which runs the same spline
+        algorithm as ``scipy.ndimage`` -- including the prefilter that makes
+        order 3 a true cubic spline interpolation rather than a cubic
+        convolution.
+
+    Returns
+    -------
+    cp.ndarray
+        Interpolated values, shape ``(nbeam, nfeed, nax, nsrc)``.
+
+    Notes
+    -----
+    The real and imaginary parts are interpolated separately rather than
+    relying on complex support in ``cupyx``, which has varied across releases.
+    Splines are linear, so this is equivalent.
+    """
+    if order == 1:
+        # matvis's fused path: one launch across all (beam, feed, axis) planes.
+        return gpu_beam_interpolation(data, daz, dza, azmin, az, za, order=1)
+
+    from cupyx.scipy import ndimage
+
+    nbeam, nax, nfeed, nza, naz = data.shape
+    az = cp.asarray(az)
+    za = cp.asarray(za)
+    nsrc = az.size
+    out = cp.empty((nbeam, nfeed, nax, nsrc), dtype=data.dtype)
+    rdtype = data.real.dtype
+
+    for bm in range(nbeam):
+        coords = cp.stack(
+            [
+                (za / float(dza[bm])).astype(rdtype),
+                ((az - float(azmin[bm])) / float(daz[bm])).astype(rdtype),
+            ]
+        )
+        for ax in range(nax):
+            for fd in range(nfeed):
+                plane = data[bm, ax, fd]
+                re = ndimage.map_coordinates(
+                    cp.ascontiguousarray(plane.real), coords, order=order
+                )
+                im = ndimage.map_coordinates(
+                    cp.ascontiguousarray(plane.imag), coords, order=order
+                )
+                out[bm, fd, ax] = re + 1j * im
+
+    return out
+
+
 class GPUBeamEvaluator(BeamEvaluator):
     """GPU implementation of beam evaluation."""
 
@@ -203,22 +268,43 @@ class GPUBeamEvaluator(BeamEvaluator):
         # Set once per run so the chosen interpolation path is visible in logs
         # without spamming one line per chunk.
         self._logged_path: Optional[bool] = None
+        self._warned_analytic: bool = False
 
     # ------------------------------------------------------------------
     # Beam evaluation
     # ------------------------------------------------------------------
+    # Interpolation orders that can run on the device: 1 via matvis's fused
+    # bilinear kernel, the rest via cupyx.scipy.ndimage.map_coordinates, which
+    # implements the same spline algorithm (including the prefilter) as
+    # scipy.ndimage and therefore as pyuvdata's ``az_za_map_coordinates``.
+    _DEVICE_ORDERS = (0, 1, 2, 3, 4, 5)
+
     def _can_use_gpu_interp(self, beam: BeamInterface, spline_opts) -> bool:
-        """Whether matvis's bilinear kernel applies to this beam."""
+        """Whether this beam can be interpolated on the device."""
         if self.use_gpu_interp is False:
             return False
         if not getattr(beam, "_isuvbeam", False):
+            # Analytic beams are *evaluated*, not interpolated, and pyuvdata
+            # only evaluates on the host. Sample them onto a grid first with
+            # fftvis.core.beams.to_gridded_beam.
+            if self._warned_analytic is not True:
+                self._warned_analytic = True
+                logger.warning(
+                    "Beam is analytic, so it must be evaluated on the host: "
+                    "this is usually the dominant cost of a GPU run. Convert "
+                    "it once with fftvis.core.beams.to_gridded_beam(beam, "
+                    "freqs) to move interpolation onto the device."
+                )
             return False
         if getattr(beam.beam, "pixel_coordinate_system", None) != "az_za":
             return False
         if self.use_gpu_interp is True:
             return True
-        # Auto: only when the CPU side is also doing linear interpolation.
-        return bool(spline_opts) and spline_opts.get("order", None) == 1
+        # Auto: whenever the requested order is one the device path implements.
+        # The device and host use the same spline algorithm, so this does not
+        # silently change the interpolation -- except at order 1, where matvis's
+        # fused kernel clamps out-of-grid coordinates to the edge.
+        return bool(spline_opts) and spline_opts.get("order") in self._DEVICE_ORDERS
 
     def _upload_beam(self, beam: BeamInterface, freq: float, complex_dtype):
         """Interpolate the beam to ``freq`` and stage its grid on the device.
@@ -330,10 +416,11 @@ class GPUBeamEvaluator(BeamEvaluator):
             )
 
         if on_gpu:
+            order = int((spline_opts or {}).get("order", 1))
             data, daz, dza, azmin, _ = self._upload_beam(beam, freq, complex_dtype)
             # matvis returns (nbeam, nfeed, nax, nsrc); fftvis wants
             # (nax, nfeed, nsrc), so the first two axes are swapped back.
-            out = gpu_beam_interpolation(data, daz, dza, azmin, az, za, order=1)[0]
+            out = _interp_on_device(data, daz, dza, azmin, az, za, order)[0]
             interp_beam = out.transpose(1, 0, 2) if polarized else out[0, 0]
         else:
             # pyuvdata is host-only. A GPU coordinate rotator hands us device
