@@ -46,10 +46,26 @@ dynamic = ["version"]
 
 
 [project.optional-dependencies]
+# NOTE: cupy is deliberately NOT listed here. The `cupy` package on PyPI is a
+# source distribution, so `pip install cupy` compiles the whole library from
+# scratch (slow, and frequently OOM-killed). The prebuilt wheels are published
+# under CUDA-specific names, so install the one matching your toolkit:
+#
+#     pip install cupy-cuda12x     # CUDA 12.x
+#     pip install cupy-cuda11x     # CUDA 11.x
+#
+# The gpu-cuda12 / gpu-cuda11 extras below do this for you.
 gpu = [
     # GPU type-3 transforms require finufft >= 2.4
     "cufinufft>=2.4",
-    "cupy",
+]
+gpu-cuda12 = [
+    "cufinufft>=2.4",
+    "cupy-cuda12x",
+]
+gpu-cuda11 = [
+    "cufinufft>=2.4",
+    "cupy-cuda11x",
 ]
 dev = [
     "mpi4py",

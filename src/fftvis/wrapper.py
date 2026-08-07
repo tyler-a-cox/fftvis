@@ -61,7 +61,8 @@ def create_simulation_engine(
     backend
         The backend to use for simulation.
         Currently supported: "cpu", "gpu". The "gpu" backend requires the
-        optional ``fftvis[gpu]`` dependencies (cupy and cufinufft).
+        optional GPU dependencies: ``pip install fftvis[gpu-cuda12]``
+        (or ``[gpu-cuda11]``), which pull in cufinufft and a prebuilt cupy.
     **kwargs
         Additional keyword arguments to pass to the simulation engine constructor.
 

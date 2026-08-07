@@ -39,7 +39,7 @@ def _require_cuda():
     if not HAVE_CUDA:  # pragma: no cover - import guard
         raise ImportError(
             "The GPU backend requires cupy and cufinufft. Install them with "
-            "`pip install fftvis[gpu]`. GPU type-3 transforms need "
+            "`pip install fftvis[gpu-cuda12]` (or [gpu-cuda11]). GPU type-3 transforms need "
             "finufft >= 2.4."
         )
 

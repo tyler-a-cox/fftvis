@@ -141,7 +141,7 @@ class GPUBeamEvaluator(BeamEvaluator):
         if not HAVE_CUDA:  # pragma: no cover - import guard
             raise ImportError(
                 "The GPU backend requires cupy and cufinufft. Install them "
-                "with `pip install fftvis[gpu]`."
+                "with `pip install fftvis[gpu-cuda12]` (or [gpu-cuda11])."
             )
 
         # Saved for matvis compatibility, as the CPU evaluator does.
@@ -158,11 +158,13 @@ class GPUBeamEvaluator(BeamEvaluator):
             out = gpu_beam_interpolation(data, daz, dza, azmin, az, za, order=1)[0]
             interp_beam = out.transpose(1, 0, 2) if polarized else out[0, 0]
         else:
+            # pyuvdata is host-only. A GPU coordinate rotator hands us device
+            # az/za, so bring them back before calling into it.
             host = CPUBeamEvaluator.evaluate_beam(
                 self,
                 beam,
-                az,
-                za,
+                cp.asnumpy(az) if isinstance(az, cp.ndarray) else az,
+                cp.asnumpy(za) if isinstance(za, cp.ndarray) else za,
                 polarized,
                 freq,
                 check=False,

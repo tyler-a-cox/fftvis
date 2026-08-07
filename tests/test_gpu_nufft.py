@@ -34,7 +34,7 @@ def test_gpu_nufft_import_error_without_cuda():
     if HAVE_GPU:
         pytest.skip("cupy is installed")
     src, tgt, weights = _problem(nsrc=4, ntgt=2, ntrans=1)
-    with pytest.raises(ImportError, match="fftvis\\[gpu\\]"):
+    with pytest.raises(ImportError, match=r"fftvis\[gpu"):
         gpu_nufft2d(src[0], src[1], weights, tgt[0], tgt[1], eps=EPS)
 
 

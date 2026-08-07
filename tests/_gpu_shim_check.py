@@ -154,5 +154,10 @@ ok &= compare("gridded array (type-1)", p, precision=2, eps=EPS)
 p = base(True, use_polarized_sky=True)
 ok &= compare("polarized sky model", p, precision=2, eps=EPS)
 
+# The GPU coordinate rotators cannot be exercised here -- matvis registers them
+# via a module-level cp.RawKernel, which the numpy shim has no analogue for.
+# `test_gpu_coords.py` covers the gpu=True propagation with a stub rotator, and
+# `test_cpu_vs_gpu.py` covers the numerics on a real device.
+
 print("\n" + ("ALL PASS" if ok else "FAILURES PRESENT"))
 sys.exit(0 if ok else 1)

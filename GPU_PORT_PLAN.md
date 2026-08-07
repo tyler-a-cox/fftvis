@@ -64,6 +64,11 @@ docstring still says "type of NUFFT (1 or 2)" — that's stale, not a limitation
 
 **Pin `finufft >= 2.4` and add `cufinufft` as a `[gpu]` extra.**
 
+Note on cupy: the `cupy` name on PyPI is a *source* distribution, so listing it
+as a dependency makes pip compile the whole library (slow, and routinely
+OOM-killed during Cythonize). The prebuilt wheels are published under
+CUDA-specific names, hence the `[gpu-cuda12]` / `[gpu-cuda11]` extras.
+
 ### API mapping, verified against finufft 2.5.1
 
 I checked the semantics fftvis actually relies on:

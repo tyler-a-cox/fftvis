@@ -30,7 +30,7 @@ def test_gpu_beam_evaluator_import_error_without_cuda():
     """Evaluating a beam without cupy gives a helpful ImportError."""
     if HAVE_GPU:
         pytest.skip("cupy is installed")
-    with pytest.raises(ImportError, match="fftvis\\[gpu\\]"):
+    with pytest.raises(ImportError, match=r"fftvis\[gpu"):
         GPUBeamEvaluator().evaluate_beam(
             beam=None,
             az=np.array([0.0]),
@@ -44,7 +44,7 @@ def test_gpu_inplace_rot_import_error_without_cuda():
     """inplace_rot without cupy gives a helpful ImportError."""
     if HAVE_GPU:
         pytest.skip("cupy is installed")
-    with pytest.raises(ImportError, match="fftvis\\[gpu\\]"):
+    with pytest.raises(ImportError, match=r"fftvis\[gpu"):
         inplace_rot(np.eye(3), np.zeros((3, 10)))
 
 

@@ -11,10 +11,13 @@ Deliberate differences from the CPU engine
 * **No multiprocessing.** The CPU engine parallelises over (time, frequency)
   with ray. This engine targets a single GPU and ignores ``nprocesses``,
   ``nthreads`` and ``force_use_ray``.
-* **Coordinate rotation runs on the host.** matvis's ``GPUCoordinateRotation*``
-  classes would keep it on the device, but their polarized-sky branch indexes
-  host ``SkyCoord`` arrays with device index arrays. Rotating on the host and
-  uploading each chunk keeps one code path and matches the CPU engine exactly.
+* **Coordinate rotation follows ``coord_method``.** A CPU rotator
+  (``CoordinateRotationERFA``) runs on the host and each chunk is uploaded; a
+  GPU rotator (``GPUCoordinateRotationERFA``) is constructed with ``gpu=True``
+  and keeps its arrays on the device. The GPU rotators cannot be combined with
+  a *polarized sky model* -- matvis's coherency-rotation branch indexes host
+  ``SkyCoord`` arrays with device index arrays -- and that combination raises a
+  clear error rather than failing inside matvis.
 * **Memory tracing** (``trace_mem``, ``enable_memory_monitor``) is accepted and
   ignored.
 
@@ -64,7 +67,7 @@ def _require_cuda():
     if not HAVE_CUDA:  # pragma: no cover - import guard
         raise ImportError(
             "The GPU backend requires cupy and cufinufft. Install them with "
-            "`pip install fftvis[gpu]`. GPU type-3 transforms need "
+            "`pip install fftvis[gpu-cuda12]` (or [gpu-cuda11]). GPU type-3 transforms need "
             "finufft >= 2.4."
         )
 
@@ -648,6 +651,25 @@ class GPUSimulationEngine(SimulationEngine):
 
         coord_method = CoordinateRotation._methods[coord_method]
         coord_method_params = coord_method_params or {}
+
+        # matvis's GPU rotators (``requires_gpu``) launch cupy kernels directly
+        # on the arrays the base class allocates, so they must be constructed
+        # with gpu=True or those arrays stay on the host and the kernel launch
+        # fails with "trying to pass a numpy.ndarray as a kernel parameter".
+        coord_on_gpu = bool(getattr(coord_method, "requires_gpu", False))
+
+        if coord_on_gpu and polarized_sky_model:
+            raise ValueError(
+                f"coord_method={coord_method.__name__!r} cannot be used with a "
+                "polarized sky model: its coherency-rotation branch indexes "
+                "host SkyCoord arrays with device index arrays. Use "
+                "coord_method='CoordinateRotationERFA' instead -- the "
+                "rotation is a small fraction of the total run time."
+            )
+
+        if coord_on_gpu:
+            coord_method_params = {"gpu": True, **coord_method_params}
+
         coord_mgr = coord_method(
             flux=coherency,
             times=times,
@@ -803,12 +825,15 @@ class GPUSimulationEngine(SimulationEngine):
                     else:
                         _apparent_buf = cp.empty(nsim_sources, dtype=complex_dtype)
 
-                # az/za come from the unrotated topocentric coordinates, and
-                # the host beam-fallback path needs them on the host anyway.
+                # az/za come from the unrotated topocentric coordinates.
+                # enu_to_az_za dispatches on the array module, so these are
+                # host or device arrays depending on the coordinate rotator;
+                # GPUBeamEvaluator handles either.
                 az, za = coordinates.enu_to_az_za(
                     enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
                 )
 
+                # No-ops when the rotator already produced device arrays.
                 topo_gpu = cp.asarray(topo)
                 flux_gpu = cp.asarray(flux)
 
