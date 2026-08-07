@@ -135,6 +135,11 @@ def estimate_type3_grid(topo, uvw, dim: int, upsample_factor: float = 2.0) -> tu
     return modes, int(np.prod(modes)) * 16
 
 
+def nbls_here_of(bls_idxs) -> int:
+    """Number of baselines selected by an index array or a slice."""
+    return bls_idxs.stop if isinstance(bls_idxs, slice) else len(bls_idxs)
+
+
 def _evaluate_beam_list(
     beam_list: list,
     az: np.ndarray,
@@ -340,10 +345,16 @@ def _run_nufft(
     cp.ndarray
         Visibilities shaped ``(nbls_here, nfeeds, nfeeds)``.
     """
-    nbls_here = len(bls_idxs)
+    nbls_here = nbls_here_of(bls_idxs)
 
+    # ``flipped=None`` means no baseline in this group needs conjugating, which
+    # is the common case (a single shared beam, or the basis path). Skipping the
+    # cp.where saves two full gathers of the baseline array plus a conjugate
+    # pass over the result, per transform.
     if use_type1:
-        bls_here = cp.where(flipped, -bls[:, bls_idxs], bls[:, bls_idxs])
+        bls_here = bls[:, bls_idxs]
+        if flipped is not None:
+            bls_here = cp.where(flipped, -bls_here, bls_here)
         _vis_here = gpu_nufft2d_type1(
             tx,
             ty,
@@ -355,7 +366,9 @@ def _run_nufft(
             upsample_factor=upsample_factor,
         )
     else:
-        _uvw = cp.where(flipped, -uvw[:, bls_idxs], uvw[:, bls_idxs])
+        _uvw = uvw[:, bls_idxs]
+        if flipped is not None:
+            _uvw = cp.where(flipped, -_uvw, _uvw)
         if is_coplanar:
             _vis_here = gpu_nufft2d(
                 topo[0],
@@ -381,7 +394,8 @@ def _run_nufft(
                 upsample_factor=upsample_factor,
             )
 
-    _vis_here = cp.where(flipped, cp.conj(_vis_here), _vis_here)
+    if flipped is not None:
+        _vis_here = cp.where(flipped, cp.conj(_vis_here), _vis_here)
 
     return cp.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls_here), 2, 0)
 
@@ -467,8 +481,11 @@ def _compute_basis_visibilities(
 
     vis_out = cp.zeros((nbls, nfeeds, nfeeds), dtype=complex_dtype)
 
-    flipped = cp.zeros(nbls, dtype=bool)
-    bls_idxs = cp.arange(nbls)
+    # The basis path runs every baseline at once and never conjugates, so a
+    # slice (a view) beats an index array (a gather), and the flip machinery
+    # can be skipped entirely.
+    flipped = None
+    bls_idxs = slice(0, nbls)
 
     if polarized:
         _apparent_buf = cp.empty((nfeeds, nfeeds, nsim_sources), dtype=complex_dtype)
@@ -820,15 +837,21 @@ class GPUSimulationEngine(SimulationEngine):
                 baselines=baselines,
                 beam_idx=beam_idx,
             )
-            # Hoist the per-pair index arrays onto the device once.
-            gpu_bls_idxs = {
-                bp: cp.asarray(np.asarray(idxs, dtype=np.int64))
-                for bp, idxs in beam_pair_to_bls_idxs.items()
-            }
-            gpu_flipped = {
-                bp: cp.asarray(np.asarray(fl, dtype=bool))
-                for bp, fl in beam_pair_to_flipped.items()
-            }
+            # Hoist the per-pair index arrays onto the device once. Two common
+            # cases are special-cased away: a group covering every baseline in
+            # order becomes a slice (a view instead of a gather), and a group
+            # with nothing to conjugate becomes None (skipping the cp.where).
+            gpu_bls_idxs = {}
+            gpu_flipped = {}
+            for bp, idxs in beam_pair_to_bls_idxs.items():
+                idxs = np.asarray(idxs, dtype=np.int64)
+                if idxs.size == nbls and np.array_equal(idxs, np.arange(nbls)):
+                    gpu_bls_idxs[bp] = slice(0, nbls)
+                else:
+                    gpu_bls_idxs[bp] = cp.asarray(idxs)
+
+                fl = np.asarray(beam_pair_to_flipped[bp], dtype=bool)
+                gpu_flipped[bp] = cp.asarray(fl) if fl.any() else None
 
         is_rotation_identity = np.allclose(rotation_matrix, np.eye(3))
         checked_grid = False

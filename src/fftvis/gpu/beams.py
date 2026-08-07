@@ -39,10 +39,146 @@ except ImportError:  # pragma: no cover - import guard
 logger = logging.getLogger(__name__)
 
 
+# Fused apparent-flux kernels.
+#
+# These compute exactly what the numba kernels in fftvis.cpu.beams compute, but
+# in a single pass. The cupy einsum formulations they replace materialised a
+# conjugate copy, an einsum result and a scaled product -- roughly five passes
+# over an (nax, nfeed, nsrc) complex array where two suffice. Each thread owns
+# one source and reads its 2x2 block into registers first, so writing back into
+# the input array is safe.
+_APPARENT_FLUX_SRC = r"""
+#include <cupy/complex.cuh>
+
+#define LOAD(A, s, n) \
+    T a00 = A[0*2*n + 0*n + s], a01 = A[0*2*n + 1*n + s], \
+      a10 = A[1*2*n + 0*n + s], a11 = A[1*2*n + 1*n + s];
+#define LOADJ(A, s, n) \
+    T b00 = A[0*2*n + 0*n + s], b01 = A[0*2*n + 1*n + s], \
+      b10 = A[1*2*n + 0*n + s], b11 = A[1*2*n + 1*n + s];
+#define STORE(O, s, n, o00, o01, o10, o11) \
+    O[0*2*n + 0*n + s] = o00; O[0*2*n + 1*n + s] = o01; \
+    O[1*2*n + 0*n + s] = o10; O[1*2*n + 1*n + s] = o11;
+
+// out = A^H A * flux   (Hermitian, so out10 = conj(out01))
+template<typename T>
+__device__ void ahha(T* A, const T* f, long n) {
+    long s = blockIdx.x * (long)blockDim.x + threadIdx.x;
+    if (s >= n) return;
+    LOAD(A, s, n)
+    T fl = f[s];
+    T i00 = conj(a00)*a00 + conj(a10)*a10;
+    T i01 = conj(a00)*a01 + conj(a10)*a11;
+    T i11 = conj(a01)*a01 + conj(a11)*a11;
+    STORE(A, s, n, i00*fl, i01*fl, conj(i01)*fl, i11*fl)
+}
+
+// out = A_i^H A_j * flux   (not Hermitian in general)
+template<typename T>
+__device__ void ahhb(const T* Ai, const T* Aj, const T* f, T* O, long n) {
+    long s = blockIdx.x * (long)blockDim.x + threadIdx.x;
+    if (s >= n) return;
+    LOAD(Ai, s, n) LOADJ(Aj, s, n)
+    T fl = f[s];
+    STORE(O, s, n,
+          (conj(a00)*b00 + conj(a10)*b10)*fl,
+          (conj(a00)*b01 + conj(a10)*b11)*fl,
+          (conj(a01)*b00 + conj(a11)*b10)*fl,
+          (conj(a01)*b01 + conj(a11)*b11)*fl)
+}
+
+// out = A^H C A
+template<typename T>
+__device__ void ahca(T* A, const T* C, long n) {
+    long s = blockIdx.x * (long)blockDim.x + threadIdx.x;
+    if (s >= n) return;
+    LOAD(A, s, n)
+    T c00 = C[0*2*n + 0*n + s], c01 = C[0*2*n + 1*n + s],
+      c10 = C[1*2*n + 0*n + s], c11 = C[1*2*n + 1*n + s];
+    T t00 = conj(a00)*c00 + conj(a10)*c10;
+    T t01 = conj(a00)*c01 + conj(a10)*c11;
+    T t10 = conj(a01)*c00 + conj(a11)*c10;
+    T t11 = conj(a01)*c01 + conj(a11)*c11;
+    STORE(A, s, n, t00*a00 + t01*a10, t00*a01 + t01*a11,
+                   t10*a00 + t11*a10, t10*a01 + t11*a11)
+}
+
+// out = A_i^H C A_j
+template<typename T>
+__device__ void ahcb(const T* Ai, const T* Aj, const T* C, T* O, long n) {
+    long s = blockIdx.x * (long)blockDim.x + threadIdx.x;
+    if (s >= n) return;
+    LOAD(Ai, s, n) LOADJ(Aj, s, n)
+    T c00 = C[0*2*n + 0*n + s], c01 = C[0*2*n + 1*n + s],
+      c10 = C[1*2*n + 0*n + s], c11 = C[1*2*n + 1*n + s];
+    T t00 = conj(a00)*c00 + conj(a10)*c10;
+    T t01 = conj(a00)*c01 + conj(a10)*c11;
+    T t10 = conj(a01)*c00 + conj(a11)*c10;
+    T t11 = conj(a01)*c01 + conj(a11)*c11;
+    STORE(O, s, n, t00*b00 + t01*b10, t00*b01 + t01*b11,
+                   t10*b00 + t11*b10, t10*b01 + t11*b11)
+}
+
+extern "C" {
+__global__ void ahha_c64(complex<float>* A, const complex<float>* f, long n)
+{ ahha<complex<float> >(A, f, n); }
+__global__ void ahha_c128(complex<double>* A, const complex<double>* f, long n)
+{ ahha<complex<double> >(A, f, n); }
+
+__global__ void ahhb_c64(const complex<float>* Ai, const complex<float>* Aj,
+                         const complex<float>* f, complex<float>* O, long n)
+{ ahhb<complex<float> >(Ai, Aj, f, O, n); }
+__global__ void ahhb_c128(const complex<double>* Ai, const complex<double>* Aj,
+                          const complex<double>* f, complex<double>* O, long n)
+{ ahhb<complex<double> >(Ai, Aj, f, O, n); }
+
+__global__ void ahca_c64(complex<float>* A, const complex<float>* C, long n)
+{ ahca<complex<float> >(A, C, n); }
+__global__ void ahca_c128(complex<double>* A, const complex<double>* C, long n)
+{ ahca<complex<double> >(A, C, n); }
+
+__global__ void ahcb_c64(const complex<float>* Ai, const complex<float>* Aj,
+                         const complex<float>* C, complex<float>* O, long n)
+{ ahcb<complex<float> >(Ai, Aj, C, O, n); }
+__global__ void ahcb_c128(const complex<double>* Ai, const complex<double>* Aj,
+                          const complex<double>* C, complex<double>* O, long n)
+{ ahcb<complex<double> >(Ai, Aj, C, O, n); }
+}
+"""
+
+_APPARENT_FLUX_MODULE = None
+_BLOCK = 256
+
+# The fused kernels need a real cupy. ``tests/_gpu_shim_check.py`` substitutes
+# numpy for cupy to exercise the engine's logic on CPU-only CI, and numpy has
+# no RawModule; there we fall back to the einsum reference implementations,
+# which compute the same thing.
+_USE_FUSED = HAVE_CUDA and hasattr(cp, "RawModule")
+
+
+def _apparent_kernel(name: str, dtype):
+    """Fetch a fused apparent-flux kernel, compiling the module on first use."""
+    global _APPARENT_FLUX_MODULE
+    if _APPARENT_FLUX_MODULE is None:
+        _APPARENT_FLUX_MODULE = cp.RawModule(code=_APPARENT_FLUX_SRC)
+    suffix = "c64" if dtype == np.complex64 else "c128"
+    return _APPARENT_FLUX_MODULE.get_function(f"{name}_{suffix}")
+
+
+def _launch(kern, nsrc: int, args):
+    """Launch a one-thread-per-source kernel."""
+    kern(((nsrc + _BLOCK - 1) // _BLOCK,), (_BLOCK,), args)
+
+
 class GPUBeamEvaluator(BeamEvaluator):
     """GPU implementation of beam evaluation."""
 
-    def __init__(self, use_gpu_interp: Optional[bool] = None, **kwargs):
+    def __init__(
+        self,
+        use_gpu_interp: Optional[bool] = None,
+        max_cached_beams: int = 64,
+        **kwargs,
+    ):
         """
         Initialize the evaluator.
 
@@ -53,12 +189,20 @@ class GPUBeamEvaluator(BeamEvaluator):
             kernel. ``None`` (default) enables it only when it reproduces the
             CPU result exactly; ``True`` forces it; ``False`` always evaluates
             on the host and uploads.
+        max_cached_beams : int
+            Maximum number of staged ``(beam, frequency)`` grids to keep on the
+            device before evicting the oldest.
         """
         super().__init__(**kwargs)
         self.use_gpu_interp = use_gpu_interp
-        # Uploaded beam grids, keyed by id(beam). The beam object is kept alive
-        # alongside its data so the id cannot be recycled underneath us.
-        self._beam_cache: Dict[int, tuple] = {}
+        self.max_cached_beams = max_cached_beams
+        # Staged beam grids keyed by (id(beam), frequency). The beam object is
+        # kept alive alongside its data so the id cannot be recycled underneath
+        # us.
+        self._beam_cache: Dict[tuple, tuple] = {}
+        # Set once per run so the chosen interpolation path is visible in logs
+        # without spamming one line per chunk.
+        self._logged_path: Optional[bool] = None
 
     # ------------------------------------------------------------------
     # Beam evaluation
@@ -77,11 +221,20 @@ class GPUBeamEvaluator(BeamEvaluator):
         return bool(spline_opts) and spline_opts.get("order", None) == 1
 
     def _upload_beam(self, beam: BeamInterface, freq: float, complex_dtype):
-        """Interpolate the beam to ``freq`` and stage its grid on the device."""
-        key = id(beam)
+        """Interpolate the beam to ``freq`` and stage its grid on the device.
+
+        The staged grid is cached per ``(beam, frequency)``. Keying on the
+        frequency matters: the simulation loop is
+        ``time -> chunk -> frequency``, so a cache that only remembered the
+        most recent frequency missed on *every* call of a multi-frequency run
+        and re-ran pyuvdata's ``interp`` on the host each time. With this
+        cache the host interpolation happens once per frequency for the whole
+        simulation.
+        """
+        key = (id(beam), float(freq))
         cached = self._beam_cache.get(key)
-        if cached is not None and cached[0] == freq:
-            return cached[1:]
+        if cached is not None:
+            return cached
 
         uvb = beam.beam.interp(
             freq_array=np.atleast_1d(freq), new_object=True, run_check=False
@@ -94,7 +247,17 @@ class GPUBeamEvaluator(BeamEvaluator):
         # that branch.
         data = cp.asarray(d0[None].astype(complex_dtype, copy=False))
         staged = (data, np.array([daz]), np.array([dza]), np.array([azmin]), beam)
-        self._beam_cache[key] = (freq,) + staged
+
+        if len(self._beam_cache) >= self.max_cached_beams:
+            # Simple FIFO eviction; grids are small (a few MB) but a run with
+            # hundreds of frequencies should not pin them all on the device.
+            self._beam_cache.pop(next(iter(self._beam_cache)))
+        self._beam_cache[key] = staged
+
+        logger.debug(
+            "Staged beam grid %s for %.6g Hz on the device (%d cached)",
+            tuple(data.shape), freq, len(self._beam_cache),
+        )
         return staged
 
     def evaluate_beam(
@@ -151,7 +314,22 @@ class GPUBeamEvaluator(BeamEvaluator):
 
         complex_dtype = np.complex64 if self.precision == 1 else np.complex128
 
-        if self._can_use_gpu_interp(beam, spline_opts):
+        on_gpu = self._can_use_gpu_interp(beam, spline_opts)
+        if self._logged_path is not on_gpu:
+            self._logged_path = on_gpu
+            logger.info(
+                "Beam interpolation: %s",
+                "matvis bilinear cupy kernel (on device)"
+                if on_gpu
+                else (
+                    "pyuvdata on the host, then uploaded. This is usually the "
+                    "dominant cost of a GPU run. Pass "
+                    "beam_spline_opts={'order': 1} with a gridded az_za UVBeam "
+                    "to move it onto the device."
+                ),
+            )
+
+        if on_gpu:
             data, daz, dza, azmin, _ = self._upload_beam(beam, freq, complex_dtype)
             # matvis returns (nbeam, nfeed, nax, nsrc); fftvis wants
             # (nax, nfeed, nsrc), so the first two axes are swapped back.
@@ -205,8 +383,17 @@ class GPUBeamEvaluator(BeamEvaluator):
         flux : cp.ndarray
             Source fluxes, shape ``(nsrc,)``.
         """
-        res = cp.einsum("aps,aqs->pqs", beam.conj(), beam)
-        beam[:] = res * flux
+        if not _USE_FUSED:
+            res = cp.einsum("aps,aqs->pqs", beam.conj(), beam)
+            beam[:] = res * flux
+            return
+        nsrc = beam.shape[-1]
+        flux = cp.ascontiguousarray(flux, dtype=beam.dtype)
+        _launch(
+            _apparent_kernel("ahha", beam.dtype),
+            nsrc,
+            (beam, flux, np.int64(nsrc)),
+        )
 
     @staticmethod
     def get_apparent_flux_polarized(beam, coherency):
@@ -219,8 +406,17 @@ class GPUBeamEvaluator(BeamEvaluator):
         coherency : cp.ndarray
             Source coherency matrices, shape ``(2, 2, nsrc)``.
         """
-        tmp = cp.einsum("aps,aqs->pqs", beam.conj(), coherency)
-        beam[:] = cp.einsum("pbs,bqs->pqs", tmp, beam)
+        if not _USE_FUSED:
+            tmp = cp.einsum("aps,aqs->pqs", beam.conj(), coherency)
+            beam[:] = cp.einsum("pbs,bqs->pqs", tmp, beam)
+            return
+        nsrc = beam.shape[-1]
+        coherency = cp.ascontiguousarray(coherency, dtype=beam.dtype)
+        _launch(
+            _apparent_kernel("ahca", beam.dtype),
+            nsrc,
+            (beam, coherency, np.int64(nsrc)),
+        )
 
     @staticmethod
     def get_apparent_flux_polarized_beam_pair(beam_i, beam_j, flux, out):
@@ -235,7 +431,22 @@ class GPUBeamEvaluator(BeamEvaluator):
         out : cp.ndarray
             Output array, shape ``(nfeed, nfeed, nsrc)``.
         """
-        out[:] = cp.einsum("aps,aqs->pqs", beam_i.conj(), beam_j) * flux
+        if not _USE_FUSED:
+            out[:] = cp.einsum("aps,aqs->pqs", beam_i.conj(), beam_j) * flux
+            return
+        nsrc = out.shape[-1]
+        flux = cp.ascontiguousarray(flux, dtype=out.dtype)
+        _launch(
+            _apparent_kernel("ahhb", out.dtype),
+            nsrc,
+            (
+                cp.ascontiguousarray(beam_i),
+                cp.ascontiguousarray(beam_j),
+                flux,
+                out,
+                np.int64(nsrc),
+            ),
+        )
 
     @staticmethod
     def get_apparent_flux_polarized_pair(beam_i, beam_j, coherency, out):
@@ -250,5 +461,26 @@ class GPUBeamEvaluator(BeamEvaluator):
         out : cp.ndarray
             Output array, shape ``(2, 2, nsrc)``.
         """
+        if not _USE_FUSED:
+            GPUBeamEvaluator._get_apparent_flux_polarized_pair_einsum(
+                beam_i, beam_j, coherency, out
+            )
+            return
+        nsrc = out.shape[-1]
+        _launch(
+            _apparent_kernel("ahcb", out.dtype),
+            nsrc,
+            (
+                cp.ascontiguousarray(beam_i),
+                cp.ascontiguousarray(beam_j),
+                cp.ascontiguousarray(coherency, dtype=out.dtype),
+                out,
+                np.int64(nsrc),
+            ),
+        )
+
+    @staticmethod
+    def _get_apparent_flux_polarized_pair_einsum(beam_i, beam_j, coherency, out):
+        """Reference einsum implementation, kept for the kernel parity test."""
         tmp = cp.einsum("aps,aqs->pqs", beam_i.conj(), coherency)
         out[:] = cp.einsum("pbs,bqs->pqs", tmp, beam_j)
