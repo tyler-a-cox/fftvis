@@ -1,34 +1,46 @@
+"""
+GPU-specific utility functions for fftvis.
+
+These mirror the CPU implementations in :mod:`fftvis.cpu.utils`, operating on
+cupy arrays instead of numpy arrays.
+"""
+
 import numpy as np
-from ..core.utils import inplace_rot_base
 
-# This is a placeholder for GPU implementation
-# In a real implementation, you would use a GPU acceleration library like CuPy, PyTorch, or CUDA directly
+try:  # pragma: no cover - import guard
+    import cupy as cp
+
+    HAVE_CUDA = True
+except ImportError:  # pragma: no cover - import guard
+    cp = None
+    HAVE_CUDA = False
 
 
-def inplace_rot(rot: np.ndarray, b: np.ndarray):  # pragma: no cover
+def _require_cuda():
+    """Raise a helpful error if cupy is unavailable."""
+    if not HAVE_CUDA:  # pragma: no cover - import guard
+        raise ImportError(
+            "The GPU backend requires cupy and cufinufft. Install them with "
+            "`pip install fftvis[gpu]`."
+        )
+
+
+def inplace_rot(rot: np.ndarray, b) -> None:
     """
-    GPU implementation of in-place rotation of coordinates.
+    Rotate coordinates in place on the GPU.
 
-    This would typically use a GPU acceleration library like CuPy or direct CUDA calls.
-    This function is not implemented yet and will be added when the full GPU implementation is ready.
+    Equivalent to :func:`fftvis.cpu.utils.inplace_rot`.
 
-    Parameters:
+    Parameters
     ----------
     rot : np.ndarray
-        3x3 rotation matrix
-    b : np.ndarray
-        Array of shape (3, n) containing coordinates to rotate
+        3x3 rotation matrix. May be a numpy or cupy array.
+    b : cp.ndarray
+        Array of shape ``(3, n)`` containing coordinates to rotate. Modified in
+        place.
     """
-    raise NotImplementedError("GPU implementation of inplace_rot is not available yet.")
-
-    # Future implementation will include:
-    # 1. Transfer data to GPU memory
-    # 2. Run a GPU kernel to perform the rotation
-    # 3. Transfer results back to CPU memory if needed
-    
-    # Example implementation might look like:
-    # import cupy as cp
-    # rot_gpu = cp.asarray(rot)
-    # b_gpu = cp.asarray(b)
-    # result_gpu = cp.matmul(rot_gpu, b_gpu)
-    # cp.copyto(b, cp.asnumpy(result_gpu))
+    _require_cuda()
+    rot = cp.asarray(rot, dtype=b.dtype)
+    # cp.matmul cannot write into an array that aliases its input, so the
+    # product is formed first and then copied back.
+    b[:] = rot @ b

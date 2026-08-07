@@ -223,10 +223,15 @@ def test_wrapper_beam_creation():
     assert cpu_evaluator.beam_list == []
     assert cpu_evaluator.beam_idx is None
     
-    # Test GPU creation (should raise NotImplementedError)
-    with pytest.raises(NotImplementedError):
-        create_beam_evaluator(backend="gpu")
-    
+    # GPU creation succeeds without cupy; only evaluation needs a device.
+    from fftvis.gpu.beams import GPUBeamEvaluator
+
+    gpu_evaluator = create_beam_evaluator(backend="gpu")
+    assert isinstance(gpu_evaluator, GPUBeamEvaluator)
+    assert gpu_evaluator.beam_list == []
+    assert gpu_evaluator.beam_idx is None
+
+
     # Test invalid backend
     with pytest.raises(ValueError):
         create_beam_evaluator(backend="invalid")

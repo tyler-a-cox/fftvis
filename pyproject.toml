@@ -46,6 +46,11 @@ dynamic = ["version"]
 
 
 [project.optional-dependencies]
+gpu = [
+    # GPU type-3 transforms require finufft >= 2.4
+    "cufinufft>=2.4",
+    "cupy",
+]
 dev = [
     "mpi4py",
     "pytest",

@@ -38,14 +38,17 @@ def create_beam_evaluator(
     """
     if backend == "cpu":
         evaluator = CPUBeamEvaluator(**kwargs)
-        # Ensure the beam_list is properly initialized since this is required by matvis
-        evaluator.beam_list = []
-        evaluator.beam_idx = None
-        return evaluator
     elif backend == "gpu":
-        raise NotImplementedError("GPU backend not yet implemented")
+        from .gpu.beams import GPUBeamEvaluator
+
+        evaluator = GPUBeamEvaluator(**kwargs)
     else:
         raise ValueError(f"Unsupported backend: {backend}")
+
+    # Ensure the beam_list is properly initialized since this is required by matvis
+    evaluator.beam_list = []
+    evaluator.beam_idx = None
+    return evaluator
 
 
 def create_simulation_engine(
@@ -57,8 +60,8 @@ def create_simulation_engine(
     ----------
     backend
         The backend to use for simulation.
-        Currently supported: "cpu".
-        "gpu" is defined but not yet implemented.
+        Currently supported: "cpu", "gpu". The "gpu" backend requires the
+        optional ``fftvis[gpu]`` dependencies (cupy and cufinufft).
     **kwargs
         Additional keyword arguments to pass to the simulation engine constructor.
 
