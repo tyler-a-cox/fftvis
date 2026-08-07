@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import time
+from contextlib import contextmanager
 from typing import Literal, Union
 
 import numpy as np
@@ -60,6 +61,33 @@ logger = logging.getLogger(__name__)
 
 # Module-level evaluator, mirroring the CPU engine's `_cpu_beam_evaluator`.
 _gpu_beam_evaluator = GPUBeamEvaluator()
+
+# Set ``STAGE_TIMING = True`` to accumulate per-stage wall times into
+# ``LAST_RUN_STATS``. This inserts a device synchronisation around every stage,
+# so it slows the run down and is off by default:
+#
+#     import fftvis.gpu.gpu_simulate as gs
+#     gs.STAGE_TIMING = True
+#     fftvis.simulate_vis(..., backend="gpu")
+#     gs.LAST_RUN_STATS
+#
+STAGE_TIMING = False
+LAST_RUN_STATS: dict = {}
+
+
+@contextmanager
+def _stage(stats: dict, name: str):
+    """Accumulate the wall time of a pipeline stage when STAGE_TIMING is on."""
+    if not STAGE_TIMING:
+        yield
+        return
+    cp.cuda.Device().synchronize()
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        cp.cuda.Device().synchronize()
+        stats[name] = stats.get(name, 0.0) + (time.perf_counter() - t0)
 
 
 def _require_cuda():
@@ -804,12 +832,16 @@ class GPUSimulationEngine(SimulationEngine):
 
         is_rotation_identity = np.allclose(rotation_matrix, np.eye(3))
         checked_grid = False
+        stats: dict = {}
+        t_start = time.perf_counter()
 
         for time_index, ti in enumerate(range(ntimes)[time_idx]):
-            coord_mgr.rotate(ti)
+            with _stage(stats, "rotate"):
+                coord_mgr.rotate(ti)
 
             for chunk in range(nchunks):
-                topo, flux, nsim_sources = coord_mgr.select_chunk(chunk, ti)
+                with _stage(stats, "select_chunk"):
+                    topo, flux, nsim_sources = coord_mgr.select_chunk(chunk, ti)
 
                 if nsim_sources == 0:
                     continue
@@ -825,25 +857,26 @@ class GPUSimulationEngine(SimulationEngine):
                     else:
                         _apparent_buf = cp.empty(nsim_sources, dtype=complex_dtype)
 
-                # az/za come from the unrotated topocentric coordinates.
-                # enu_to_az_za dispatches on the array module, so these are
-                # host or device arrays depending on the coordinate rotator;
-                # GPUBeamEvaluator handles either.
-                az, za = coordinates.enu_to_az_za(
-                    enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
-                )
+                with _stage(stats, "coords"):
+                    # az/za come from the unrotated topocentric coordinates.
+                    # enu_to_az_za dispatches on the array module, so these are
+                    # host or device arrays depending on the coordinate rotator;
+                    # GPUBeamEvaluator handles either.
+                    az, za = coordinates.enu_to_az_za(
+                        enu_e=topo[0], enu_n=topo[1], orientation="uvbeam"
+                    )
 
-                # No-ops when the rotator already produced device arrays.
-                topo_gpu = cp.asarray(topo)
-                flux_gpu = cp.asarray(flux)
+                    # No-ops when the rotator already produced device arrays.
+                    topo_gpu = cp.asarray(topo)
+                    flux_gpu = cp.asarray(flux)
 
-                if not is_rotation_identity:
-                    gpu_utils.inplace_rot(rotation_matrix, topo_gpu)
+                    if not is_rotation_identity:
+                        gpu_utils.inplace_rot(rotation_matrix, topo_gpu)
 
-                if basis_matrix is not None:
-                    gpu_utils.inplace_rot(basis_matrix.T, topo_gpu)
+                    if basis_matrix is not None:
+                        gpu_utils.inplace_rot(basis_matrix.T, topo_gpu)
 
-                topo_gpu *= 2 * np.pi
+                    topo_gpu *= 2 * np.pi
 
                 for freqidx in range(nfreqs)[freq_idx]:
                     freq = freqs[freqidx]
@@ -873,16 +906,17 @@ class GPUSimulationEngine(SimulationEngine):
                                     f"more expensive than the 2D one."
                                 )
 
-                    beam_evaluations = _evaluate_beam_list(
-                        beam_list=beam_list,
-                        az=az,
-                        za=za,
-                        polarized=polarized,
-                        freq=freq,
-                        beam_spline_opts=beam_spline_opts,
-                        interpolation_function=interpolation_function,
-                        complex_dtype=complex_dtype,
-                    )
+                    with _stage(stats, "beam"):
+                        beam_evaluations = _evaluate_beam_list(
+                            beam_list=beam_list,
+                            az=az,
+                            za=za,
+                            polarized=polarized,
+                            freq=freq,
+                            beam_spline_opts=beam_spline_opts,
+                            interpolation_function=interpolation_function,
+                            complex_dtype=complex_dtype,
+                        )
 
                     tx = ty = None
                     if use_type1:
@@ -931,42 +965,56 @@ class GPUSimulationEngine(SimulationEngine):
                             bls_idxs = gpu_bls_idxs[(bi, bj)]
                             flipped = gpu_flipped[(bi, bj)]
 
-                            apparent_coherency = _compute_apparent_coherency(
-                                beam_evaluations=beam_evaluations,
-                                bi=bi,
-                                bj=bj,
-                                flux_here=flux_gpu,
-                                freqidx=freqidx,
-                                polarized=polarized,
-                                polarized_sky_model=polarized_sky_model,
-                                nfeeds=nfeeds,
-                                nsim_sources=nsim_sources,
-                                complex_dtype=complex_dtype,
-                                apparent_buf=_apparent_buf,
-                            )
+                            with _stage(stats, "coherency"):
+                                apparent_coherency = _compute_apparent_coherency(
+                                    beam_evaluations=beam_evaluations,
+                                    bi=bi,
+                                    bj=bj,
+                                    flux_here=flux_gpu,
+                                    freqidx=freqidx,
+                                    polarized=polarized,
+                                    polarized_sky_model=polarized_sky_model,
+                                    nfeeds=nfeeds,
+                                    nsim_sources=nsim_sources,
+                                    complex_dtype=complex_dtype,
+                                    apparent_buf=_apparent_buf,
+                                )
 
-                            _vis_here = _run_nufft(
-                                apparent_coherency=apparent_coherency,
-                                topo=topo_gpu,
-                                uvw=uvw,
-                                bls=bls_gpu,
-                                flipped=flipped,
-                                bls_idxs=bls_idxs,
-                                use_type1=use_type1,
-                                is_coplanar=is_coplanar,
-                                tx=tx,
-                                ty=ty,
-                                type1_n_modes=type1_n_modes,
-                                eps=eps,
-                                n_threads=n_threads,
-                                upsample_factor=upsample_factor,
-                                nfeeds=nfeeds,
-                            )
+                            with _stage(stats, "nufft"):
+                                _vis_here = _run_nufft(
+                                    apparent_coherency=apparent_coherency,
+                                    topo=topo_gpu,
+                                    uvw=uvw,
+                                    bls=bls_gpu,
+                                    flipped=flipped,
+                                    bls_idxs=bls_idxs,
+                                    use_type1=use_type1,
+                                    is_coplanar=is_coplanar,
+                                    tx=tx,
+                                    ty=ty,
+                                    type1_n_modes=type1_n_modes,
+                                    eps=eps,
+                                    n_threads=n_threads,
+                                    upsample_factor=upsample_factor,
+                                    nfeeds=nfeeds,
+                                )
 
-                            # Basic-index first to get a view, then scatter the
-                            # baseline subset into it. Mixing an index array
-                            # with scalars in one subscript works in numpy but
-                            # is patchier in cupy.
-                            vis[time_index, :, :, :, freqidx][bls_idxs] += _vis_here
+                            with _stage(stats, "accumulate"):
+                                # Basic-index first to get a view, then scatter
+                                # the baseline subset into it. Mixing an index
+                                # array with scalars in one subscript works in
+                                # numpy but is patchier in cupy.
+                                vis[time_index, :, :, :, freqidx][bls_idxs] += _vis_here
 
-        return cp.asnumpy(vis)
+        out = cp.asnumpy(vis)
+
+        if STAGE_TIMING:
+            stats["total"] = time.perf_counter() - t_start
+            stats["_accounted"] = sum(
+                v for k, v in stats.items() if not k.startswith(("total", "_"))
+            )
+            LAST_RUN_STATS.clear()
+            LAST_RUN_STATS.update(stats)
+            logger.info("GPU stage timing (s): %s", stats)
+
+        return out
