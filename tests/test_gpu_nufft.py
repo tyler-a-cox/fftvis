@@ -87,8 +87,18 @@ def test_gpu_nufft3d_matches_cpu():
 
 
 @requires_gpu
-def test_gpu_nufft2d_type1_matches_cpu():
-    """Type-1 plus signed-integer mode indexing agrees with the CPU wrapper."""
+@pytest.mark.parametrize("use_plan_cache", [False, True])
+def test_gpu_nufft2d_type1_matches_cpu(use_plan_cache, monkeypatch):
+    """Type-1 plus signed-integer mode indexing agrees with the CPU wrapper.
+
+    Run both with and without the plan cache: the cached path must give the
+    same answer as the one-shot functional interface.
+    """
+    from fftvis.gpu import nufft as gpu_nufft_mod
+
+    monkeypatch.setattr(gpu_nufft_mod, "USE_PLAN_CACHE", use_plan_cache)
+    gpu_nufft_mod.clear_plan_cache()
+
     src, _, weights = _problem()
     rng = np.random.default_rng(2)
     n_modes = 21
@@ -110,6 +120,39 @@ def test_gpu_nufft2d_type1_matches_cpu():
     np.testing.assert_allclose(
         cp.asnumpy(got), ref, rtol=0, atol=10 * EPS * np.abs(ref).max()
     )
+    gpu_nufft_mod.clear_plan_cache()
+
+
+@requires_gpu
+def test_type1_plan_is_reused_across_varying_source_counts():
+    """One plan serves chunks with different live-source counts."""
+    from fftvis.gpu import nufft as gpu_nufft_mod
+
+    gpu_nufft_mod.clear_plan_cache()
+    rng = np.random.default_rng(5)
+    n_modes = 17
+    index = rng.integers(-8, 9, (2, 32))
+
+    for nsrc in (500, 1200, 731):
+        src, _, weights = _problem(nsrc=nsrc)
+        ref = cpu_nufft2d_type1(
+            src[0], src[1], weights, n_modes=n_modes, index=index, eps=EPS
+        )
+        got = gpu_nufft2d_type1(
+            cp.asarray(src[0]),
+            cp.asarray(src[1]),
+            cp.asarray(weights),
+            n_modes=n_modes,
+            index=index,
+            eps=EPS,
+        )
+        np.testing.assert_allclose(
+            cp.asnumpy(got), ref, rtol=0, atol=10 * EPS * np.abs(ref).max()
+        )
+
+    # The source count is not part of the plan key, so all three reused one.
+    assert len(gpu_nufft_mod._TYPE1_PLANS) == 1
+    gpu_nufft_mod.clear_plan_cache()
 
 
 @requires_gpu

@@ -54,6 +54,58 @@ def _coords(arrays, rdtype) -> list:
     return [cp.ascontiguousarray(cp.asarray(a), dtype=rdtype) for a in arrays]
 
 
+# ---------------------------------------------------------------------------
+# Type-1 plan cache
+#
+# Worth doing for type 1 and not for type 3, for a structural reason.
+#
+# A type-1 plan is fixed by (n_modes, n_trans, eps, dtype, isign, modeord,
+# upsampfac) -- and every one of those is constant for a whole fftvis run. The
+# number of nonuniform points is NOT part of the plan, so the same plan serves
+# chunks with different live-source counts. Building it once therefore hoists
+# the cuFFT plan for the upsampled grid, and the spreader setup, out of the
+# time/chunk/frequency/beam-pair loop entirely.
+#
+# A type-3 plan cannot be reused the same way: its internal grid is sized from
+# the spread of *both* point sets, and in fftvis the source points move with
+# time and the targets scale with frequency, so the sizing work has to be
+# redone on essentially every call regardless.
+# ---------------------------------------------------------------------------
+_TYPE1_PLANS: dict = {}
+
+#: Set to False to bypass the cache and use the one-shot functional interface.
+USE_PLAN_CACHE = True
+
+
+def clear_plan_cache() -> None:
+    """Release cached cufinufft plans and their cuFFT workspaces."""
+    _TYPE1_PLANS.clear()
+
+
+def _type1_plan(n_modes: int, n_trans: int, eps: float, cdtype, upsampfac: float):
+    """Return a cached type-1 plan, building it on first use."""
+    key = (
+        int(n_modes),
+        int(n_trans),
+        float(eps),
+        np.dtype(cdtype).name,
+        float(upsampfac),
+    )
+    plan = _TYPE1_PLANS.get(key)
+    if plan is None:
+        plan = cufinufft.Plan(
+            1,
+            (int(n_modes), int(n_modes)),
+            n_trans=int(n_trans),
+            eps=float(eps),
+            dtype=np.dtype(cdtype).name,
+            modeord=1,
+            upsampfac=float(upsampfac),
+        )
+        _TYPE1_PLANS[key] = plan
+    return plan
+
+
 def gpu_nufft2d(
     x,
     y,
@@ -209,16 +261,25 @@ def gpu_nufft2d_type1(
     _require_cuda()
     rdtype = _real_dtype(weights)
     gx, gy = _coords((x, y), rdtype)
+    w = cp.ascontiguousarray(weights)
 
-    model = cufinufft.nufft2d1(
-        gx,
-        gy,
-        cp.ascontiguousarray(weights),
-        (int(n_modes), int(n_modes)),
-        eps=float(eps),
-        modeord=1,
-        upsampfac=float(upsample_factor),
-    )
+    if USE_PLAN_CACHE:
+        # The plan (and its cuFFT workspace) is invariant across the whole run;
+        # only the points and strengths change. See the note above the cache.
+        n_trans = w.shape[0] if w.ndim > 1 else 1
+        plan = _type1_plan(n_modes, n_trans, eps, w.dtype, upsample_factor)
+        plan.setpts(gx, gy)
+        model = plan.execute(w)
+    else:
+        model = cufinufft.nufft2d1(
+            gx,
+            gy,
+            w,
+            (int(n_modes), int(n_modes)),
+            eps=float(eps),
+            modeord=1,
+            upsampfac=float(upsample_factor),
+        )
 
     index = cp.asarray(index)
     return model[..., index[0], index[1]]

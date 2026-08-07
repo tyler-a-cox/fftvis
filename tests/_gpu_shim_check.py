@@ -68,9 +68,26 @@ def _n2d1(x, y, c, n_modes, eps=1e-6, isign=1, modeord=0, **kw):
     )
 
 
+class _ShimPlan:
+    """cufinufft.Plan backed by finufft.Plan, so the plan-cache path is run."""
+
+    def __init__(self, nufft_type, n_modes, n_trans=1, eps=1e-6, dtype="complex128", **kw):
+        opts = {k: v for k, v in kw.items() if k in ("modeord", "upsampfac", "isign")}
+        self._p = finufft.Plan(
+            nufft_type, tuple(n_modes), n_trans=n_trans, eps=eps, dtype=dtype, **opts
+        )
+
+    def setpts(self, x=None, y=None, z=None, s=None, t=None, u=None):
+        self._p.setpts(x, y, z, s, t, u)
+
+    def execute(self, data, out=None):
+        return self._p.execute(data, out)
+
+
 fake_cufi.nufft2d3 = _n2d3
 fake_cufi.nufft3d3 = _n3d3
 fake_cufi.nufft2d1 = _n2d1
+fake_cufi.Plan = _ShimPlan
 sys.modules["cufinufft"] = fake_cufi
 
 # ------------------------------------------- stub matvis.gpu.beams (unused here)
