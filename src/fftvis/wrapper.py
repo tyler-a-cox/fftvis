@@ -234,8 +234,10 @@ def simulate_vis(
     Returns:
     -------
     vis : np.ndarray
-        Array of shape (nfreqs, ntimes, nants, nants) if polarized is False, and
-        (nfreqs, ntimes, nfeed, nfeed, nants, nants) if polarized is True.
+        Array of shape (nfreqs, ntimes, nbls) if polarized is False, and
+        (nfreqs, ntimes, nfeed, nfeed, nbls) if polarized is True, where nbls is the number of baselines simulated. 
+        Here, the number of baselines is either the number of unique baselines in the array, or the number of baselines
+        provided in the baselines parameter.
     """
     # Get the accuracy for the given precision if not provided
     if eps is None:
