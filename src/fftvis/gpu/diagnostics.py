@@ -11,11 +11,124 @@ it to be guessed at.
 from __future__ import annotations
 
 import logging
-from typing import Optional
+import time
+from typing import Optional, Sequence
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def eps_convergence(
+    *,
+    eps_values: Sequence[float] = (1e-13, 1e-11, 1e-9, 1e-7, 1e-6),
+    backend: str = "gpu",
+    reference_eps: Optional[float] = None,
+    baselines=None,
+    verbose: bool = True,
+    **simulate_kwargs,
+):
+    """
+    Measure what loosening the NUFFT tolerance costs, in error and in time.
+
+    The transform's cost grows steeply as ``eps`` tightens: finufft widens the
+    spreading kernel, and the work per source scales as the kernel width to the
+    power of the dimensionality. At ``eps=1e-13`` the kernel is roughly twice
+    as wide as at ``eps=1e-9``, which is about 4x the spreading work in 2D.
+    Whether that buys anything depends on the dynamic range your science needs,
+    which this function measures rather than assumes.
+
+    Each ``eps`` is compared against the tightest one (or ``reference_eps``),
+    so the reported error is the error *introduced by loosening*, not the
+    absolute error of the simulation.
+
+    Parameters
+    ----------
+    eps_values : sequence of float
+        Tolerances to test, tightest first.
+    backend : str
+        ``"gpu"`` or ``"cpu"``. Timings are only meaningful on the backend you
+        intend to run.
+    reference_eps : float, optional
+        Tolerance to treat as truth. Defaults to ``min(eps_values)``.
+    baselines : list of tuple, optional
+        Passed through to ``simulate_vis``.
+    verbose : bool
+        Print the table.
+    **simulate_kwargs
+        Forwarded to :func:`fftvis.simulate_vis`. Do not pass ``eps`` or
+        ``backend``. Decimate the sky; this runs the simulation once per
+        tolerance.
+
+    Returns
+    -------
+    dict
+        ``eps_values``, ``times`` (seconds), ``max_rel``, ``rms_rel``, and
+        ``reference_eps``.
+
+    Examples
+    --------
+    >>> from fftvis.gpu import eps_convergence  # doctest: +SKIP
+    >>> eps_convergence(  # doctest: +SKIP
+    ...     ants=h6c_antpos, fluxes=fluxes[::256], ra=ra[::256], dec=dec[::256],
+    ...     freqs=freqs, times=times[:2], beam=gbeam,
+    ...     telescope_loc=telescope_loc, baselines=h6c_baselines,
+    ...     polarized=True, precision=2, beam_spline_opts={"order": 3},
+    ... )
+    """
+    from ..wrapper import simulate_vis
+
+    for forbidden in ("eps", "backend"):
+        if forbidden in simulate_kwargs:
+            raise ValueError(
+                f"{forbidden!r} is set by eps_convergence; remove it from the call."
+            )
+
+    common = dict(simulate_kwargs)
+    if baselines is not None:
+        common["baselines"] = baselines
+
+    eps_values = list(eps_values)
+    reference_eps = float(reference_eps if reference_eps is not None else min(eps_values))
+
+    logger.info("Running reference at eps=%.1e ...", reference_eps)
+    reference = simulate_vis(backend=backend, eps=reference_eps, **common)
+    scale = np.abs(reference).max()
+    if scale == 0:  # pragma: no cover - degenerate sky
+        raise ValueError("Reference visibilities are identically zero.")
+
+    times, max_rel, rms_rel = [], [], []
+    for eps in eps_values:
+        t0 = time.perf_counter()
+        vis = simulate_vis(backend=backend, eps=eps, **common)
+        times.append(time.perf_counter() - t0)
+        d = np.abs(vis - reference)
+        max_rel.append(float(d.max() / scale))
+        rms_rel.append(float(np.sqrt((d**2).mean()) / scale))
+
+    if verbose:
+        print(f"NUFFT tolerance sweep ({backend} backend, reference eps={reference_eps:.1e})")
+        print(f"  {'eps':>10}{'wall (s)':>12}{'speedup':>10}"
+              f"{'max |dV|/peak':>16}{'rms |dV|/peak':>16}")
+        slowest = max(times)
+        for eps, t, mx, rm in zip(eps_values, times, max_rel, rms_rel):
+            print(f"  {eps:>10.1e}{t:>12.2f}{slowest / t:>9.2f}x{mx:>16.2e}{rm:>16.2e}")
+        print(
+            "\n  The error column is what loosening eps costs you, relative to\n"
+            "  the reference. Pick the loosest eps whose error sits below your\n"
+            "  dynamic-range requirement.\n"
+            "\n  Note: upsample_factor=1.25 does NOT help at very tight eps --\n"
+            "  it trades a smaller FFT for a wider kernel, and the kernel is\n"
+            "  what dominates when spreading ~10^6 sources."
+        )
+
+    return {
+        "eps_values": eps_values,
+        "times": times,
+        "max_rel": max_rel,
+        "rms_rel": rms_rel,
+        "reference_eps": reference_eps,
+    }
 
 
 def beam_interpolation_error(
