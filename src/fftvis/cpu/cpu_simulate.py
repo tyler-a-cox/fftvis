@@ -102,6 +102,11 @@ def _compute_apparent_coherency(
 ) -> np.ndarray:
     """Compute beam-weighted sky coherency for a single beam pair.
 
+    For a baseline whose first antenna uses beam ``bi`` and second antenna uses
+    beam ``bj``, the polarized apparent coherency is ``A_bj^H C A_bi`` (A is the
+    Jones matrix indexed [sky component, feed]); the visibility for feeds (p, q)
+    is element (q, p) of it times the fringe term.
+
     Writes into *apparent_buf* in-place where possible to avoid allocation,
     then returns the reshaped (nfeeds**2, nsrc) array ready for the NUFFT.
 
@@ -110,7 +115,8 @@ def _compute_apparent_coherency(
     beam_evaluations : list of np.ndarray
         Pre-evaluated beams, one per unique beam in beam_list.
     bi, bj : int
-        Indices into beam_evaluations for the two antennas of this pair.
+        Indices into beam_evaluations for the beams of the first and second
+        antenna of the baseline.
     flux_here : np.ndarray
         Source flux array, shape (nsrc, nfreqs) or (nsrc, nfreqs, nfeeds, nfeeds).
     freqidx : int
@@ -143,8 +149,8 @@ def _compute_apparent_coherency(
             apparent_buf[:] = 0
             apparent_coherency = apparent_buf
             _cpu_beam_evaluator.get_apparent_flux_polarized_pair(
-                beam_i=np.flip(beam_evaluations[bi], axis=0),
-                beam_j=np.flip(beam_evaluations[bj], axis=0),
+                beam_i=np.flip(beam_evaluations[bj], axis=0),
+                beam_j=np.flip(beam_evaluations[bi], axis=0),
                 coherency=np.transpose(flux_here[:, freqidx], (1, 2, 0)),
                 out=apparent_coherency,
             )
@@ -164,8 +170,8 @@ def _compute_apparent_coherency(
             apparent_buf[:] = 0
             apparent_coherency = apparent_buf
             _cpu_beam_evaluator.get_apparent_flux_polarized_beam_pair(
-                beam_i=beam_evaluations[bi],
-                beam_j=beam_evaluations[bj],
+                beam_i=beam_evaluations[bj],
+                beam_j=beam_evaluations[bi],
                 flux=flux_here[:, freqidx],
                 out=apparent_coherency,
             )
@@ -232,7 +238,9 @@ def _run_nufft(
     bls : np.ndarray
         Integer gridded baseline indices (type-1 path only).
     flipped : np.ndarray
-        Boolean mask of baselines whose UVW was negated.
+        Boolean mask of baselines to evaluate as their reversed baseline. These
+        are computed at -UVW and returned as the Hermitian conjugate (over
+        feeds) of that result, using V_ij = V_ji^H.
     bls_idxs : np.ndarray
         Indices of the baselines this beam pair contributes to.
     use_type1 : bool
@@ -294,10 +302,11 @@ def _run_nufft(
                 upsample_factor=upsample_factor,
             )
 
-    # Conjugate visibilities for baselines whose UVW was flipped
-    _vis_here = np.where(flipped, np.conj(_vis_here), _vis_here)
+    # Flipped baselines: conjugate transpose over the feed axes (V_ij = V_ji^H)
+    _vis_here = _vis_here.reshape(nfeeds, nfeeds, nbls_here)
+    _vis_here = np.where(flipped, np.conj(np.swapaxes(_vis_here, 0, 1)), _vis_here)
 
-    return np.swapaxes(_vis_here.reshape(nfeeds, nfeeds, nbls_here), 2, 0)
+    return np.swapaxes(_vis_here, 2, 0)
 
 
 def _compute_basis_visibilities(
@@ -325,25 +334,18 @@ def _compute_basis_visibilities(
     polarized: bool = False,
     polarized_sky_model: bool = False,
 ) -> np.ndarray:
-    """Compute the basis visibility tensor V_tilde[k, l] for all basis pairs.
+    """Compute visibilities from basis beams and per-antenna basis coefficients.
 
-    For each pair of basis beams (phi_k, phi_l), computes the NUFFT of
-    phi_k * phi_l * flux over all baselines, accumulating into a tensor
-    of shape (nbasis, nbasis, nbls, nfeeds, nfeeds).
+    With antenna Jones matrices A_i = sum_k c_ik phi_k, a visibility is linear
+    in the first antenna's Jones matrix and antilinear in the second's (see
+    :func:`_compute_apparent_coherency`), so
 
-    The apparent coherency phi_kl passed to the NUFFT depends on polarization:
+        V_ij = sum_{k, l} c_ik * conj(c_jl) * V_tilde[k, l],
 
-    - Unpolarized beams::
-
-        phi_kl[s] = beam_k[s] * beam_l[s]^* * flux[s]
-
-    - Polarized beams, unpolarized sky::
-
-        phi_kl[p, r, s] = sum_q  beam_k[p,q,s] * beam_l[r,q,s]^* * flux[s]
-
-    - Polarized beams, polarized sky::
-
-        phi_kl[p, r, s] = sum_{q,q'}  beam_k[p,q,s] * C[q,q',s] * beam_l[r,q',s]^*
+    where V_tilde[k, l] is the visibility of a baseline whose first antenna has
+    beam phi_k and second antenna has beam phi_l. For k < l, one NUFFT evaluates
+    V_tilde[k, l] at every baseline b and at -b; the latter gives
+    V_tilde[l, k](b) = V_tilde[k, l](-b)^H.
 
     Parameters
     ----------
@@ -392,16 +394,18 @@ def _compute_basis_visibilities(
     Returns
     -------
     np.ndarray
-        Basis visibility tensor, shape ``(nbasis, nbasis, nbls, nfeeds, nfeeds)``.
+        Visibilities summed over all basis pairs, shape ``(nbls, nfeeds, nfeeds)``.
     """
     nbasis = len(beam_evaluations)
-    
-    # Output accumulator — only (nbls, nfeeds, nfeeds) instead of (K, K, nbls, nfeeds, nfeeds)
+
     vis_out = np.zeros((nbls, nfeeds, nfeeds), dtype=complex_dtype)
 
-    # No baseline flipping in the basis path — we run all baselines at once.
-    flipped = np.zeros(nbls, dtype=bool)
-    bls_idxs = np.arange(nbls)
+    # Diagonal pairs use every baseline once; off-diagonal pairs use every
+    # baseline followed by every baseline evaluated as its reverse.
+    all_bls = np.arange(nbls)
+    diag_flipped = np.zeros(nbls, dtype=bool)
+    offdiag_bls_idxs = np.concatenate([all_bls, all_bls])
+    offdiag_flipped = np.concatenate([diag_flipped, np.ones(nbls, dtype=bool)])
 
     # Pre-allocate the apparent coherency work buffer, reused across all (k, l) pairs.
     # This mirrors the buffer allocation in the standard beam-pair path.
@@ -410,16 +414,9 @@ def _compute_basis_visibilities(
     else:
         _apparent_buf = np.empty(nsim_sources, dtype=complex_dtype)
 
-    # Gather coefficients once, outside the loop.
-    # The measurement equation is V_ij = A_i^H C A_j, so the left (ant1)
-    # coefficients are conjugated and the right (ant2) are not.
-    ant1_c = beam_coefs[ant1_idxs, :, freqidx].conj()  # C_ik^*  (nbls, K)
-    ant2_c = beam_coefs[ant2_idxs, :, freqidx]          # C_jl    (nbls, K)
+    ant1_c = beam_coefs[ant1_idxs, :, freqidx]          # c_ik    (nbls, K)
+    ant2_c = beam_coefs[ant2_idxs, :, freqidx].conj()   # c_jl^*  (nbls, K)
 
-    # Only iterate over the upper triangle (k <= l) and use the conjugate
-    # symmetry V_tilde[l, k] = V_tilde[k, l]^* to handle the lower triangle
-    # without an extra NUFFT.  This halves the number of NUFFTs from K^2 to
-    # K*(K+1)/2 at no cost to accuracy.
     for k in range(nbasis):
         for l in range(k, nbasis):
             phi_kl = _compute_apparent_coherency(
@@ -438,14 +435,15 @@ def _compute_basis_visibilities(
 
             if phi_kl is None:  # pragma: no cover (polarized path only)
                 continue
-            
-            vis_kl = _run_nufft(
+
+            off_diag = l != k
+            vis = _run_nufft(
                 apparent_coherency=phi_kl,
                 topo=topo,
                 uvw=uvw,
                 bls=bls,
-                flipped=flipped,
-                bls_idxs=bls_idxs,
+                flipped=offdiag_flipped if off_diag else diag_flipped,
+                bls_idxs=offdiag_bls_idxs if off_diag else all_bls,
                 use_type1=use_type1,
                 is_coplanar=is_coplanar,
                 tx=tx,
@@ -455,17 +453,11 @@ def _compute_basis_visibilities(
                 n_threads=n_threads,
                 upsample_factor=upsample_factor,
                 nfeeds=nfeeds,
-            )  # (nbls, nfeeds, nfeeds)
+            )  # (nbls, nfeeds, nfeeds), or (2 * nbls, ...) for off-diagonal pairs
 
-            # (k, l) contribution: weight = C1[b,k] * C2[b,l]^*
-            w_kl = ant1_c[:, k] * ant2_c[:, l]   # (nbls,)
-            vis_out += w_kl[:, None, None] * vis_kl
-
-            if l != k:
-                # (l, k) contribution: V_tilde[l,k] = V_tilde[k,l]^*
-                # but the weights are different since ant1 != ant2 in general
-                w_lk = ant1_c[:, l] * ant2_c[:, k]  # (nbls,)
-                vis_out += w_lk[:, None, None] * vis_kl.swapaxes(1, 2)
+            vis_out += (ant1_c[:, k] * ant2_c[:, l])[:, None, None] * vis[:nbls]
+            if off_diag:
+                vis_out += (ant1_c[:, l] * ant2_c[:, k])[:, None, None] * vis[nbls:]
 
     return vis_out
 
