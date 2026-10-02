@@ -16,6 +16,7 @@ from fftvis.cpu.cpu_simulate import CPUSimulationEngine, _evaluate_vis_chunk_rem
 from fftvis.wrapper import simulate_vis
 from pyradiosky import SkyModel
 from pyuvsim import simsetup, uvsim
+from pyuvsim.telescope import BeamList
 from fftvis import utils
 from pathlib import Path
 
@@ -39,6 +40,7 @@ from matvis._test_utils import get_standard_sim_params
 from fftvis.wrapper import simulate_vis
 
 from fftvis.core.utils import get_plane_to_xy_rotation_matrix
+from fftvis.core.antenna_gridding import check_antpos_griddability
 from fftvis.cpu.cpu_simulate import CPUSimulationEngine
 from fftvis import utils
 from fftvis.wrapper import create_simulation_engine
@@ -446,6 +448,119 @@ def test_sim_polarized_sky(use_analytic_beam):
             pyuvsim_data, 
             fftvis_data,
         )
+
+def _distinct_complex_beam(beam):
+    """Copy of an efield UVBeam with a different, complex-valued polarization response."""
+    other = beam.copy()
+    other.data_array[:, 1] *= np.exp(0.6j)
+    other.data_array[0] *= 0.8
+    return other
+
+
+def _random_stokes(nsrc, polarized_sky, rng):
+    """Stokes parameters of shape (4, 1, nsrc); Q, U, V are zero unless polarized_sky."""
+    stokes = np.zeros((4, 1, nsrc))
+    stokes[0] = rng.uniform(1, 2, (1, nsrc))
+    if polarized_sky:
+        stokes[1:] = stokes[0] * rng.uniform(-0.3, 0.3, (3, 1, nsrc))
+    return stokes
+
+
+@pytest.mark.parametrize("polarized_sky", [False, True])
+def test_sim_mixed_beams_vs_pyuvsim(polarized_sky):
+    """Baselines between antennas with different beams match pyuvsim in both orientations."""
+    params, _, uvbeams, _, uvdata = get_standard_sim_params(
+        use_analytic_beam=False, polarized=True, nants=3, ntime=3
+    )
+    ants = params.pop("ants")
+    beam0 = uvbeams.beam_list[0].beam
+    beam1 = _distinct_complex_beam(beam0)
+    beam_idx = np.array([0, 1, 0])
+    baselines = [(0, 1), (1, 0), (1, 2), (2, 1), (0, 2)]
+
+    nsrc = len(params["ra"])
+    stokes = _random_stokes(nsrc, polarized_sky, np.random.default_rng(3))
+    sky_model = SkyModel(
+        name=[str(i) for i in range(nsrc)],
+        ra=Longitude(params["ra"], unit="rad"),
+        dec=Latitude(params["dec"], unit="rad"),
+        spectral_type="flat",
+        stokes=stokes * un.Jy,
+        frame="icrs",
+    )
+    uvd = uvsim.run_uvdata_uvsim(
+        uvdata,
+        BeamList([BeamInterface(beam0, beam_type="efield"), BeamInterface(beam1, beam_type="efield")]),
+        beam_dict={str(ant): int(bidx) for ant, bidx in zip(ants, beam_idx)},
+        catalog=simsetup.SkyModelData(sky_model),
+    )
+
+    fvis = simulate_vis(
+        ants=ants,
+        fluxes=np.transpose(stokes, (2, 1, 0)) if polarized_sky else stokes[0].T,
+        ra=params["ra"],
+        dec=params["dec"],
+        freqs=params["freqs"],
+        times=params["times"],
+        beam=[beam0, beam1],
+        beam_idx=beam_idx,
+        baselines=baselines,
+        telescope_loc=params["telescope_loc"],
+        polarized=True,
+        eps=1e-12,
+        coord_method="CoordinateRotationAstropy",  # To match pyuvsim
+        interpolation_function="az_za_simple",  # To match pyuvsim
+    )
+
+    # (nbls, 2, 2, ntimes) for both simulators
+    pyuvsim_vis = np.array([
+        [[uvd.get_data(bl + (pol,))[:, 0] for pol in row] for row in (("xx", "xy"), ("yx", "yy"))]
+        for bl in baselines
+    ])
+    fftvis_vis = np.transpose(fvis[0], (3, 1, 2, 0))
+    np.testing.assert_allclose(fftvis_vis, pyuvsim_vis, atol=1e-8 * np.abs(pyuvsim_vis).max())
+
+
+@pytest.mark.parametrize("polarized_sky", [False, True])
+def test_sim_mixed_beams_hermitian_type1_vs_type3(polarized_sky):
+    """With different beams, V_ji = V_ij^H and the gridded (type 1) and type 3 paths agree."""
+    params, _, uvbeams, *_ = get_standard_sim_params(
+        use_analytic_beam=False, polarized=True, ntime=2
+    )
+    params.pop("ants")
+    ants = {ant: 14.6 * pos for ant, pos in _hex_grid().items()}
+    assert check_antpos_griddability(ants)[0]
+
+    beam0 = uvbeams.beam_list[0].beam
+    beam_idx = np.array([ant % 2 for ant in ants])
+    baselines = [(a, b) for a in ants for b in ants if a != b]
+    stokes = _random_stokes(len(params["ra"]), polarized_sky, np.random.default_rng(5))
+
+    kwargs = dict(
+        ants=ants,
+        fluxes=np.transpose(stokes, (2, 1, 0)) if polarized_sky else stokes[0].T,
+        ra=params["ra"],
+        dec=params["dec"],
+        freqs=params["freqs"],
+        times=params["times"].jd,
+        beam=[beam0, _distinct_complex_beam(beam0)],
+        beam_idx=beam_idx,
+        baselines=baselines,
+        telescope_loc=params["telescope_loc"],
+        polarized=True,
+        eps=1e-12,
+    )
+    vis_type1 = simulate_vis(**kwargs)
+    vis_type3 = simulate_vis(**kwargs, force_use_type3=True)
+    atol = 1e-9 * np.abs(vis_type3).max()
+    np.testing.assert_allclose(vis_type1, vis_type3, atol=atol)
+
+    index = {bl: i for i, bl in enumerate(baselines)}
+    for (a, b), i in index.items():
+        np.testing.assert_allclose(
+            vis_type1[..., index[(b, a)]], np.swapaxes(vis_type1[..., i], 2, 3).conj(), atol=atol
+        )
+
 
 def test_cpu_simulation_engine_init():
     """Test that the CPUSimulationEngine initializes correctly."""

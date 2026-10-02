@@ -18,6 +18,7 @@ import pytest
 
 from astropy.coordinates import EarthLocation
 from pyuvdata import AiryBeam, BeamInterface
+from pyuvdata.analytic_beam import ShortDipoleBeam
 
 from fftvis.core.beam_basis import compute_beam_basis
 from fftvis.wrapper import simulate_vis
@@ -28,6 +29,20 @@ from fftvis.wrapper import simulate_vis
 # ──────────────────────────────────────────────────────────────────────────────
 
 _FREQ = 150e6
+
+
+def _complex_dipole_beams():
+    """Two efield UVBeams at _FREQ whose Jones matrices differ by a complex, angle-dependent factor."""
+    az = np.linspace(0, 2 * np.pi, 181)
+    za = np.linspace(0, np.pi / 2, 46)
+    beam0 = ShortDipoleBeam().to_uvbeam(
+        freq_array=np.array([_FREQ]), beam_type="efield", axis1_array=az, axis2_array=za
+    )
+    beam0.data_array = beam0.data_array * np.exp(-((za / 0.6) ** 2))[None, None, None, :, None]
+    beam1 = beam0.copy()
+    beam1.data_array[:, 1] *= np.exp(1j * za)[None, None, :, None]
+    beam1.data_array[0] *= 0.8
+    return [beam0, beam1]
 
 
 @pytest.fixture(scope="module")
@@ -393,6 +408,39 @@ class TestBasisSimulation:
         np.testing.assert_allclose(
             vis_basis, vis_ref, atol=1e-5,
             err_msg="Eigenbeam simulation does not match reference for different beams."
+        )
+
+    def test_complex_beams_polarized_sky_basis_matches_reference(self, sim_params):
+        """
+        Complex, genuinely different beams and a polarized sky, on every ordered
+        baseline: the basis path must match the per-antenna reference.
+        """
+        nant = len(sim_params["ants"])
+        beam_list = _complex_dipole_beams()
+        beam_idx = np.array([i % 2 for i in range(nant)])
+
+        eigenbeams, coefs = compute_beam_basis(
+            beam_list, freq=_FREQ, polarized=True, threshold=1e-12
+        )
+        coefs_per_ant = coefs[beam_idx, :, np.newaxis]
+
+        rng = np.random.default_rng(7)
+        stokes_i = sim_params["fluxes"][:, :, np.newaxis]
+        stokes = np.concatenate(
+            [stokes_i, stokes_i * rng.uniform(-0.3, 0.3, stokes_i.shape[:2] + (3,))], axis=-1
+        )
+        params = dict(
+            sim_params,
+            fluxes=stokes,
+            baselines=[(a, b) for a in range(nant) for b in range(nant)],
+        )
+
+        vis_ref = self._run_ref_sim(beam_list, beam_idx, params)
+        vis_basis = self._run_basis_sim(eigenbeams, coefs_per_ant, params)
+
+        np.testing.assert_allclose(
+            vis_basis, vis_ref, atol=1e-8 * np.abs(vis_ref).max(),
+            err_msg="Eigenbeam simulation does not match reference for complex beams.",
         )
 
     def test_basis_sim_output_shape_is_correct(self, beam_a, sim_params):
