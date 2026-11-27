@@ -449,7 +449,7 @@ def test_sim_polarized_sky(use_analytic_beam):
             fftvis_data,
         )
 
-def _distinct_complex_beam(beam):
+def _distinct_complex_beam(beam: UVBeam) -> UVBeam:
     """Copy of an efield UVBeam with a different, complex-valued polarization response."""
     other = beam.copy()
     other.data_array[:, 1] *= np.exp(0.6j)
@@ -457,7 +457,7 @@ def _distinct_complex_beam(beam):
     return other
 
 
-def _random_stokes(nsrc, polarized_sky, rng):
+def _random_stokes(nsrc: int, polarized_sky: bool, rng: np.random.Generator) -> np.ndarray:
     """Stokes parameters of shape (4, 1, nsrc); Q, U, V are zero unless polarized_sky."""
     stokes = np.zeros((4, 1, nsrc))
     stokes[0] = rng.uniform(1, 2, (1, nsrc))
@@ -467,7 +467,7 @@ def _random_stokes(nsrc, polarized_sky, rng):
 
 
 @pytest.mark.parametrize("polarized_sky", [False, True])
-def test_sim_mixed_beams_vs_pyuvsim(polarized_sky):
+def test_sim_mixed_beams_vs_pyuvsim(polarized_sky: bool) -> None:
     """Baselines between antennas with different beams match pyuvsim in both orientations."""
     params, _, uvbeams, _, uvdata = get_standard_sim_params(
         use_analytic_beam=False, polarized=True, nants=3, ntime=3
@@ -522,7 +522,7 @@ def test_sim_mixed_beams_vs_pyuvsim(polarized_sky):
 
 
 @pytest.mark.parametrize("polarized_sky", [False, True])
-def test_sim_mixed_beams_hermitian_type1_vs_type3(polarized_sky):
+def test_sim_mixed_beams_hermitian_type1_vs_type3(polarized_sky: bool) -> None:
     """With different beams, V_ji = V_ij^H and the gridded (type 1) and type 3 paths agree."""
     params, _, uvbeams, *_ = get_standard_sim_params(
         use_analytic_beam=False, polarized=True, ntime=2

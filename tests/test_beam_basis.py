@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 from astropy.coordinates import EarthLocation
-from pyuvdata import AiryBeam, BeamInterface
+from pyuvdata import AiryBeam, BeamInterface, UVBeam
 from pyuvdata.analytic_beam import ShortDipoleBeam
 
 from fftvis.core.beam_basis import compute_beam_basis
@@ -31,7 +31,7 @@ from fftvis.wrapper import simulate_vis
 _FREQ = 150e6
 
 
-def _complex_dipole_beams():
+def _complex_dipole_beams() -> list[UVBeam]:
     """Two efield UVBeams at _FREQ whose Jones matrices differ by a complex, angle-dependent factor."""
     az = np.linspace(0, 2 * np.pi, 181)
     za = np.linspace(0, np.pi / 2, 46)
@@ -410,7 +410,7 @@ class TestBasisSimulation:
             err_msg="Eigenbeam simulation does not match reference for different beams."
         )
 
-    def test_complex_beams_polarized_sky_basis_matches_reference(self, sim_params):
+    def test_complex_beams_polarized_sky_basis_matches_reference(self, sim_params: dict) -> None:
         """
         Complex, genuinely different beams and a polarized sky, on every ordered
         baseline: the basis path must match the per-antenna reference.
